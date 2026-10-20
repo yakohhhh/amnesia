@@ -1,0 +1,61 @@
+# amnesia
+
+**Ce que ton SI aura *oublié* le jour de l'incident.**
+
+La pire surprise en réponse à incident, c'est de découvrir que les logs
+n'existaient pas, ou qu'ils ont déjà été écrasés. `amnesia` audite ta
+télémétrie **avant** l'incident (endpoints Windows, Active Directory, cloud) et
+te rend la liste des questions d'enquête auxquelles tu ne pourras **pas**
+répondre.
+
+> Exemple de sortie : *« Qui s'est connecté en RDP sur SRV-FILE il y a trois
+> semaines ? → Impossible : le journal Security fait 20 Mo et a été écrasé il y
+> a 4 jours. »*
+
+## Ce qu'il vérifie (cible)
+
+- **Windows** : politique d'audit avancée, Sysmon, logging PowerShell, taille et
+  rétention des journaux, synchronisation NTP.
+- **Active Directory** : audit des objets sensibles, Kerberos, modifications de GPO.
+- **Cloud** : rétention des logs Microsoft 365 / Entra ID, AWS CloudTrail.
+- **Pipeline** : les événements partent-ils vraiment vers le SIEM ?
+
+## État
+
+Squelette fonctionnel : moteur de checks + CLI. Les checks listent déjà leur
+intention ; leur `run()` est à implémenter — voir [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Démarrer
+
+```bash
+pip install -e .
+amnesia list-checks
+amnesia audit --target dc01
+# ou sans installer :
+python -m amnesia --help
+```
+
+## Pourquoi Python
+
+Les SDK dont le projet a besoin sont tous là et matures : Microsoft Graph,
+boto3, WinRM, génération de rapports. On va vite, et les checks s'écrivent comme
+des plugins indépendants.
+
+## Vendable
+
+C'est une **prestation de conseil que des cabinets facturent déjà** (digital
+forensic readiness assessment). `amnesia` la transforme en produit : licence aux
+MSP et aux cabinets d'audit, rapport client en marque blanche. Tu peux même le
+facturer comme prestation dès la v0.
+
+> Nom PyPI : le paquet s'appelle `amnesia-dfr` (le nom `amnesia` est pris), mais
+> la commande reste `amnesia`.
+
+## Scope & légal
+
+Lecture seule, sur un périmètre que tu es autorisé à auditer. `amnesia` lit des
+configurations, pas des données métier.
+
+## Licence
+
+MIT.

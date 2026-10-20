@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amnesia-dfr"
+version = "0.0.1"
+description = "Audit de forensic readiness: ce que ton SI aura oublie le jour de l'incident"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ayman Mazroui" }]
+
+[project.scripts]
+amnesia = "amnesia.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
