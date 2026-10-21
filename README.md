@@ -1,5 +1,7 @@
 # amnesia
 
+[![ci](https://github.com/yakohhhh/amnesia/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yakohhhh/amnesia/actions/workflows/ci.yml)
+
 **Ce que ton SI aura *oublié* le jour de l'incident.**
 
 La pire surprise en réponse à incident, c'est de découvrir que les logs

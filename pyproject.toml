@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "amnesia-dfr"
 version = "0.0.1"
 description = "Audit de forensic readiness: ce que ton SI aura oublie le jour de l'incident"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Ayman Mazroui" }]
