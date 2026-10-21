@@ -1,4 +1,5 @@
 """Modele d'un check et d'un angle mort (Gap)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
