@@ -76,8 +76,7 @@ Un rapport amnesia est la carte des angles morts d'un client. Les sorties
 (`amnesia-report*`, `amnesia-bundle*`, `amnesia-out/`, `reports/`, PDF hors de
 `docs/`) et les fichiers de secrets (`.env`, `.pfx`, `.p12`, `.key`) sont ignorés
 par git. Les hooks refusent aussi de les commiter, même avec `git add -f` et quelle
-que soit la casse. Ces hooks sont une protection locale : ils ne remplacent pas
-la vigilance (`git commit --no-verify` les contourne).
+que soit la casse. Ces hooks sont une protection locale (`git commit --no-verify` les contourne).
 
 ## Pourquoi Python
 

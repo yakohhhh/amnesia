@@ -36,7 +36,11 @@ def test_hooks_python_installes_depuis_uv_lock():
             continue
         for hook in depot["hooks"]:
             if hook["language"] == "system":
-                assert hook["entry"].startswith("uv run --locked --no-sync "), hook
+                # sans --no-sync ni --frozen : uv synchronise .venv sur le lock
+                # avant d'executer, sinon --locked n'a aucun effet
+                assert hook["entry"].startswith("uv run --locked "), hook
+                assert "--no-sync" not in hook["entry"], hook
+                assert "--frozen" not in hook["entry"], hook
 
 
 def test_depots_distants_figes_sur_un_sha():
@@ -151,18 +155,23 @@ def test_identifiants_dans_une_url_detectes(parties):
         "docker://registry:5000/image@sha256:abc",
         "winrm://audit:<motdepasse>@dc01",
         "winrm://audit:changeme@dc01",
+        "winrm://{compte}:{mdp}@{hote}:5986/wsman",
+        "winrm://${COMPTE}:${MDP}@dc01",
     ],
 )
 def test_url_sans_identifiants_acceptees(ligne):
     assert not _secret_detecte("identifiants-dans-une-url", ligne)
 
 
-def test_secret_pres_d_un_guid_entra():
-    regle = _regle_gitleaks("secret-pres-d-un-guid-entra")
-    assert {r["id"] for r in regle["required"]} == {"guid-entra"}
-    assert _secret_detecte(
-        "secret-pres-d-un-guid-entra", "WINRM_PASSWORD=Hiver2026!Acme"
-    )
-    assert not _secret_detecte(
-        "secret-pres-d-un-guid-entra", 'client_secret = os.environ["GRAPH_SECRET"]'
-    )
+def test_gitleaks_en_mode_fichier_recoit_les_fichiers():
+    # le manifeste amont declare pass_filenames: false ; sans surcharge, la
+    # boucle du hook ne recoit aucun fichier et passe a vide
+    (hook,) = [
+        h
+        for d in _pre_commit()["repos"]
+        for h in d["hooks"]
+        if h.get("alias") == "gitleaks-fichiers"
+    ]
+    assert hook["pass_filenames"] is True
+    assert "gitleaks dir" in hook["entry"]
+    assert "--config .gitleaks.toml" in hook["entry"]

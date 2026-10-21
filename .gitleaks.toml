@@ -22,20 +22,29 @@ keywords = ["://"]
 [[rules.allowlists]]
 description = "Valeurs d'exemple evidentes"
 regexTarget = "secret"
-regexes = ['''(?i)^(<[^>]*>|\$\{?[a-z_]+\}?|x{3,}|\*{3,}|password|passw0rd|motdepasse|changeme|example|secret)$''']
+regexes = [
+  '''(?i)^(<[^>]*>|x{3,}|\*{3,}|password|passw0rd|motdepasse|changeme|example|secret)$''',
+  # gabarits : {mdp} (f-string, str.format), ${MDP}, $(commande), $MDP, %MDP%
+  '''^(\{[^{}]*\}|\$\{[^{}]*\}|\$\([^()]*\)|\$[A-Z_][A-Z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%)$''',
+]
 
 # Un secret au format libre (mot de passe WinRM, secret Graph) n'a pas de forme
-# reconnaissable ; a cote d'un GUID de tenant ou d'application Entra, il en a une.
+# reconnaissable ; a cote d'un identifiant de tenant ou d'application Entra, il en
+# a une. Regle composite : elle n'est fiable qu'en mode dir (hook
+# gitleaks-fichiers et scan de l'arbre en CI). En mode git, gitleaks ne lit que
+# les lignes ajoutees et ne voit pas un GUID deja commite.
 [[rules]]
 id = "guid-entra"
-description = "GUID de tenant ou d'application Entra (contexte, jamais rapporte seul)"
-regex = '''(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
+description = "Identifiant de tenant ou d'application Entra (contexte, jamais rapporte seul)"
+# cle tenant/client/app/directory id suivie du GUID : ex. TENANT_ID=..., "tenantId": "...",
+# -TenantId ... (PowerShell). Un GUID quelconque (id Graph, auditpol) ne compte pas.
+regex = '''(?i)(?:tenant|client|app(?:lication)?|directory)[_-]?id["']?(?:\s*[:=]\s*|\s+)["']?\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
 skipReport = true
 
 [[rules]]
 id = "secret-pres-d-un-guid-entra"
-description = "Secret ou mot de passe a proximite d'un GUID Entra"
-regex = '''(?i)(?:client[_-]?secret|secret|password|passwd|pwd|credential)[\w.-]{0,20}["']?\s*[:=]\s*["']?([^\s"'#\[\](){}$<>,;]{8,128})'''
+description = "Secret ou mot de passe a proximite d'un identifiant Entra"
+regex = '''(?i)(?:client[_-]?secret|secret|password|passwd|pwd|credential)[\w.-]{0,20}["']?(?:\s*[:=]\s*|\s+)["']?([^\s"'#\[\](){}$<>,;]{8,128})'''
 secretGroup = 1
 entropy = 3.0
 keywords = ["secret", "passw", "pwd", "credential"]
@@ -45,6 +54,14 @@ id = "guid-entra"
 withinLines = 5
 
 [[rules.allowlists]]
-description = "References de code et valeurs d'exemple, pas des secrets"
+description = "Identifiants de code et valeurs d'exemple, pas des secrets"
 regexTarget = "secret"
-regexes = ['''(?i)^((os|env|self|config|settings|args)\.\S*|getenv\S*|getpass\S*|x{3,}|\*{3,}|changeme|example\S*|placeholder)$''']
+regexes = [
+  # lettres, points, tirets et soulignes seuls : nom de classe, de fonction ou de
+  # politique (ClientSecretCredential, keyring.get_password, Read-Host,
+  # DisablePasswordExpiration). Meme garde-fou que la regle generic-api-key.
+  # Compromis accepte : une phrase de passe sans chiffre ni symbole echappe a
+  # cette regle.
+  '''^[a-zA-Z_.-]+$''',
+  '''(?i)^(x{3,}|\*{3,}|changeme|placeholder)$''',
+]
