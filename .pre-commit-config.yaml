@@ -1,0 +1,117 @@
+# Hooks locaux : uv run pre-commit install
+#
+# Hooks Python (ruff, pre-commit-hooks) : hooks « local » lances par
+# « uv run --locked », qui synchronise d'abord .venv sur uv.lock (empreintes
+# verifiees, echec si le lock est perime). L'outil execute est donc toujours
+# celui du lock, jamais un autre ruff du PATH ou un venv perime.
+# Hooks Go (gitleaks, actionlint) : figes sur un SHA de commit avec une version de
+# Go epinglee ; leurs modules sont verifies par go.sum. Risque residuel accepte :
+# la chaine Go elle-meme est telechargee depuis go.dev en HTTPS, sans empreinte
+# figee. La CI telecharge gitleaks et actionlint avec leur SHA-256 fige et rejoue
+# les garde-fous anti-fuite sur tout l'historique.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: uv run --locked ruff check --force-exclude --fix
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        language: system
+        entry: uv run --locked ruff format --force-exclude
+        types_or: [python, pyi, markdown]
+        require_serial: true
+
+      - id: check-added-large-files
+        name: fichiers volumineux
+        language: system
+        entry: uv run --locked check-added-large-files
+        stages: [pre-commit, pre-push, manual]
+      - id: check-merge-conflict
+        name: marqueurs de conflit
+        language: system
+        entry: uv run --locked check-merge-conflict
+        types: [text]
+      - id: check-toml
+        name: TOML valide
+        language: system
+        entry: uv run --locked check-toml
+        types: [toml]
+      - id: check-yaml
+        name: YAML valide
+        language: system
+        entry: uv run --locked check-yaml
+        types: [yaml]
+      # Les fixers ne touchent pas aux donnees de test brutes : un export UTF-16 ou
+      # CRLF reecrit ne serait plus une fixture fidele.
+      - id: end-of-file-fixer
+        name: fin de fichier
+        language: system
+        entry: uv run --locked end-of-file-fixer
+        types: [text]
+        stages: [pre-commit, pre-push, manual]
+        exclude: &donnees-brutes '^tests/fixtures/|\.utf16\.txt$'
+      - id: mixed-line-ending
+        name: fins de ligne melangees
+        language: system
+        entry: uv run --locked mixed-line-ending
+        types: [text]
+        exclude: *donnees-brutes
+      - id: trailing-whitespace
+        name: espaces en fin de ligne
+        language: system
+        entry: uv run --locked trailing-whitespace-fixer --markdown-linebreak-ext=md
+        types: [text]
+        stages: [pre-commit, pre-push, manual]
+        exclude: *donnees-brutes
+
+      # Garde-fous anti-fuite, actifs meme avec git add -f. Les motifs sont
+      # insensibles a la casse ; tests/test_outillage.py les verifie.
+      - id: interdire-sorties-amnesia
+        name: interdire les rapports, bundles et PDF (donnees client)
+        language: fail
+        entry: >-
+          Rapport, bundle, export brut ou PDF : ce sont des donnees client, ils ne
+          doivent jamais etre commites.
+        files: '(?i)(^|/)amnesia-(report|bundle|out)[^/]*(/|$)|(^|/)[^/]*\.amnesia\.json$|^reports/|^tests/fixtures/(.+/)?raw/|^(?!docs/).*\.pdf$'
+      - id: interdire-fichiers-secrets
+        name: interdire les .env et les cles (PFX, P12, KEY)
+        language: fail
+        entry: >-
+          Fichier de secrets : ne jamais le commiter (modele a versionner :
+          .env.example).
+        files: '(?i)(^|/)\.env(\.[^/]+)?$|\.(pfx|p12|key)$'
+        exclude: '(?i)(^|/)\.env\.example$'
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
+    hooks:
+      # Mode git : uniquement les lignes ajoutees (regles par defaut).
+      - id: gitleaks
+        language_version: 1.27.2
+      # Mode dir, fichier entier : seul mode ou les regles composites de
+      # .gitleaks.toml voient leur contexte (un GUID deja commite plus haut).
+      # Un appel par fichier : avec plusieurs chemins, gitleaks dir scanne « . ».
+      - id: gitleaks
+        alias: gitleaks-fichiers
+        name: gitleaks (fichiers entiers, regles composites)
+        # --verbose : fichier, ligne et regle affiches (secret masque par --redact) ;
+        # tous les fichiers sont analyses avant d'echouer.
+        entry: >-
+          bash -c 'rc=0; for f in "$@"; do
+          gitleaks dir --redact --verbose --no-banner --config .gitleaks.toml -- "$f" || rc=1;
+          done; exit $rc' --
+        # le manifeste amont declare pass_filenames: false : sans cette ligne,
+        # la boucle ne recoit aucun fichier et passe a vide
+        pass_filenames: true
+        types: [text]
+        language_version: 1.27.2
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+        language_version: 1.27.2

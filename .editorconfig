@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,toml,md,json}]
+indent_size = 2
+
+[*.md]
+# deux espaces en fin de ligne = saut de ligne Markdown
+trim_trailing_whitespace = false
+
+# Windows PowerShell 5.1 lit un script ou un fichier de donnees PowerShell sans BOM dans la page de code ANSI :
+# les accents seraient corrompus.
+[*.{ps1,psm1,psd1,psrc,pssc}]
+charset = utf-8-bom
+end_of_line = crlf
+
+[*.{bat,cmd}]
+end_of_line = crlf

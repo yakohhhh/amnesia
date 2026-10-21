@@ -1,7 +1,41 @@
+# Python et outillage
 __pycache__/
 *.pyc
 *.egg-info/
 .venv/
+venv/
+.nox/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
 dist/
 build/
-amnesia-report.json
+
+# Sorties d'amnesia : donnees client, jamais commitees. Tout rapport ou bundle
+# doit porter le prefixe amnesia-. Le hook interdire-sorties-amnesia refuse aussi
+# ces chemins (casse comprise) meme avec git add -f.
+amnesia-report*
+amnesia-bundle*
+amnesia-out/
+/reports/
+*.amnesia.json
+*.pdf
+!docs/**/*.pdf
+
+# Secrets (le hook interdire-fichiers-secrets les refuse aussi avec git add -f)
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+
+# Donnees brutes de test (exports reels, jamais commites)
+tests/fixtures/**/raw/
+
+# Systeme
+.DS_Store
+Thumbs.db
