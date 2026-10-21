@@ -58,8 +58,16 @@ def _regles_declenchees(tmp_path: Path, nom: str, contenu: str) -> set[str]:
             "connexion.ps1",
             f'Connect-Graph -TenantId {GUID} `\n    -ClientSecret "{MDP}"\n',
         ),
+        ("tenant.yml", f"azure:\n  tenant: {GUID}\n  password: '{MDP}'\n"),
+        (
+            "msal.py",
+            f'AUTHORITY = "https://login.microsoftonline.com/{GUID}"\n'
+            f'PASSWORD = "{MDP}"\n',
+        ),
+        ("az.sh", f"az login --tenant {GUID} -u audit --password '{MDP}'\n"),
+        ("azure.env", f"AZURE_TENANT_ID={GUID}\nAZURE_PASSWORD={MDP}\n"),
     ],
-    ids=["env", "yaml", "powershell"],
+    ids=["env", "yaml", "powershell", "tenant", "autorite-msal", "az-cli", "azure-env"],
 )
 def test_secret_pres_d_un_identifiant_entra(tmp_path, nom, contenu):
     assert "secret-pres-d-un-guid-entra" in _regles_declenchees(tmp_path, nom, contenu)

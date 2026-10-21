@@ -98,10 +98,12 @@ repos:
       - id: gitleaks
         alias: gitleaks-fichiers
         name: gitleaks (fichiers entiers, regles composites)
+        # --verbose : fichier, ligne et regle affiches (secret masque par --redact) ;
+        # tous les fichiers sont analyses avant d'echouer.
         entry: >-
-          bash -c 'for f in "$@"; do
-          gitleaks dir --redact --no-banner --config .gitleaks.toml "$f" || exit 1;
-          done' --
+          bash -c 'rc=0; for f in "$@"; do
+          gitleaks dir --redact --verbose --no-banner --config .gitleaks.toml -- "$f" || rc=1;
+          done; exit $rc' --
         # le manifeste amont declare pass_filenames: false : sans cette ligne,
         # la boucle ne recoit aucun fichier et passe a vide
         pass_filenames: true

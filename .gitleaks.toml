@@ -36,9 +36,11 @@ regexes = [
 [[rules]]
 id = "guid-entra"
 description = "Identifiant de tenant ou d'application Entra (contexte, jamais rapporte seul)"
-# cle tenant/client/app/directory id suivie du GUID : ex. TENANT_ID=..., "tenantId": "...",
-# -TenantId ... (PowerShell). Un GUID quelconque (id Graph, auditpol) ne compte pas.
-regex = '''(?i)(?:tenant|client|app(?:lication)?|directory)[_-]?id["']?(?:\s*[:=]\s*|\s+)["']?\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
+# GUID annonce comme tenant, client ou application : TENANT_ID=..., AZURE_TENANT_ID=,
+# "tenantId": "...", tenant: ..., $tenant = ..., -TenantId / -Tenant / --tenant ...,
+# ou URL d'autorite login.microsoftonline.com/<GUID>. Un GUID quelconque (id Graph,
+# GUID auditpol) ne compte pas.
+regex = '''(?i)(?:(?:tenant|client|app(?:lication)?|directory)(?:[_-]?id)?["']?(?:\s*[:=]\s*|\s+)["']?\{?|login\.microsoftonline\.(?:com|us)/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
 skipReport = true
 
 [[rules]]

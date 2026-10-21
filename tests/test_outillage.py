@@ -175,3 +175,6 @@ def test_gitleaks_en_mode_fichier_recoit_les_fichiers():
     assert hook["pass_filenames"] is True
     assert "gitleaks dir" in hook["entry"]
     assert "--config .gitleaks.toml" in hook["entry"]
+    # sortie exploitable (fichier, ligne, regle) mais secret toujours masque
+    assert "--verbose" in hook["entry"]
+    assert "--redact" in hook["entry"]
