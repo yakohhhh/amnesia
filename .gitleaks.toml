@@ -2,17 +2,19 @@
 # Les regles par defaut couvrent deja les cles AWS (aws-access-token), les secrets
 # d'application Entra (azure-ad-client-secret) et les cles privees PEM
 # (private-key). On ne les remplace pas, on les etend.
+# tests/test_outillage.py verifie ces regles sur des cas positifs et negatifs.
 title = "amnesia"
 
 [extend]
 useDefault = true
 
 # amnesia se connecte a des hotes (WinRM, SSH, API) : des identifiants ne doivent
-# jamais apparaitre en clair dans une URL, ex. winrm://audit:Motdepasse1@dc01
+# jamais apparaitre en clair dans une URL, ex. winrm://audit:Motdepasse1@dc01.
+# Le mot de passe peut contenir « : » ou « @ » : il va jusqu'au dernier « @ ».
 [[rules]]
 id = "identifiants-dans-une-url"
 description = "Identifiants en clair dans une URL"
-regex = '''\b[a-z][a-z0-9+.-]{1,20}://[^\s:@/'"`]{1,64}:([^\s:@/'"`]{6,128})@[^\s/'"`]{1,253}'''
+regex = '''(?i)\b[a-z][a-z0-9+.-]{1,20}://[^\s:@/'"`]{1,64}:([^\s/'"`]{6,128})@[^\s@/'"`]{1,253}'''
 secretGroup = 1
 entropy = 2.5
 keywords = ["://"]
@@ -21,3 +23,28 @@ keywords = ["://"]
 description = "Valeurs d'exemple evidentes"
 regexTarget = "secret"
 regexes = ['''(?i)^(<[^>]*>|\$\{?[a-z_]+\}?|x{3,}|\*{3,}|password|passw0rd|motdepasse|changeme|example|secret)$''']
+
+# Un secret au format libre (mot de passe WinRM, secret Graph) n'a pas de forme
+# reconnaissable ; a cote d'un GUID de tenant ou d'application Entra, il en a une.
+[[rules]]
+id = "guid-entra"
+description = "GUID de tenant ou d'application Entra (contexte, jamais rapporte seul)"
+regex = '''(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
+skipReport = true
+
+[[rules]]
+id = "secret-pres-d-un-guid-entra"
+description = "Secret ou mot de passe a proximite d'un GUID Entra"
+regex = '''(?i)(?:client[_-]?secret|secret|password|passwd|pwd|credential)[\w.-]{0,20}["']?\s*[:=]\s*["']?([^\s"'#\[\](){}$<>,;]{8,128})'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["secret", "passw", "pwd", "credential"]
+
+[[rules.required]]
+id = "guid-entra"
+withinLines = 5
+
+[[rules.allowlists]]
+description = "References de code et valeurs d'exemple, pas des secrets"
+regexTarget = "secret"
+regexes = ['''(?i)^((os|env|self|config|settings|args)\.\S*|getenv\S*|getpass\S*|x{3,}|\*{3,}|changeme|example\S*|placeholder)$''']

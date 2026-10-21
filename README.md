@@ -64,16 +64,20 @@ Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 `pyproject.toml`) : une version publiée trop récemment n'est jamais installée, le
 temps qu'une éventuelle release compromise soit détectée.
 
-Hooks avant commit (ruff, gitleaks, actionlint, refus des rapports client) :
+Hooks avant commit (ruff, gitleaks, actionlint, refus des données client et des
+fichiers de secrets) :
 
 ```bash
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
 
-Un rapport amnesia est la carte des angles morts d'un client : les sorties
-`amnesia-report*`, `amnesia-bundle*`, `amnesia-out/` et les `.env` sont ignorées
-par git, et le hook refuse de les commiter même avec `git add -f`.
+Un rapport amnesia est la carte des angles morts d'un client. Les sorties
+(`amnesia-report*`, `amnesia-bundle*`, `amnesia-out/`, `reports/`, PDF hors de
+`docs/`) et les fichiers de secrets (`.env`, `.pfx`, `.p12`, `.key`) sont ignorés
+par git. Les hooks refusent aussi de les commiter, même avec `git add -f` et quelle
+que soit la casse. Ces hooks sont une protection locale : ils ne remplacent pas
+la vigilance (`git commit --no-verify` les contourne).
 
 ## Pourquoi Python
 

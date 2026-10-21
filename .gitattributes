@@ -8,10 +8,13 @@
 *.toml text eol=lf
 *.md   text eol=lf
 
-# Scripts Windows en CRLF. Encodage des .ps1 : UTF-8 avec BOM (voir .editorconfig).
+# Scripts et donnees PowerShell en CRLF, encodes en UTF-8 avec BOM (voir
+# .editorconfig, qui liste les memes extensions).
 *.ps1  text eol=crlf
 *.psm1 text eol=crlf
 *.psd1 text eol=crlf
+*.psrc text eol=crlf
+*.pssc text eol=crlf
 *.bat  text eol=crlf
 *.cmd  text eol=crlf
 

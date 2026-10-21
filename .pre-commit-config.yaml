@@ -1,43 +1,97 @@
 # Hooks locaux : uv run pre-commit install
-# Chaque rev est un SHA de commit (immuable) ; la version est dans le commentaire
-# « frozen ». La version de ruff doit rester celle de uv.lock (verifie par
-# tests/test_outillage.py).
+#
+# Tout le code Python des hooks (ruff, pre-commit-hooks) vient de uv.lock et est
+# verifie par empreintes : ce sont des hooks « local » lances par uv run, pre-commit
+# n'installe rien a part. Les hooks Go (gitleaks, actionlint) sont figes sur un SHA
+# de commit avec une version de Go epinglee, et leurs modules sont verifies par
+# go.sum. Risque residuel accepte : la chaine Go elle-meme est telechargee depuis
+# go.dev en HTTPS, sans empreinte figee. La CI, elle, telecharge gitleaks et
+# actionlint avec leur SHA-256 fige.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 38bfb07c0c64c304f47eb52090f8288150c77730  # frozen: v0.17.1
+  - repo: local
     hooks:
       - id: ruff-check
-        args: [--fix]
+        name: ruff check
+        language: system
+        entry: uv run --locked --no-sync ruff check --force-exclude --fix
+        types_or: [python, pyi]
+        require_serial: true
       - id: ruff-format
+        name: ruff format
+        language: system
+        entry: uv run --locked --no-sync ruff format --force-exclude
+        types_or: [python, pyi, markdown]
+        require_serial: true
 
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
-    hooks:
       - id: check-added-large-files
+        name: fichiers volumineux
+        language: system
+        entry: uv run --locked --no-sync check-added-large-files
+        stages: [pre-commit, pre-push, manual]
       - id: check-merge-conflict
+        name: marqueurs de conflit
+        language: system
+        entry: uv run --locked --no-sync check-merge-conflict
+        types: [text]
       - id: check-toml
+        name: TOML valide
+        language: system
+        entry: uv run --locked --no-sync check-toml
+        types: [toml]
       - id: check-yaml
+        name: YAML valide
+        language: system
+        entry: uv run --locked --no-sync check-yaml
+        types: [yaml]
+      # Les fixers ne touchent pas aux donnees de test brutes : un export UTF-16 ou
+      # CRLF reecrit ne serait plus une fixture fidele.
       - id: end-of-file-fixer
+        name: fin de fichier
+        language: system
+        entry: uv run --locked --no-sync end-of-file-fixer
+        types: [text]
+        stages: [pre-commit, pre-push, manual]
+        exclude: &donnees-brutes '^tests/fixtures/|\.utf16\.txt$'
       - id: mixed-line-ending
+        name: fins de ligne melangees
+        language: system
+        entry: uv run --locked --no-sync mixed-line-ending
+        types: [text]
+        exclude: *donnees-brutes
       - id: trailing-whitespace
-        args: [--markdown-linebreak-ext=md]
+        name: espaces en fin de ligne
+        language: system
+        entry: uv run --locked --no-sync trailing-whitespace-fixer --markdown-linebreak-ext=md
+        types: [text]
+        stages: [pre-commit, pre-push, manual]
+        exclude: *donnees-brutes
+
+      # Garde-fous anti-fuite, actifs meme avec git add -f. Les motifs sont
+      # insensibles a la casse ; tests/test_outillage.py les verifie.
+      - id: interdire-sorties-amnesia
+        name: interdire les rapports, bundles et PDF (donnees client)
+        language: fail
+        entry: >-
+          Rapport, bundle, export brut ou PDF : ce sont des donnees client, ils ne
+          doivent jamais etre commites.
+        files: '(?i)(^|/)amnesia-(report|bundle|out)[^/]*(/|$)|(^|/)[^/]*\.amnesia\.json$|^reports/|^tests/fixtures/(.+/)?raw/|^(?!docs/).*\.pdf$'
+      - id: interdire-fichiers-secrets
+        name: interdire les .env et les cles (PFX, P12, KEY)
+        language: fail
+        entry: >-
+          Fichier de secrets : ne jamais le commiter (modele a versionner :
+          .env.example).
+        files: '(?i)(^|/)\.env(\.[^/]+)?$|\.(pfx|p12|key)$'
+        exclude: '(?i)(^|/)\.env\.example$'
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
     hooks:
       - id: gitleaks
+        language_version: 1.27.3
 
   - repo: https://github.com/rhysd/actionlint
     rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
     hooks:
       - id: actionlint
-
-  - repo: local
-    hooks:
-      - id: interdire-rapports-amnesia
-        name: interdire les rapports et bundles amnesia (donnees client)
-        language: fail
-        entry: >-
-          Rapport, bundle ou PDF amnesia : ce sont des donnees client, ils ne
-          doivent jamais etre commites (meme avec git add -f).
-        files: '(^|/)amnesia-(report|bundle|out)[^/]*(/|$)|(^|/)[^/]*\.amnesia\.json$|^(?!docs/).*\.pdf$'
+        language_version: 1.27.3
