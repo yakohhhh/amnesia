@@ -1,6 +1,8 @@
 """Coherence de l'outillage entre les fichiers de configuration."""
 
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -142,6 +144,13 @@ def _url(schema: str, compte: str, mdp: str, hote: str) -> str:
         ("winrm", "audit", "P@ssw0rd!2026", "dc01.acme.local"),
         ("ssh", "audit", "Zx81-Qp93:Lm27", "bastion"),
     ],
+    # identifiants nommes : les faux secrets ne finissent pas dans .pytest_cache
+    ids=[
+        "winrm",
+        "schema-majuscules",
+        "arobase-dans-le-mdp",
+        "deux-points-dans-le-mdp",
+    ],
 )
 def test_identifiants_dans_une_url_detectes(parties):
     assert _secret_detecte("identifiants-dans-une-url", _url(*parties))
@@ -239,3 +248,32 @@ def test_workflows_durcis():
 def test_ci_ok_attend_tous_les_jobs():
     _, doc = _charger(RACINE / ".github" / "workflows" / "ci.yml")
     assert set(doc["jobs"]["ci-ok"]["needs"]) == set(doc["jobs"]) - {"ci-ok"}
+
+
+def test_ci_rejoue_les_garde_fous_anti_fuite():
+    _, doc = _charger(RACINE / ".github" / "workflows" / "ci.yml")
+    job = doc["jobs"]["gitleaks"]
+    commandes = "\n".join(e.get("run", "") for e in job["steps"])
+    assert job["steps"][0]["with"]["fetch-depth"] == 0
+    assert 'gitleaks" git ' in commandes
+    assert 'gitleaks" dir ' in commandes
+    assert "git log --all --name-only" in commandes
+    assert "scripts/verifier_chemins.py" in commandes
+    assert "tests/test_gitleaks.py" in commandes
+
+
+def test_verifier_chemins_refuse_et_accepte(tmp_path):
+    chemins = "\n".join(
+        ["src/amnesia/cli.py", ".env.example", "docs/guide.pdf", "Rapport-ACME.PDF"]
+    )
+    # interpreteur courant et script du depot, sans shell
+    sortie = subprocess.run(  # noqa: S603
+        [sys.executable, str(RACINE / "scripts" / "verifier_chemins.py")],
+        input=chemins,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert sortie.returncode == 1
+    assert "Rapport-ACME.PDF" in sortie.stdout
+    assert "cli.py" not in sortie.stdout
