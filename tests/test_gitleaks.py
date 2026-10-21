@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -23,9 +24,12 @@ GUID = "3f2b8c1d-4e5a-4b6c-9d7e-8f9a0b1c2d3e"
 MDP = "Hiver" + "2026!Acme"
 
 
-def _regles_declenchees(tmp_path: Path, nom: str, contenu: str) -> set[str]:
+def _regles_declenchees(
+    tmp_path: Path, nom: str, contenu: str, *options: str
+) -> set[str]:
     fichier = tmp_path / nom
-    fichier.write_text(contenu, encoding="utf-8")
+    if not fichier.exists():
+        fichier.write_text(contenu, encoding="utf-8")
     rapport = tmp_path / "rapport.json"
     # binaire designe par le developpeur ou la CI (GITLEAKS_BIN), pas de shell
     subprocess.run(  # noqa: S603
@@ -41,6 +45,7 @@ def _regles_declenchees(tmp_path: Path, nom: str, contenu: str) -> set[str]:
             str(rapport),
             "--exit-code",
             "0",
+            *options,
             str(fichier),
         ],
         check=True,
@@ -99,3 +104,24 @@ def test_identifiants_dans_une_url(tmp_path):
     url = "winrm://audit:" + "P@ssw0rd!2026" + "@dc01.acme.local"
     regles = _regles_declenchees(tmp_path, "cible.txt", url + "\n")
     assert "identifiants-dans-une-url" in regles
+
+
+def _cle_aws() -> str:
+    # forme valide (AKIA + 16 caracteres base32), assemblee a l'execution
+    return "AKIA" + "Q4ZT7XK2MBV5NR3W"
+
+
+def test_archive_ouverte_avec_max_archive_depth(tmp_path):
+    with zipfile.ZipFile(tmp_path / "bundle.zip", "w") as archive:
+        archive.writestr("config/.env", f"AWS_ACCESS_KEY_ID={_cle_aws()}\n")
+    sans = _regles_declenchees(tmp_path, "bundle.zip", "")
+    avec = _regles_declenchees(tmp_path, "bundle.zip", "", "--max-archive-depth=2")
+    assert sans == set()
+    assert "aws-access-token" in avec
+
+
+def test_gitleaks_allow_ignore_cote_serveur(tmp_path):
+    ligne = f'cle = "{_cle_aws()}"  # gitleaks:allow\n'
+    assert _regles_declenchees(tmp_path, "a.py", ligne) == set()
+    regles = _regles_declenchees(tmp_path, "a.py", ligne, "--ignore-gitleaks-allow")
+    assert "aws-access-token" in regles
