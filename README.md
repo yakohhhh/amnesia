@@ -60,6 +60,10 @@ uv run pytest              # tests sur l'interpréteur de .python-version
 
 Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 
+`uv.lock` applique un délai de carence de 7 jours (`exclude-newer` dans
+`pyproject.toml`) : une version publiée trop récemment n'est jamais installée, le
+temps qu'une éventuelle release compromise soit détectée.
+
 ## Pourquoi Python
 
 Les SDK dont le projet a besoin sont tous là et matures : Microsoft Graph,
