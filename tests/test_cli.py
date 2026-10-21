@@ -1,5 +1,7 @@
 """Tests de fumee de la CLI."""
 
+from importlib.metadata import entry_points
+
 import pytest
 
 from amnesia import __version__
@@ -20,3 +22,9 @@ def test_list_checks(capsys):
     assert len(lines) == len(default_checks())
     for check, line in zip(default_checks(), lines, strict=True):
         assert line.startswith(check.id)
+
+
+def test_commande_amnesia_pointe_sur_main():
+    # [project.scripts] : une cible cassee laisserait la commande inutilisable
+    (commande,) = entry_points(group="console_scripts", name="amnesia")
+    assert commande.load() is main
