@@ -1,0 +1,23 @@
+# Configuration gitleaks : hook pre-commit et job CI.
+# Les regles par defaut couvrent deja les cles AWS (aws-access-token), les secrets
+# d'application Entra (azure-ad-client-secret) et les cles privees PEM
+# (private-key). On ne les remplace pas, on les etend.
+title = "amnesia"
+
+[extend]
+useDefault = true
+
+# amnesia se connecte a des hotes (WinRM, SSH, API) : des identifiants ne doivent
+# jamais apparaitre en clair dans une URL, ex. winrm://audit:Motdepasse1@dc01
+[[rules]]
+id = "identifiants-dans-une-url"
+description = "Identifiants en clair dans une URL"
+regex = '''\b[a-z][a-z0-9+.-]{1,20}://[^\s:@/'"`]{1,64}:([^\s:@/'"`]{6,128})@[^\s/'"`]{1,253}'''
+secretGroup = 1
+entropy = 2.5
+keywords = ["://"]
+
+[[rules.allowlists]]
+description = "Valeurs d'exemple evidentes"
+regexTarget = "secret"
+regexes = ['''(?i)^(<[^>]*>|\$\{?[a-z_]+\}?|x{3,}|\*{3,}|password|passw0rd|motdepasse|changeme|example|secret)$''']

@@ -1,0 +1,27 @@
+# Fins de ligne normalisees en LF dans le depot, quel que soit l'OS du contributeur.
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+
+# Scripts Windows en CRLF. Encodage des .ps1 : UTF-8 avec BOM (voir .editorconfig).
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Binaires : jamais de conversion ni de diff texte.
+*.evtx binary
+*.zip  binary
+*.pdf  binary
+*.png  binary
+
+# Sorties Windows en UTF-16 (wevtutil, reg export...) : pas de conversion de fin
+# de ligne, diff texte desactive.
+*.utf16.txt -text
+*.reg       -text

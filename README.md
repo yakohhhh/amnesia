@@ -64,6 +64,17 @@ Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 `pyproject.toml`) : une version publiée trop récemment n'est jamais installée, le
 temps qu'une éventuelle release compromise soit détectée.
 
+Hooks avant commit (ruff, gitleaks, actionlint, refus des rapports client) :
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
+
+Un rapport amnesia est la carte des angles morts d'un client : les sorties
+`amnesia-report*`, `amnesia-bundle*`, `amnesia-out/` et les `.env` sont ignorées
+par git, et le hook refuse de les commiter même avec `git add -f`.
+
 ## Pourquoi Python
 
 Les SDK dont le projet a besoin sont tous là et matures : Microsoft Graph,
