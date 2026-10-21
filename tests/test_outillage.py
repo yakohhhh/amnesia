@@ -1,5 +1,6 @@
 """Coherence de l'outillage entre les fichiers de configuration."""
 
+import os
 import re
 import subprocess
 import sys
@@ -255,25 +256,82 @@ def test_ci_rejoue_les_garde_fous_anti_fuite():
     job = doc["jobs"]["gitleaks"]
     commandes = "\n".join(e.get("run", "") for e in job["steps"])
     assert job["steps"][0]["with"]["fetch-depth"] == 0
-    assert 'gitleaks" git ' in commandes
+    assert job["defaults"]["run"]["shell"] == "bash"  # pipefail
+    assert "--diff-merges=remerge" in commandes
     assert 'gitleaks" dir ' in commandes
-    assert "git log --all --name-only" in commandes
+    assert "git cat-file blob" in commandes
     assert "scripts/verifier_chemins.py" in commandes
     assert "tests/test_gitleaks.py" in commandes
 
 
-def test_verifier_chemins_refuse_et_accepte(tmp_path):
-    chemins = "\n".join(
-        ["src/amnesia/cli.py", ".env.example", "docs/guide.pdf", "Rapport-ACME.PDF"]
+def _git(depot: Path, *args: str) -> None:
+    subprocess.run(  # noqa: S603 - git et arguments constants, sans shell
+        ["git", "-C", str(depot), *args],  # noqa: S607 - git du PATH
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        },
     )
-    # interpreteur courant et script du depot, sans shell
-    sortie = subprocess.run(  # noqa: S603
-        [sys.executable, str(RACINE / "scripts" / "verifier_chemins.py")],
-        input=chemins,
+
+
+def _verifier(depot: Path) -> subprocess.CompletedProcess[str]:
+    script = RACINE / "scripts" / "verifier_chemins.py"
+    return subprocess.run(  # noqa: S603 - interpreteur courant et script du depot
+        [sys.executable, str(script), "--depot", str(depot)],
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _depot(tmp_path: Path, fichiers: list[str]) -> Path:
+    depot = tmp_path / "depot"
+    depot.mkdir()
+    _git(depot, "init", "-q", "-b", "main")
+    for nom in fichiers:
+        chemin = depot / nom
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        chemin.write_text("x\n", encoding="utf-8")
+    _git(depot, "add", "-f", "--", *fichiers)
+    _git(depot, "commit", "-q", "--no-verify", "-m", "t")
+    return depot
+
+
+def test_verifier_chemins_noms_accentues_et_guillemets(tmp_path):
+    acceptes = ["src/ok.py", ".env.example", "docs/guide.pdf"]
+    refuses = ["Rapport-Société.pdf", "clients/clé/.env", 'reports/a"b.txt']
+    sortie = _verifier(_depot(tmp_path, [*acceptes, *refuses]))
     assert sortie.returncode == 1
-    assert "Rapport-ACME.PDF" in sortie.stdout
-    assert "cli.py" not in sortie.stdout
+    for refuse in refuses:
+        assert refuse in sortie.stdout
+    for accepte in acceptes:
+        assert accepte not in sortie.stdout
+
+
+def test_verifier_chemins_fichier_ajoute_dans_un_merge(tmp_path):
+    depot = _depot(tmp_path, ["a.txt"])
+    _git(depot, "switch", "-q", "-c", "branche")
+    (depot / "b.txt").write_text("b\n", encoding="utf-8")
+    _git(depot, "add", "b.txt")
+    _git(depot, "commit", "-q", "--no-verify", "-m", "b")
+    _git(depot, "switch", "-q", "main")
+    _git(depot, "merge", "-q", "--no-commit", "--no-ff", "branche")
+    (depot / ".env").write_text("x\n", encoding="utf-8")
+    _git(depot, "add", "-f", ".env")
+    _git(depot, "commit", "-q", "--no-verify", "-m", "merge")
+    _git(depot, "rm", "-q", "--cached", ".env")
+    _git(depot, "commit", "-q", "--no-verify", "-m", "retrait")
+    sortie = _verifier(depot)
+    assert sortie.returncode == 1
+    assert "interdire-fichiers-secrets : .env" in sortie.stdout
+
+
+def test_verifier_chemins_depot_propre(tmp_path):
+    sortie = _verifier(_depot(tmp_path, ["src/ok.py", "README.md"]))
+    assert sortie.returncode == 0, sortie.stdout
+    assert "0 interdits" in sortie.stdout

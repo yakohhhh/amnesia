@@ -122,6 +122,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    defaults:
+      run:
+        # bash -eo pipefail : un echec en amont d'un pipe fait echouer l'etape
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,10 +142,33 @@ jobs:
           echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
       # Scans avant toute installation : l'arbre ne contient que le depot.
-      - name: gitleaks sur tout l'historique (lignes ajoutees)
-        run: '"$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose --config .gitleaks.toml .'
+      # --log-opts remplace les options par defaut de gitleaks : on les reprend et
+      # on ajoute --diff-merges=remerge, sans quoi un secret introduit dans un
+      # commit de fusion n'est jamais vu.
+      - name: gitleaks sur tout l'historique (lignes ajoutees, merges compris)
+        run: >-
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose
+          --config .gitleaks.toml
+          --log-opts="--all --full-history --diff-filter=tuxdb --diff-merges=remerge" .
       - name: gitleaks sur l'arbre (fichiers entiers, regles composites)
         run: '"$RUNNER_TEMP/gitleaks" dir --redact --no-banner --verbose --config .gitleaks.toml .'
+      # Les regles composites ne voient leur contexte qu'en mode dir : chaque
+      # version de chaque fichier de l'historique est donc analysee entiere. Les
+      # blobs sont ecrits sous leur SHA (jamais sous un chemin venu du depot), avec
+      # le seul nom de base pour les regles qui dependent de l'extension.
+      - name: gitleaks sur chaque version de fichier de l'historique
+        run: |
+          blobs="$RUNNER_TEMP/blobs"
+          mkdir -p "$blobs"
+          git rev-list --objects --all \
+            | git cat-file --batch-check='%(objecttype) %(objectname) %(rest)' \
+            | awk '$1 == "blob"' \
+            | while read -r _ sha chemin; do
+                nom="$(basename -- "${chemin:-blob}")"
+                mkdir -p "$blobs/$sha"
+                git cat-file blob "$sha" > "$blobs/$sha/$nom"
+              done
+          "$RUNNER_TEMP/gitleaks" dir --redact --no-banner --verbose --config .gitleaks.toml "$blobs"
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -151,10 +178,8 @@ jobs:
       # Garde-fous anti-fuite cote serveur : les hooks locaux se contournent
       # (--no-verify, clone sans pre-commit install), pas ce controle. Il porte
       # sur tous les fichiers de l'historique, y compris ceux supprimes depuis.
-      - name: aucun fichier interdit dans l'historique
-        run: |
-          git log --all --name-only --format= | sort -u \
-            | uv run python scripts/verifier_chemins.py
+      - name: aucun fichier interdit dans l'historique ni dans l'arbre
+        run: uv run python scripts/verifier_chemins.py
       - name: regles gitleaks verifiees avec ce binaire
         run: GITLEAKS_BIN="$RUNNER_TEMP/gitleaks" uv run pytest -q tests/test_gitleaks.py
 
