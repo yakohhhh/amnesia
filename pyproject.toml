@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,6 +13,15 @@ authors = [{ name = "Ayman Mazroui" }]
 
 [project.scripts]
 amnesia = "amnesia.cli:main"
+
+[dependency-groups]
+# versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
+dev = [
+    "nox==2026.8.17",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -56,3 +65,14 @@ known-first-party = ["amnesia"]
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.uv]
+# Delai de carence : aucune distribution publiee depuis moins de 7 jours, pour
+# laisser le temps de detecter une release compromise avant de l'installer.
+exclude-newer = "7 days"
+# Exception : ruff 0.17.1 (15/10/2026) est impose par #2. A retirer apres le
+# 23/10/2026, quand il aura 7 jours.
+exclude-newer-package = { ruff = "2026-10-16T00:00:00Z" }
+# Backend de build fige pour uv (dev et CI), enregistre dans uv.lock et verifie
+# par --locked. build-system.requires garde une plage pour les autres outils.
+build-constraint-dependencies = ["setuptools==84.0.0"]
