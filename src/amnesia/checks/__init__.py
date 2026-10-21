@@ -1,5 +1,5 @@
-from .base import Check, Gap
 from . import windows
+from .base import Check, Gap
 
 
 def default_checks() -> list[Check]:
