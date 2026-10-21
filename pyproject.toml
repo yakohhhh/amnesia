@@ -16,3 +16,40 @@ amnesia = "amnesia.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+# target-version n'est pas fixe : ruff la deduit de project.requires-python.
+line-length = 88
+src = ["src", "tests"]
+extend-exclude = ["tests/fixtures/**/raw"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle (erreurs)
+    "W",    # pycodestyle (avertissements)
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "PTH",  # chemins via pathlib
+    "RUF",  # regles propres a ruff
+    "T20",  # print / pprint oublies
+    "DTZ",  # datetime sans fuseau : critique pour des horodatages d'enquete
+    "S",    # flake8-bandit (securite)
+]
+# apostrophe typographique et tiret demi-cadratin des textes francais
+allowed-confusables = ["’", "–"]
+
+[tool.ruff.lint.per-file-ignores]
+# la CLI ecrit sur la sortie standard par conception
+"src/amnesia/cli.py" = ["T201"]
+# assert est l'idiome de pytest
+"tests/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["amnesia"]
+
+[tool.ruff.format]
+docstring-code-format = true

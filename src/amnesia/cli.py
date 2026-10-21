@@ -1,4 +1,5 @@
 """Interface en ligne de commande d'amnesia."""
+
 from __future__ import annotations
 
 import argparse
@@ -38,7 +39,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "audit":
         print(f"[stub] audit de {args.target} -> {args.out}")
-        print(f"[stub] {len(checks)} checks enregistres. Implemente leur run(): src/amnesia/checks/")
+        print(
+            f"[stub] {len(checks)} checks enregistres. "
+            "Implemente leur run(): src/amnesia/checks/"
+        )
         for c in checks:
             print(f"  - {c.id}: {c.title}")
         return 0

@@ -12,6 +12,7 @@ jobs:
           python-version: "3.15"
       - run: pip install ruff==0.17.1
       - run: ruff check .
+      - run: ruff format --check .
 
   test:
     runs-on: ubuntu-latest

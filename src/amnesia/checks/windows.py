@@ -1,4 +1,5 @@
 """Checks Windows / Active Directory (metadonnees pour l'instant, run() a ecrire)."""
+
 from .base import Check
 
 
