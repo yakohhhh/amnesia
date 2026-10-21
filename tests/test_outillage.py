@@ -178,3 +178,64 @@ def test_gitleaks_en_mode_fichier_recoit_les_fichiers():
     # sortie exploitable (fichier, ligne, regle) mais secret toujours masque
     assert "--verbose" in hook["entry"]
     assert "--redact" in hook["entry"]
+
+
+WORKFLOWS = sorted(
+    p
+    for motif in ("*.yml", "*.yaml")
+    for p in (RACINE / ".github" / "workflows").glob(motif)
+)
+SHA_EPINGLE = re.compile(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}")
+
+
+def _charger(wf: Path) -> tuple[str, dict]:
+    texte = wf.read_text(encoding="utf-8")
+    return texte, yaml.safe_load(texte)
+
+
+def _etapes(doc: dict):
+    for nom, job in doc["jobs"].items():
+        for etape in job.get("steps", []):
+            yield nom, job, etape
+
+
+def test_actions_epinglees_sur_un_sha_avec_version():
+    assert WORKFLOWS
+    for wf in WORKFLOWS:
+        texte, doc = _charger(wf)
+        refs = [job["uses"] for job in doc["jobs"].values() if "uses" in job]
+        refs += [etape["uses"] for _, _, etape in _etapes(doc) if "uses" in etape]
+        for ref in refs:
+            assert SHA_EPINGLE.fullmatch(ref), f"{wf.name} : {ref} non epinglee"
+        # la version lisible est un commentaire, invisible pour le parseur YAML
+        for ligne in texte.splitlines():
+            if re.match(r"\s*(-\s+)?uses:", ligne):
+                assert re.search(r"@[0-9a-f]{40} # v\d+\.\d+\.\d+$", ligne), ligne
+
+
+def test_workflows_durcis():
+    assert WORKFLOWS
+    for wf in WORKFLOWS:
+        texte, doc = _charger(wf)
+        assert "pull_request_target" not in texte, wf.name
+        assert doc.get("permissions") == {}, f"{wf.name} : permissions: {{}} attendu"
+        for nom, job in doc["jobs"].items():
+            assert "permissions" in job, f"{wf.name}:{nom} sans permissions"
+            if "uses" not in job:  # un workflow reutilisable n'a pas de timeout
+                timeout = job.get("timeout-minutes")
+                assert isinstance(timeout, int), f"{wf.name}:{nom} sans timeout"
+        for nom, job, etape in _etapes(doc):
+            uses, avec = etape.get("uses", ""), etape.get("with", {})
+            if uses.startswith("actions/checkout@"):
+                assert avec.get("persist-credentials") is False, f"{wf.name}:{nom}"
+            if uses.startswith("astral-sh/setup-uv@"):
+                cle = re.fullmatch(r"\$\{\{ env\.(\w+) \}\}", avec.get("checksum", ""))
+                assert cle, f"{wf.name}:{nom} : setup-uv sans checksum fige"
+                assert re.fullmatch(r"[0-9a-f]{64}", doc["env"][cle[1]]), cle[1]
+                windows = "windows" in job["runs-on"]
+                assert ("WINDOWS" in cle[1]) == windows, f"{wf.name}:{nom}"
+
+
+def test_ci_ok_attend_tous_les_jobs():
+    _, doc = _charger(RACINE / ".github" / "workflows" / "ci.yml")
+    assert set(doc["jobs"]["ci-ok"]["needs"]) == set(doc["jobs"]) - {"ci-ok"}
