@@ -258,10 +258,31 @@ def test_ci_rejoue_les_garde_fous_anti_fuite():
     assert job["steps"][0]["with"]["fetch-depth"] == 0
     assert job["defaults"]["run"]["shell"] == "bash"  # pipefail
     assert "--diff-merges=remerge" in commandes
+    # 4 appels : historique, arbre, blobs, messages ; aucun ne respecte
+    # gitleaks:allow, et les 3 scans de fichiers ouvrent les archives
+    scans = re.findall(r'gitleaks" (git|dir|stdin) ', commandes)
+    assert sorted(scans) == ["dir", "dir", "git", "stdin"]
+    assert commandes.count("--ignore-gitleaks-allow") == 4
+    assert commandes.count("--max-archive-depth=2") == 3
+    assert 'gitleaks" stdin ' in commandes
+    assert "iconv -f UTF-16" in commandes
     assert 'gitleaks" dir ' in commandes
     assert "git cat-file blob" in commandes
     assert "scripts/verifier_chemins.py" in commandes
     assert "tests/test_gitleaks.py" in commandes
+
+
+# depots de test independants de la config git du developpeur (signature,
+# hooksPath, autocrlf...)
+GIT_HERMETIQUE = {
+    **os.environ,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@t",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@t",
+}
 
 
 def _git(depot: Path, *args: str) -> None:
@@ -269,13 +290,7 @@ def _git(depot: Path, *args: str) -> None:
         ["git", "-C", str(depot), *args],  # noqa: S607 - git du PATH
         check=True,
         capture_output=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "t",
-            "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@t",
-        },
+        env=GIT_HERMETIQUE,
     )
 
 
@@ -286,6 +301,7 @@ def _verifier(depot: Path) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        env=GIT_HERMETIQUE,
     )
 
 
@@ -302,15 +318,23 @@ def _depot(tmp_path: Path, fichiers: list[str]) -> Path:
     return depot
 
 
-def test_verifier_chemins_noms_accentues_et_guillemets(tmp_path):
+def test_verifier_chemins_noms_accentues(tmp_path):
     acceptes = ["src/ok.py", ".env.example", "docs/guide.pdf"]
-    refuses = ["Rapport-Société.pdf", "clients/clé/.env", 'reports/a"b.txt']
+    refuses = ["Rapport-Société.pdf", "clients/clé/.env"]
     sortie = _verifier(_depot(tmp_path, [*acceptes, *refuses]))
     assert sortie.returncode == 1
     for refuse in refuses:
         assert refuse in sortie.stdout
     for accepte in acceptes:
         assert accepte not in sortie.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason='« " » interdit par NTFS')
+def test_verifier_chemins_nom_avec_guillemet(tmp_path):
+    # git echappe aussi « " » hors du mode -z ; le controle CI tourne sous Linux
+    sortie = _verifier(_depot(tmp_path, ['reports/a"b.txt']))
+    assert sortie.returncode == 1
+    assert 'reports/a"b.txt' in sortie.stdout
 
 
 def test_verifier_chemins_fichier_ajoute_dans_un_merge(tmp_path):

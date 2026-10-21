@@ -142,20 +142,28 @@ jobs:
           echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
       # Scans avant toute installation : l'arbre ne contient que le depot.
-      # --log-opts remplace les options par defaut de gitleaks : on les reprend et
-      # on ajoute --diff-merges=remerge, sans quoi un secret introduit dans un
-      # commit de fusion n'est jamais vu.
+      # Options communes :
+      # - --ignore-gitleaks-allow : un « gitleaks:allow » ajoute puis retire ne doit
+      #   pas masquer un secret reste dans l'historique ; une exception legitime va
+      #   dans .gitleaks.toml, revue dans le diff ;
+      # - --max-archive-depth=2 : un .zip (ou un bundle dans un zip) est ouvert.
       - name: gitleaks sur tout l'historique (lignes ajoutees, merges compris)
+        # --log-opts remplace les options par defaut de gitleaks : on les reprend et
+        # on ajoute --diff-merges=remerge, sans quoi un secret introduit dans un
+        # commit de fusion n'est jamais vu.
         run: >-
           "$RUNNER_TEMP/gitleaks" git --redact --no-banner --verbose
-          --config .gitleaks.toml
+          --config .gitleaks.toml --ignore-gitleaks-allow --max-archive-depth=2
           --log-opts="--all --full-history --diff-filter=tuxdb --diff-merges=remerge" .
       - name: gitleaks sur l'arbre (fichiers entiers, regles composites)
-        run: '"$RUNNER_TEMP/gitleaks" dir --redact --no-banner --verbose --config .gitleaks.toml .'
+        run: >-
+          "$RUNNER_TEMP/gitleaks" dir --redact --no-banner --verbose
+          --config .gitleaks.toml --ignore-gitleaks-allow --max-archive-depth=2 .
       # Les regles composites ne voient leur contexte qu'en mode dir : chaque
       # version de chaque fichier de l'historique est donc analysee entiere. Les
       # blobs sont ecrits sous leur SHA (jamais sous un chemin venu du depot), avec
-      # le seul nom de base pour les regles qui dependent de l'extension.
+      # le seul nom de base pour les regles qui dependent de l'extension. Un blob
+      # UTF-16 (exports Windows) est aussi analyse converti en UTF-8.
       - name: gitleaks sur chaque version de fichier de l'historique
         run: |
           blobs="$RUNNER_TEMP/blobs"
@@ -167,8 +175,22 @@ jobs:
                 nom="$(basename -- "${chemin:-blob}")"
                 mkdir -p "$blobs/$sha"
                 git cat-file blob "$sha" > "$blobs/$sha/$nom"
+                bom="$(head -c 2 "$blobs/$sha/$nom" | od -An -tx1 | tr -d ' \n')"
+                if [ "$bom" = "fffe" ] || [ "$bom" = "feff" ]; then
+                  mkdir -p "$blobs/$sha/utf8"
+                  iconv -f UTF-16 -t UTF-8 "$blobs/$sha/$nom" > "$blobs/$sha/utf8/$nom"
+                fi
               done
-          "$RUNNER_TEMP/gitleaks" dir --redact --no-banner --verbose --config .gitleaks.toml "$blobs"
+          "$RUNNER_TEMP/gitleaks" dir --redact --no-banner --verbose \
+            --config .gitleaks.toml --ignore-gitleaks-allow --max-archive-depth=2 "$blobs"
+      - name: gitleaks sur les messages de commit et de tag
+        run: |
+          {
+            git log --all --format='%H%n%an <%ae>%n%cn <%ce>%n%B'
+            git for-each-ref refs/tags \
+              --format='%(refname)%0a%(taggername) %(taggeremail)%0a%(contents)'
+          } | "$RUNNER_TEMP/gitleaks" stdin --redact --no-banner --verbose \
+            --config .gitleaks.toml --ignore-gitleaks-allow
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -176,8 +198,9 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       # Garde-fous anti-fuite cote serveur : les hooks locaux se contournent
-      # (--no-verify, clone sans pre-commit install), pas ce controle. Il porte
-      # sur tous les fichiers de l'historique, y compris ceux supprimes depuis.
+      # (--no-verify, clone sans pre-commit install, gitleaks:allow), pas ces
+      # controles. Ils portent sur tout l'historique, y compris les fichiers
+      # supprimes depuis.
       - name: aucun fichier interdit dans l'historique ni dans l'arbre
         run: uv run python scripts/verifier_chemins.py
       - name: regles gitleaks verifiees avec ce binaire
