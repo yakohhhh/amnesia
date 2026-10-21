@@ -29,13 +29,36 @@ intention ; leur `run()` est à implémenter — voir [`docs/ROADMAP.md`](docs/R
 
 ## Démarrer
 
+Avec [uv](https://docs.astral.sh/uv/) (environnement virtuel créé et géré
+automatiquement) :
+
 ```bash
-pip install -e .
-amnesia list-checks
-amnesia audit --target dc01
-# ou sans installer :
-python -m amnesia --help
+uv sync
+uv run amnesia list-checks
+uv run amnesia audit --target dc01
 ```
+
+Sans uv, toujours dans un environnement virtuel :
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -e .
+amnesia --help
+```
+
+## Développement
+
+Les outils (ruff, pytest, nox) sont épinglés dans `pyproject.toml` et figés
+avec leurs empreintes dans `uv.lock`.
+
+```bash
+uv sync                    # installe le projet et le groupe dev depuis uv.lock
+uv run nox -l              # liste des sessions
+uv run nox -s lint tests   # lint + tests sur toutes les versions supportées
+uv run pytest              # tests sur l'interpréteur de .python-version
+```
+
+Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 
 ## Pourquoi Python
 
