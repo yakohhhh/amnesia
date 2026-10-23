@@ -10,9 +10,6 @@ resolution-markers = [
 exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
-[options.exclude-newer-package]
-ruff = "2026-10-16T00:00:00Z"
-
 [manifest]
 build-constraints = [{ name = "setuptools", specifier = "==84.0.0" }]
 
