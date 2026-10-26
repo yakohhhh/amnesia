@@ -146,10 +146,13 @@ def test_build_applique_tool_uv_hors_du_depot(
     source = _copie_source(tmp_path / "source")
     pyproject = source / "pyproject.toml"
     (epingle,) = _pyproject()["tool"]["uv"]["build-constraint-dependencies"]
+    # la ligne de la contrainte seulement : le groupe dev epingle le meme setuptools
+    ligne = 'build-constraint-dependencies = ["{}"]'
     texte = pyproject.read_text(encoding="utf-8")
-    assert texte.count(f'"{epingle}"') == 1
+    assert texte.count(ligne.format(epingle)) == 1
     pyproject.write_text(
-        texte.replace(f'"{epingle}"', '"setuptools==0.9.8"'), encoding="utf-8"
+        texte.replace(ligne.format(epingle), ligne.format("setuptools==0.9.8")),
+        encoding="utf-8",
     )
     ailleurs = tmp_path / "ailleurs"
     ailleurs.mkdir()
