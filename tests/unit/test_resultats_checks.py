@@ -7,7 +7,9 @@ import dataclasses
 import doctest
 import json
 import pickle
+import subprocess
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -340,6 +342,101 @@ def test_failed_avec_trace_et_type_qualifie() -> None:
     assert "Traceback" in r.error.traceback
 
 
+# --- failed() : secrets et texte hostile -------------------------------------
+
+# secret construit a l'execution : jamais en clair dans le source (gitleaks)
+MDP = "S3cr3t-" + "Pass!"
+ARGV = ["wevtutil", "gl", "Security", "/r:dc01", "/u:CORP\\audit", f"/p:{MDP}"]
+
+
+def _failed(exc: BaseException, **options: Any) -> CheckResult:
+    return CheckResult.failed(
+        "win.security_log_size", "dc01", Reason.ACCESS_DENIED, exc, **options
+    )
+
+
+@pytest.mark.parametrize(
+    ("exc", "attendu"),
+    [
+        (subprocess.CalledProcessError(5, ARGV), "commande 'wevtutil' : code 5"),
+        (subprocess.TimeoutExpired(ARGV, 30), "commande 'wevtutil' : delai de 30 s"),
+        # chaine passee au shell, executable designe par son chemin
+        (
+            subprocess.CalledProcessError(1, "/usr/bin/" + " ".join(ARGV)),
+            "commande 'wevtutil' : code 1",
+        ),
+    ],
+    ids=["CalledProcessError", "TimeoutExpired", "shell"],
+)
+def test_failed_ne_garde_que_l_executable(exc: BaseException, attendu: str) -> None:
+    r = _failed(exc)
+    assert r.message == attendu
+    assert r.error is not None
+    assert r.error.message == attendu
+    assert MDP not in json.dumps(r.to_dict())
+
+
+@pytest.mark.parametrize(
+    "texte",
+    [
+        f"winrm://audit:{MDP}@dc01:5986",
+        # « @ » dans le mot de passe ; coupe en deux pour gitleaks
+        "ssh://audit:" + f"ab@{MDP}@srv-file/",
+        f"wevtutil gl Security /p:{MDP}",
+        f"Invoke-Command -Password {MDP}",
+        f"connexion --password={MDP}",
+        f"password={MDP}",
+        f"client_secret: {MDP}",
+        f"Authorization: Bearer {MDP}",
+    ],
+)
+def test_failed_caviarde_les_secrets(texte: str) -> None:
+    r = _failed(ValueError(f"echec : {texte}"))
+    assert MDP not in json.dumps(r.to_dict())
+    assert "***" in r.message
+
+
+@pytest.mark.parametrize("chainage", ["implicite", "explicite", "note"])
+def test_trace_sans_exceptions_chainees_ni_notes(chainage: str) -> None:
+    try:
+        try:
+            raise subprocess.CalledProcessError(5, ARGV)
+        except subprocess.CalledProcessError as origine:
+            erreur = PermissionError("wevtutil : acces refuse")
+            if chainage == "explicite":
+                raise erreur from origine
+            if chainage == "note":
+                erreur.add_note(f"cmd: {' '.join(ARGV)}")
+            raise erreur  # noqa: B904 - chainage implicite voulu
+    except PermissionError as exc:
+        r = _failed(exc, with_traceback=True)
+    assert r.message == "wevtutil : acces refuse"
+    assert r.error is not None
+    assert r.error.traceback is not None
+    assert 'File "test_resultats_checks.py"' in r.error.traceback
+    # ni secret, ni chemin absolu de la machine de l'auditeur
+    assert MDP not in json.dumps(r.to_dict())
+    assert str(Path(__file__).parent) not in r.error.traceback
+
+
+def test_failed_quand_str_de_l_exception_leve() -> None:
+    class Illisible(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("boom")
+
+    r = _failed(Illisible(), with_traceback=True)
+    assert r.status is Status.ERROR
+    assert r.message == "<message illisible>"
+    assert r.error is not None
+    assert r.error.type.endswith("Illisible")
+
+
+def test_failed_neutralise_les_caracteres_de_controle() -> None:
+    r = _failed(OSError("\x1b[2J\x1b[31mOK\r\nfake\u202e"))
+    assert r.message == "\\x1b[2J\\x1b[31mOK\\r\\nfake\\u202e"
+    assert r.message.isprintable()
+
+
 # --- exceptions levables par un check ----------------------------------------
 
 
@@ -379,6 +476,9 @@ def test_resultat_immuable() -> None:
     [
         ({"check_id": ""}, ValueError),
         ({"target": ""}, ValueError),
+        ({"check_id": "win.sysmon\n"}, ValueError),
+        ({"target": "dc01\x1b]0;pwn\x07"}, ValueError),
+        ({"target": "dc01\u202e"}, ValueError),
         ({"status": "pass"}, TypeError),
         ({"gaps": [GAP_RDP]}, TypeError),
         ({"gaps": ("pas un Gap",)}, TypeError),

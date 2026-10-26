@@ -77,10 +77,14 @@ Exemple :
 from __future__ import annotations
 
 import math
+import os
+import re
+import subprocess
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from traceback import format_exception
+from pathlib import PurePath
+from traceback import extract_tb
 from typing import Any
 
 
@@ -157,13 +161,101 @@ def _motifs(status: Status) -> str:
     return ", ".join(m.value for m in Reason if m.status is status)
 
 
+# --- texte tire d'une exception ---------------------------------------------
+# Message et trace finissent dans le rapport client. Ils viennent de la stdlib,
+# d'une bibliotheque tierce ou de la sortie d'un hote audite (potentiellement
+# compromis) : on les caviarde, puis on neutralise leurs caracteres de controle.
+
+_MASQUE = "***"
+_CAVIARDAGES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # identifiants dans une URL (winrm://audit:mdp@dc01) ; le mot de passe peut
+    # contenir « @ » : on masque jusqu'au dernier
+    (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://[^\s:@/]*):\S*@"), rf"\1:{_MASQUE}@"),
+    # /p:mdp, /password:mdp (wevtutil, schtasks...)
+    (re.compile(r"(?i)(?<![\w/])(/p(?:assword)?:)\S+"), rf"\1{_MASQUE}"),
+    # -p mdp, -Password mdp, --password=mdp
+    (
+        re.compile(r"(?i)(?<![\w-])(--?p(?:ass(?:word)?)?)(\s+|=)\S+"),
+        rf"\1\2{_MASQUE}",
+    ),
+    # password=mdp, pwd: mdp, client_secret=..., access_token=..., api_key=...
+    (
+        re.compile(
+            r"(?i)(?<![a-z0-9])(pass(?:word|wd|phrase)?|pwd|secret|token|"
+            r"api[_-]?key)(\s*[=:]\s*)\S+"
+        ),
+        rf"\1\2{_MASQUE}",
+    ),
+    # Authorization: Bearer <jeton>
+    (re.compile(r"(?i)(\bbearer\s+)\S+"), rf"\1{_MASQUE}"),
+)
+
+
+def _assainir(texte: str) -> str:
+    for motif, remplacement in _CAVIARDAGES:
+        texte = motif.sub(remplacement, texte)
+    # sequences ANSI, retours chariot, bidi : rendus visibles (\x1b, \r, \u202e)
+    return "".join(
+        c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in texte
+    )
+
+
+def _executable(cmd: Any) -> str:
+    # executable seul : les arguments peuvent porter un mot de passe (/p:...)
+    if isinstance(cmd, list | tuple):
+        return PurePath(os.fsdecode(cmd[0])).name if cmd else ""
+    # chaine passee au shell : premier mot
+    mots = os.fsdecode(cmd).split(maxsplit=1)
+    return PurePath(mots[0]).name if mots else ""
+
+
+def _message_de(exc: BaseException) -> str:
+    """Message caviarde de l'exception ; ne leve jamais."""
+    try:
+        # str() de ces deux exceptions recopie toute la ligne de commande
+        if isinstance(exc, subprocess.CalledProcessError):
+            texte = f"commande {_executable(exc.cmd)!r} : code {exc.returncode}"
+        elif isinstance(exc, subprocess.TimeoutExpired):
+            texte = f"commande {_executable(exc.cmd)!r} : delai de {exc.timeout} s"
+        else:
+            texte = str(exc)
+        return _assainir(texte)
+    except Exception:
+        # __str__ defaillant : le resultat error doit exister quand meme
+        return "<message illisible>"
+
+
+def _trace_de(exc: BaseException) -> str:
+    """Frames de l'exception seules ; ne leve jamais.
+
+    Ni message, ni exceptions chainees (__cause__, __context__), ni notes : ils
+    peuvent porter le secret qu'un check a justement ecarte de son exception.
+    Nom de fichier sans son chemin, qui revelerait la machine de l'auditeur.
+    """
+    try:
+        lignes = ["Traceback (most recent call last):"]
+        for f in extract_tb(exc.__traceback__):
+            fichier = PurePath(f.filename).name
+            lignes.append(f'  File "{fichier}", line {f.lineno}, in {f.name}')
+            if f.line:
+                lignes.append(f"    {f.line}")
+        return "".join(_assainir(ligne) + "\n" for ligne in lignes)
+    except Exception:
+        return "<trace illisible>"
+
+
 @dataclass(frozen=True, slots=True)
 class ErrorInfo:
     """Exception a l'origine d'un statut error.
 
-    ``message`` reprend ``str(exc)`` tel quel et finit dans le rapport client :
-    un check ne met jamais de secret dans ses exceptions. La trace n'est
-    conservee que sur demande explicite (``with_traceback=True``).
+    ``message`` et ``traceback`` finissent dans le rapport client.
+    ``from_exception`` reprend donc ``str(exc)`` caviarde (identifiants dans une
+    URL, /p:, -p, password=...) et sans caracteres de controle ; pour une erreur
+    de subprocess, seul l'executable est garde. Ce caviardage est un filet de
+    securite : un check ne met toujours aucun secret dans ses exceptions. La
+    trace n'est conservee que sur demande explicite (``with_traceback=True``),
+    reduite aux frames.
     """
 
     type: str
@@ -178,8 +270,8 @@ class ErrorInfo:
         nom = t.__qualname__
         if t.__module__ != "builtins":
             nom = f"{t.__module__}.{nom}"
-        trace = "".join(format_exception(exc)) if with_traceback else None
-        return cls(type=nom, message=str(exc), traceback=trace)
+        trace = _trace_de(exc) if with_traceback else None
+        return cls(type=nom, message=_message_de(exc), traceback=trace)
 
     def to_dict(self) -> dict[str, str | None]:
         return {"type": self.type, "message": self.message, "traceback": self.traceback}
@@ -191,7 +283,8 @@ class CheckResult:
 
     Les invariants sont verifies a la construction (ValueError, TypeError) ;
     passer de preference par les constructeurs ``passed``, ``with_gaps``,
-    ``skipped``, ``not_applicable`` et ``failed``.
+    ``skipped``, ``not_applicable`` et ``failed``. ``message`` reste du texte
+    libre : son rendu en terminal (#22) neutralise les caracteres de controle.
     """
 
     check_id: str
@@ -212,6 +305,9 @@ class CheckResult:
             valeur = getattr(self, champ)
             if not isinstance(valeur, str) or not valeur:
                 raise ValueError(f"{champ} doit etre une chaine non vide : {valeur!r}")
+            # identifiant normalise : ni sequence ANSI, ni retour chariot, ni bidi
+            if not valeur.isprintable():
+                raise ValueError(f"{champ} non imprimable : {valeur!r}")
         if not isinstance(self.status, Status):
             raise TypeError(f"status doit etre un Status : {self.status!r}")
         if not isinstance(self.gaps, tuple) or not all(
