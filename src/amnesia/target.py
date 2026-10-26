@@ -53,6 +53,8 @@ _LONGUEUR_MAX = 4096
 # PowerShell, et la virgule, qui fait d'un -ComputerName une liste d'hotes)
 _METACARACTERES = frozenset(";|&$`'\"<>(){}*?!%^#,")
 _LABEL = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
+# composante numerique pour inet_aton : decimale, octale (0177) ou hexa (0x7f)
+_NUMERIQUE = re.compile(r"[0-9]+|0x[0-9a-f]*")
 _PORT = re.compile(r"[0-9]{1,5}")
 
 
@@ -105,18 +107,27 @@ def _nom_ou_ipv4(hote: str) -> str:
             raise TargetError(
                 "nom d'hote invalide : labels de 1 a 63 caracteres [a-z0-9-]"
             )
-    # « 10.0.0.256 » ou « 2130706433 » ne sont pas des noms : inet_aton en
-    # ferait une IPv4, d'ou un dernier label jamais entierement numerique
-    if labels[-1].isdigit():
+    # « 10.0.0.256 », « 2130706433 » ou « 0x7f000001 » ne sont pas des noms :
+    # inet_aton et getaddrinfo en feraient une IPv4, sans requete DNS, d'ou un
+    # dernier label jamais numerique (regle « ends in a number » du WHATWG)
+    if _NUMERIQUE.fullmatch(labels[-1]):
         raise TargetError("adresse IPv4 invalide")
     return nom
 
 
 def _ipv6(hote: str) -> str:
     try:
-        return str(ipaddress.IPv6Address(hote))
+        adresse = ipaddress.IPv6Address(hote)
     except ValueError:
         raise TargetError("adresse IPv6 invalide") from None
+    # ::ffff:a.b.c.d (mappee) et ::a.b.c.d (compatible, obsolete) visent une
+    # IPv4 : un meme hote aurait deux id. :: et ::1 restent des IPv6
+    ipv4 = adresse.ipv4_mapped
+    if ipv4 is None and adresse.packed[:12] == bytes(12) and int(adresse) > 1:
+        ipv4 = ipaddress.IPv4Address(adresse.packed[12:])
+    if ipv4 is not None:
+        raise TargetError(f"adresse IPv6 portant une IPv4 : utiliser {ipv4}")
+    return str(adresse)
 
 
 def _port(brut: str) -> int:
@@ -160,7 +171,8 @@ def _chemin_bundle(brut: str) -> Path:
     try:
         mode = chemin.stat().st_mode
     except (OSError, ValueError):
-        raise TargetError(f"bundle introuvable : {_montrer(str(chemin))}") from None
+        # chemin non repris : il peut porter des identifiants (smb://u:p@nas)
+        raise TargetError("bundle introuvable") from None
     if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
         raise TargetError("bundle : fichier ou dossier attendu")
     return chemin

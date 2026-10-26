@@ -14,9 +14,14 @@ NOM_253 = ".".join(["a" * 63] * 3 + ["b" * 61])
 
 # grammaire des id normalises, reecrite ici independamment du module
 _LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
+_OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
+_IPV4 = rf"(?:{_OCTET}\.){{3}}{_OCTET}"
+# dernier label d'un nom jamais numerique au sens d'inet_aton (0x7f, 0177, 10)
+_DERNIER = r"(?!(?:[0-9]+|0x[0-9a-f]*)(?::|\Z))"
 _ID = re.compile(
     rf"local"
-    rf"|winrm://(?:(?:{_LABEL}\.)*{_LABEL}|\[[0-9a-f:.]+\])(?::[0-9]{{1,5}})?"
+    rf"|winrm://(?:{_IPV4}|(?:{_LABEL}\.)*{_DERNIER}{_LABEL}|\[[0-9a-f:]+\])"
+    rf"(?::[0-9]{{1,5}})?"
     rf"|bundle:(?!-)[!-~]+"
 )
 _INTERDITS = set(";|&$`'\"<>")
@@ -53,7 +58,9 @@ def test_winrm_fqdn_normalise():
             None,
             "winrm://[fe80::1]",
         ),
+        ("winrm://[::1]", Transport.WINRM, "::1", None, "winrm://[::1]"),
         ("winrm://dc01:1", Transport.WINRM, "dc01", 1, "winrm://dc01:1"),
+        ("winrm://0x1g.corp", Transport.WINRM, "0x1g.corp", None, "winrm://0x1g.corp"),
         ("winrm://dc01:65535", Transport.WINRM, "dc01", 65535, "winrm://dc01:65535"),
         (
             "winrm://xn--bcher-kva.example",
@@ -132,6 +139,15 @@ def test_bundle_existant_accepte(tmp_path, monkeypatch, nature):
         ("winrm://[10.0.0.5]", "IPv6"),
         ("winrm://10.0.0.256", "IPv4"),
         ("winrm://2130706433", "IPv4"),
+        ("winrm://0x7f000001", "IPv4"),
+        ("winrm://0X7F000001:5986", "IPv4"),
+        ("winrm://10.0.0.0x5", "IPv4"),
+        ("winrm://127.0x1", "IPv4"),
+        ("winrm://0177.0.0.0x1", "IPv4"),
+        ("winrm://10.0.0.0x", "IPv4"),
+        ("winrm://[::ffff:10.0.0.5]", "utiliser 10.0.0.5"),
+        ("winrm://[::ffff:a00:5]:5986", "utiliser 10.0.0.5"),
+        ("winrm://[::10.0.0.5]", "utiliser 10.0.0.5"),
         ("bundle:", "manquant"),
         ("bundle:n-existe-pas", "introuvable"),
         ("bundle:-x", "tiret"),
@@ -157,7 +173,10 @@ def test_nom_nu_suggere_winrm(brut, suggestion):
         Target.parse(brut)
 
 
-@pytest.mark.parametrize("gabarit", ["winrm://audit:{}@dc01", "audit:{}@dc01"])
+@pytest.mark.parametrize(
+    "gabarit",
+    ["winrm://audit:{}@dc01", "audit:{}@dc01", "bundle:smb://audit:{}@nas/x"],
+)
 @pytest.mark.parametrize("suffixe", ["", "!"])
 def test_identifiants_jamais_repris_dans_le_message(gabarit, suffixe):
     # assemble a l'execution : un faux identifiant ne doit pas figurer tel quel
@@ -169,10 +188,11 @@ def test_identifiants_jamais_repris_dans_le_message(gabarit, suffixe):
 
 
 def test_message_echappe_la_saisie():
-    # un chemin inexistant est repris, mais echappe et tronque
-    with pytest.raises(TargetError) as exc:
-        Target.parse("bundle:" + "z" * 200)
-    assert len(str(exc.value)) < 120
+    # un schema inconnu est repris, mais echappe et tronque
+    with pytest.raises(TargetError, match="schema inconnu") as exc:
+        Target.parse("z" * 200 + ":x")
+    assert len(str(exc.value)) < 200
+    assert "z" * 65 not in str(exc.value)
 
 
 def test_target_figee():
