@@ -47,14 +47,15 @@ amnesia = ["py.typed"]
 # tests/conftest.py, qui les declare et les applique.
 testpaths = ["tests"]
 # --import-mode=importlib : fichiers de test homonymes permis (unit/, integration/)
-# --disable-socket (pytest-socket) : aucune socket hors des tests marques network
-addopts = "-ra --strict-markers --strict-config --import-mode=importlib --disable-socket"
+# -p no:socket : hooks de pytest-socket desactives, le conftest coupe le reseau
+# lui-meme avec ses fonctions (voir sa docstring)
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib -p no:socket"
 xfail_strict = true
 filterwarnings = [
     "error",
     # pytest-socket double SocketBlockedError d'un UserWarning, que "error"
     # leverait a la place de l'exception attendue
-    "ignore:A test tried to use socket:UserWarning:pytest_socket",
+    "ignore:A test tried to use socket:UserWarning",
 ]
 
 [tool.coverage.run]

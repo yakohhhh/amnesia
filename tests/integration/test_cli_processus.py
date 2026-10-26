@@ -17,7 +17,7 @@ def _amnesia(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_python_m_amnesia_help():
+def test_python_m_amnesia_help() -> None:
     sortie = _amnesia("--help")
     assert sortie.returncode == 0, sortie.stderr
     assert sortie.stdout.startswith("usage: amnesia")
@@ -25,11 +25,11 @@ def test_python_m_amnesia_help():
         assert commande in sortie.stdout
 
 
-def test_python_m_amnesia_version():
+def test_python_m_amnesia_version() -> None:
     sortie = _amnesia("--version")
     assert sortie.returncode == 0, sortie.stderr
     assert sortie.stdout.strip() == f"amnesia {__version__}"
 
 
-def test_python_m_amnesia_sans_sous_commande():
+def test_python_m_amnesia_sans_sous_commande() -> None:
     assert _amnesia().returncode == 2
