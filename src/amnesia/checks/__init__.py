@@ -3,7 +3,7 @@ from .base import Check, Gap
 
 
 def default_checks() -> list[Check]:
-    """Tous les checks enregistres."""
+    """Tous les checks enregistrés."""
     return list(windows.CHECKS)
 
 

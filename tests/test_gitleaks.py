@@ -51,7 +51,9 @@ def _regles_declenchees(
         check=True,
         capture_output=True,
     )
-    return {fuite["RuleID"] for fuite in json.loads(rapport.read_text())}
+    return {
+        fuite["RuleID"] for fuite in json.loads(rapport.read_text(encoding="utf-8"))
+    }
 
 
 @pytest.mark.parametrize(

@@ -49,6 +49,12 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    env:
+      # EncodingWarning (PEP 597) sur tout open() ou subprocess texte sans
+      # encoding explicite, traite en erreur par pytest (docs/dev/encodage.md).
+      # Le job nox-windows recoit les memes variables du noxfile.
+      PYTHONWARNDEFAULTENCODING: "1"
+      PYTEST_ADDOPTS: "-W error::EncodingWarning"
     strategy:
       fail-fast: false
       matrix:

@@ -1,0 +1,136 @@
+"""Textes accentues et sortie robuste a l'encodage (docs/dev/encodage.md)."""
+
+import io
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from amnesia.checks import default_checks
+from amnesia.cli import _proteger_sorties, main
+
+
+def test_titres_accentues(capsys):
+    assert main(["list-checks"]) == 0
+    sortie = capsys.readouterr().out
+    assert "Politique d'audit avancée" in sortie
+    assert "Synchronisation NTP (cohérence des horodatages)" in sortie
+
+
+def test_aide_accentuee(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "questions d'enquête" in capsys.readouterr().out
+
+
+def test_titres_sans_mot_desaccentue():
+    # mots dont la version sans accent a deja ete livree par erreur
+    desaccentues = ("enquete", "avancee", "coherence", "retention")
+    for check in default_checks():
+        for mot in desaccentues:
+            assert mot not in check.title.lower(), check.id
+
+
+def _cli(tmp_path: Path, encodage: str, *args: str) -> subprocess.CompletedProcess:
+    # sortie redirigee vers un pipe, comme « amnesia audit > rapport.txt » ;
+    # -X warn_default_encoding -W error : un open() sans encoding casse aussi la CLI
+    env = {**os.environ, "PYTHONIOENCODING": encodage}
+    return subprocess.run(  # noqa: S603 - interpreteur courant, arguments constants
+        [
+            sys.executable,
+            "-X",
+            "warn_default_encoding",
+            "-W",
+            "error",
+            "-m",
+            "amnesia",
+            *args,
+        ],
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+        env=env,
+    )
+
+
+@pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
+def test_sortie_redirigee_page_de_code(tmp_path, encodage):
+    # « → » vient de la CLI, « ’ » du chemin de rapport ; absents de cp850, et
+    # « → » absent de cp1252 : sans repli, UnicodeEncodeError
+    args = ("audit", "--out", "rapport d’audit.json")
+    reference = _cli(tmp_path, "utf-8", *args)
+    assert reference.returncode == 0, reference.stderr
+    texte = reference.stdout.decode("utf-8")
+    assert "→" in texte
+    assert "’" in texte
+    assert "enregistrés" in texte
+
+    resultat = _cli(tmp_path, encodage, *args)
+    assert resultat.returncode == 0
+    assert resultat.stderr == b""
+    assert resultat.stdout == texte.encode(encodage, errors="replace")
+    assert "enregistrés" in resultat.stdout.decode(encodage)
+
+
+@pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
+def test_aide_et_liste_redirigees_page_de_code(tmp_path, encodage):
+    for args in (["--help"], ["list-checks"]):
+        resultat = _cli(tmp_path, encodage, *args)
+        assert resultat.returncode == 0, args
+        assert resultat.stderr == b"", args
+        assert "é" in resultat.stdout.decode(encodage), args
+
+
+def _flux(encodage: str, errors: str) -> io.TextIOWrapper:
+    return io.TextIOWrapper(io.BytesIO(), encoding=encodage, errors=errors)
+
+
+@pytest.mark.parametrize(
+    ("encodage", "errors", "attendu"),
+    [
+        ("cp1252", "strict", "replace"),
+        ("cp850", "surrogateescape", "replace"),
+        # stderr garde backslashreplace, deja sans crash et plus informatif
+        ("cp1252", "backslashreplace", "backslashreplace"),
+        # en UTF-8 tout s'encode : flux laisse tel quel
+        ("utf-8", "strict", "strict"),
+        ("UTF8", "strict", "strict"),
+    ],
+)
+def test_proteger_sorties(monkeypatch, encodage, errors, attendu):
+    sortie, erreur = _flux(encodage, errors), _flux(encodage, errors)
+    monkeypatch.setattr(sys, "stdout", sortie)
+    monkeypatch.setattr(sys, "stderr", erreur)
+    _proteger_sorties()
+    assert (sortie.errors, erreur.errors) == (attendu, attendu)
+
+
+def test_proteger_sorties_sans_flux(monkeypatch):
+    # pythonw : stdout et stderr valent None
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    _proteger_sorties()
+
+
+@pytest.mark.parametrize("appel", ["open", "subprocess"])
+def test_encoding_warning_est_une_erreur(tmp_path, appel):
+    # garde-fou de la suite : CI et nox posent PYTHONWARNDEFAULTENCODING=1 et
+    # PYTEST_ADDOPTS="-W error::EncodingWarning"
+    if not sys.flags.warn_default_encoding:
+        raison = "PYTHONWARNDEFAULTENCODING=1 absent : voir docs/dev/encodage.md"
+        if os.environ.get("CI"):
+            pytest.fail(raison)
+        pytest.skip(raison)
+    with pytest.raises(EncodingWarning):
+        if appel == "open":
+            (tmp_path / "f.txt").write_text("x")  # encoding omis : volontaire
+        else:
+            subprocess.run(
+                [sys.executable, "-c", "pass"],
+                capture_output=True,
+                text=True,  # encoding omis : volontaire
+                check=False,
+            )

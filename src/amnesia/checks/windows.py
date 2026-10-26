@@ -1,31 +1,31 @@
-"""Checks Windows / Active Directory (metadonnees pour l'instant, run() a ecrire)."""
+"""Checks Windows / Active Directory (métadonnées pour l'instant, run() à écrire)."""
 
 from .base import Check
 
 
 class WindowsAuditPolicy(Check):
     id = "win.audit_policy"
-    title = "Politique d'audit avancee (logon, process creation, object access)"
+    title = "Politique d'audit avancée (logon, process creation, object access)"
 
 
 class WindowsPowerShellLogging(Check):
     id = "win.powershell_logging"
-    title = "PowerShell script block + module logging actives"
+    title = "PowerShell script block + module logging activés"
 
 
 class SecurityLogRetention(Check):
     id = "win.security_log_size"
-    title = "Taille/retention du journal Security (risque d'ecrasement)"
+    title = "Taille/rétention du journal Security (risque d'écrasement)"
 
 
 class SysmonPresent(Check):
     id = "win.sysmon"
-    title = "Sysmon installe et configure"
+    title = "Sysmon installé et configuré"
 
 
 class TimeSync(Check):
     id = "win.time_sync"
-    title = "Synchronisation NTP (coherence des horodatages)"
+    title = "Synchronisation NTP (cohérence des horodatages)"
 
 
 CHECKS = [

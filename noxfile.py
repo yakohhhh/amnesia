@@ -13,6 +13,13 @@ nox.options.error_on_missing_interpreters = True
 # du plancher de requires-python a la derniere version stable
 PYTHONS = ["3.11", "3.12", "3.13", "3.14", "3.15"]
 
+# comme le job test de la CI : tout open() ou subprocess texte sans encoding
+# explicite fait echouer le test qui l'execute (docs/dev/encodage.md)
+ENV_TESTS = {
+    "PYTHONWARNDEFAULTENCODING": "1",
+    "PYTEST_ADDOPTS": "-W error::EncodingWarning",
+}
+
 
 def _sync(session: nox.Session) -> None:
     """Installe le projet et le groupe dev a l'identique de uv.lock."""
@@ -36,4 +43,4 @@ def lint(session: nox.Session) -> None:
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
     _sync(session)
-    session.run("pytest", *session.posargs)
+    session.run("pytest", *session.posargs, env=ENV_TESTS)

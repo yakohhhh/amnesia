@@ -299,9 +299,10 @@ def _verifier(depot: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - interpreteur courant et script du depot
         [sys.executable, str(script), "--depot", str(depot)],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=False,
-        env=GIT_HERMETIQUE,
+        # le script ecrit des noms de fichiers accentues : meme encodage des deux cotes
+        env={**GIT_HERMETIQUE, "PYTHONIOENCODING": "utf-8"},
     )
 
 
