@@ -84,7 +84,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run pytest -q
+      # seuil de couverture : [tool.coverage.report] fail_under dans pyproject
+      - run: uv run pytest -q --cov --cov-report=term-missing
+      - name: aucun fichier ecrit dans le depot par les tests
+        run: |
+          git status --porcelain --untracked-files=all
+          test -z "$(git status --porcelain --untracked-files=all)"
 
   nox-windows:
     name: nox-windows
