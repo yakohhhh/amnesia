@@ -127,6 +127,24 @@ def test_six_categories_couvertes_et_tableau_de_couverture_a_jour():
     assert all(attendu.values())
 
 
+def test_identifiants_cites_tous_definis():
+    # un renvoi (RR10 depuis une mesure, A7 depuis un acteur...) vers un
+    # identifiant absent des tableaux serait une promesse sans contenu
+    definis = set()
+    for titre, prefixe in [
+        ("Flux", "Z"),
+        ("Flux", "F"),
+        ("Actifs", "A"),
+        ("Acteurs", "AC"),
+        ("Menaces et mesures", "M"),
+        ("Risques résiduels", "RR"),
+    ]:
+        definis |= set(_lignes(titre, prefixe))
+    texte = MODELE.read_text(encoding="utf-8")
+    cites = set(re.findall(r"\b(?:Z|F|AC|A|M|RR)\d+\b", texte))
+    assert cites - definis == set()
+
+
 def test_risques_residuels_justifies():
     for ident, cellules in _lignes("Risques résiduels", "RR").items():
         _, risque, justification = cellules
