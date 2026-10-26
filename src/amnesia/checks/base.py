@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..target import Target
 
 
 @dataclass
@@ -20,5 +24,5 @@ class Check:
     id: str = "base"
     title: str = "base"
 
-    def run(self, target: str) -> list[Gap]:  # pragma: no cover - stub
+    def run(self, target: Target) -> list[Gap]:  # pragma: no cover - stub
         raise NotImplementedError("check non implemente — voir docs/ROADMAP.md")
