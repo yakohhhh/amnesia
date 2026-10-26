@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -42,24 +44,52 @@ ETAT_INITIAL = {
 }
 
 
-def _module():
+def _module() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "sync_github", RACINE / "scripts" / "sync_github.py"
     )
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
 @pytest.fixture
-def sync(monkeypatch):
+def sync(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     module = _module()
     monkeypatch.setattr(module, "COMMANDE_GH", [sys.executable, str(FAUX_GH)])
     return module
 
 
+class Github:
+    """Etat et journal du faux gh, relus a chaque appel."""
+
+    def __init__(self, fichier_etat: Path, journal: Path) -> None:
+        self.fichier_etat, self.journal = fichier_etat, journal
+
+    def etat(self) -> dict[str, Any]:
+        contenu: dict[str, Any] = json.loads(
+            self.fichier_etat.read_text(encoding="utf-8")
+        )
+        return contenu
+
+    def ecrire(self, contenu: dict[str, Any]) -> None:
+        self.fichier_etat.write_text(json.dumps(contenu), encoding="utf-8")
+
+    def appels(self) -> list[dict[str, Any]]:
+        lignes = self.journal.read_text(encoding="utf-8").splitlines()
+        return [json.loads(ligne) for ligne in lignes]
+
+    def ecritures(self) -> list[dict[str, Any]]:
+        return [a for a in self.appels() if a.get("methode", "GET") != "GET"]
+
+    def oublier(self) -> None:
+        self.journal.write_text("", encoding="utf-8")
+
+
 @pytest.fixture
-def github(tmp_path, monkeypatch):
+def github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Github:
     etat = tmp_path / "etat.json"
     journal = tmp_path / "journal.jsonl"
     etat.write_text(json.dumps(ETAT_INITIAL), encoding="utf-8")
@@ -68,34 +98,16 @@ def github(tmp_path, monkeypatch):
     monkeypatch.setenv("FAUX_GH_JOURNAL", str(journal))
     monkeypatch.delenv("FAUX_GH_ECHEC", raising=False)
     monkeypatch.delenv("GH_REPO", raising=False)
-
-    class Github:
-        def etat(self) -> dict:
-            return json.loads(etat.read_text(encoding="utf-8"))
-
-        def ecrire(self, contenu: dict) -> None:
-            etat.write_text(json.dumps(contenu), encoding="utf-8")
-
-        def appels(self) -> list[dict]:
-            lignes = journal.read_text(encoding="utf-8").splitlines()
-            return [json.loads(ligne) for ligne in lignes]
-
-        def ecritures(self) -> list[dict]:
-            return [a for a in self.appels() if a.get("methode", "GET") != "GET"]
-
-        def oublier(self) -> None:
-            journal.write_text("", encoding="utf-8")
-
-    return Github()
+    return Github(etat, journal)
 
 
-def _labels_fichier() -> dict[str, dict]:
+def _labels_fichier() -> dict[str, dict[str, Any]]:
     return {
         label["name"]: label for label in _module().charger_labels(_module().LABELS)
     }
 
 
-def test_labels_yml_decrit_toute_la_taxonomie():
+def test_labels_yml_decrit_toute_la_taxonomie() -> None:
     noms = set(_labels_fichier())
     types = ["feature", "bug", "chore", "docs", "security", "test", "research"]
     zones = "core cli windows ad cloud siem report ci packaging docs legal business"
@@ -110,7 +122,7 @@ def test_labels_yml_decrit_toute_la_taxonomie():
     assert len([n for n in noms if n.startswith("area:")]) == 12
 
 
-def test_descriptions_accentuees():
+def test_descriptions_accentuees() -> None:
     labels = _labels_fichier()
     assert labels["type:feature"]["description"] == "Nouvelle fonctionnalité"
     assert labels["good first issue"]["description"] == "Bon point de départ"
@@ -125,7 +137,7 @@ def test_descriptions_accentuees():
         assert not sans_accents.search(milestone["description"]), milestone
 
 
-def test_milestones_yml_titres_exacts():
+def test_milestones_yml_titres_exacts() -> None:
     titres = [m["title"] for m in _module().charger_milestones(_module().MILESTONES)]
     assert titres == [
         "M0 — Scaffold",
@@ -137,7 +149,9 @@ def test_milestones_yml_titres_exacts():
     ]
 
 
-def test_dry_run_n_emet_aucune_ecriture(sync, github, capsys):
+def test_dry_run_n_emet_aucune_ecriture(
+    sync: ModuleType, github: Github, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert sync.main(["--repo", DEPOT, "--dry-run"]) == 0
     assert github.ecritures() == []
     assert github.etat() == ETAT_INITIAL
@@ -148,7 +162,9 @@ def test_dry_run_n_emet_aucune_ecriture(sync, github, capsys):
     assert "rien n'est ecrit" in sortie
 
 
-def test_dry_run_avec_prune_n_emet_aucune_ecriture(sync, github, capsys):
+def test_dry_run_avec_prune_n_emet_aucune_ecriture(
+    sync: ModuleType, github: Github, capsys: pytest.CaptureFixture[str]
+) -> None:
     github.ecrire({**ETAT_INITIAL, "issues": []})
     assert sync.main(["--repo", DEPOT, "--dry-run", "--prune"]) == 0
     assert github.ecritures() == []
@@ -158,7 +174,9 @@ def test_dry_run_avec_prune_n_emet_aucune_ecriture(sync, github, capsys):
     assert "- label enhancement" in sortie
 
 
-def test_synchronisation_puis_relance_sans_modification(sync, github, capsys):
+def test_synchronisation_puis_relance_sans_modification(
+    sync: ModuleType, github: Github, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert sync.main(["--repo", DEPOT]) == 0
     assert github.ecritures()
     etat = github.etat()
@@ -195,7 +213,9 @@ def test_synchronisation_puis_relance_sans_modification(sync, github, capsys):
     assert "Aucune modification" in capsys.readouterr().out
 
 
-def test_prune_supprime_les_labels_absents_non_utilises(sync, github):
+def test_prune_supprime_les_labels_absents_non_utilises(
+    sync: ModuleType, github: Github
+) -> None:
     assert sync.main(["--repo", DEPOT]) == 0
     github.ecrire({**github.etat(), "issues": [{"number": 1, "labels": ["type:docs"]}]})
     github.oublier()
@@ -212,7 +232,9 @@ def test_prune_supprime_les_labels_absents_non_utilises(sync, github):
     assert len(github.etat()["milestones"]) == 7
 
 
-def test_prune_refuse_un_label_porte_par_une_issue(sync, github, capsys):
+def test_prune_refuse_un_label_porte_par_une_issue(
+    sync: ModuleType, github: Github, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert sync.main(["--repo", DEPOT, "--prune"]) == 1
     assert github.ecritures() == []
     erreur = capsys.readouterr().err
@@ -220,7 +242,12 @@ def test_prune_refuse_un_label_porte_par_une_issue(sync, github, capsys):
     assert "documentation" in erreur
 
 
-def test_echec_d_authentification(sync, github, monkeypatch, capsys):
+def test_echec_d_authentification(
+    sync: ModuleType,
+    github: Github,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     monkeypatch.setenv("FAUX_GH_ECHEC", "auth")
     assert sync.main(["--repo", DEPOT]) == 1
     erreur = capsys.readouterr().err
@@ -228,7 +255,12 @@ def test_echec_d_authentification(sync, github, monkeypatch, capsys):
     assert "gh auth login" in erreur
 
 
-def test_erreur_422_arrete_a_la_premiere_ecriture(sync, github, monkeypatch, capsys):
+def test_erreur_422_arrete_a_la_premiere_ecriture(
+    sync: ModuleType,
+    github: Github,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     monkeypatch.setenv("FAUX_GH_ECHEC", "422")
     assert sync.main(["--repo", DEPOT]) == 1
     assert len(github.ecritures()) == 1
@@ -238,14 +270,20 @@ def test_erreur_422_arrete_a_la_premiere_ecriture(sync, github, monkeypatch, cap
     assert '"errors"' in erreur
 
 
-def test_depot_courant_par_defaut(sync, github, capsys):
+def test_depot_courant_par_defaut(
+    sync: ModuleType, github: Github, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert sync.main(["--dry-run"]) == 0
     assert f"Depot : {DEPOT}" in capsys.readouterr().out
 
 
 def test_depot_par_defaut_ignore_repertoire_et_gh_repo(
-    sync, github, tmp_path, monkeypatch, capsys
-):
+    sync: ModuleType,
+    github: Github,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     # lance depuis un autre depot, GH_REPO positionne : la cible reste ce checkout
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GH_REPO", "tiers/client")
@@ -258,7 +296,9 @@ def test_depot_par_defaut_ignore_repertoire_et_gh_repo(
 @pytest.mark.parametrize(
     "depot", ["../../user", "a/b?x=1", "a", "a/b/c", "a/..", "a/.", "a/../b"]
 )
-def test_depot_invalide_refuse(sync, github, depot, capsys):
+def test_depot_invalide_refuse(
+    sync: ModuleType, github: Github, depot: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert sync.main(["--repo", depot, "--dry-run"]) == 1
     assert "depot invalide" in capsys.readouterr().err
     assert github.appels() == []
@@ -273,7 +313,9 @@ def test_depot_invalide_refuse(sync, github, depot, capsys):
         ([], "GET"),
     ],
 )
-def test_faux_gh_methode_par_defaut_de_gh(github, options, methode):
+def test_faux_gh_methode_par_defaut_de_gh(
+    github: Github, options: list[str], methode: str
+) -> None:
     # gh fait un POST des qu'un champ ou un corps est passe sans -X : le faux gh
     # doit le journaliser comme une ecriture, sinon les tests --dry-run mentent
     chemin = f"repos/{DEPOT}/issues?labels=bug"
@@ -287,7 +329,12 @@ def test_faux_gh_methode_par_defaut_de_gh(github, options, methode):
     assert [appel["methode"] for appel in github.appels()] == [methode]
 
 
-def test_gh_introuvable(sync, github, monkeypatch, capsys):
+def test_gh_introuvable(
+    sync: ModuleType,
+    github: Github,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     monkeypatch.setattr(sync, "COMMANDE_GH", ["gh-introuvable-amnesia"])
     assert sync.main(["--repo", DEPOT, "--dry-run"]) == 1
     assert "gh introuvable" in capsys.readouterr().err
@@ -312,8 +359,14 @@ def test_gh_introuvable(sync, github, monkeypatch, capsys):
     ],
 )
 def test_labels_yml_invalide(
-    sync, github, tmp_path, monkeypatch, capsys, contenu, message
-):
+    sync: ModuleType,
+    github: Github,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    contenu: str,
+    message: str,
+) -> None:
     fichier = tmp_path / "labels.yml"
     fichier.write_text(contenu, encoding="utf-8")
     monkeypatch.setattr(sync, "LABELS", fichier)
@@ -322,7 +375,13 @@ def test_labels_yml_invalide(
     assert github.appels() == []
 
 
-def test_milestone_state_invalide(sync, github, tmp_path, monkeypatch, capsys):
+def test_milestone_state_invalide(
+    sync: ModuleType,
+    github: Github,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     fichier = tmp_path / "milestones.yml"
     fichier.write_text(
         "milestones:\n  - {title: M0, description: d, state: ferme}\n", encoding="utf-8"
@@ -332,11 +391,12 @@ def test_milestone_state_invalide(sync, github, tmp_path, monkeypatch, capsys):
     assert "state invalide" in capsys.readouterr().err
 
 
-def test_pyyaml_du_script_identique_au_groupe_dev():
+def test_pyyaml_du_script_identique_au_groupe_dev() -> None:
     # les tests importent le PyYAML du groupe dev : meme version que le script,
     # dont les empreintes sont figees dans sync_github.py.lock
     texte = (RACINE / "scripts" / "sync_github.py").read_text(encoding="utf-8")
     bloc = re.search(r"^# /// script\n(.*?)^# ///$", texte, re.MULTILINE | re.DOTALL)
+    assert bloc is not None
     lignes = bloc.group(1).splitlines()
     metadonnees = tomllib.loads("\n".join(ligne[2:] for ligne in lignes))
     pyproject = tomllib.loads((RACINE / "pyproject.toml").read_text(encoding="utf-8"))

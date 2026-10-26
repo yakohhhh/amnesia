@@ -12,18 +12,23 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, NoReturn
 from urllib.parse import parse_qsl, unquote
 
 
-def _sortir(code: int, stderr: str = "", stdout: object = None) -> None:
+def _sortir(code: int, stderr: str = "", stdout: object = None) -> NoReturn:
     if stdout is not None:
         sys.stdout.write(json.dumps(stdout))
     sys.stderr.write(stderr)
     sys.exit(code)
 
 
-def _analyser(args: list[str]) -> tuple[str, str, dict, dict | None]:
-    methode, chemin, champs, corps = "GET", "", {}, None
+def _analyser(
+    args: list[str],
+) -> tuple[str, str, dict[str, str], dict[str, Any] | None]:
+    methode, chemin = "GET", ""
+    champs: dict[str, str] = {}
+    corps: dict[str, Any] | None = None
     explicite = False
     i = 0
     while i < len(args):
@@ -46,7 +51,13 @@ def _analyser(args: list[str]) -> tuple[str, str, dict, dict | None]:
     return methode, chemin, champs, corps
 
 
-def _api(etat: dict, methode: str, chemin: str, champs: dict, corps: dict | None):
+def _api(
+    etat: dict[str, Any],
+    methode: str,
+    chemin: str,
+    champs: dict[str, str],
+    corps: dict[str, Any],
+) -> object:
     parties = chemin.split("/")[3:]  # repos/proprietaire/depot/...
     labels, milestones = etat["labels"], etat["milestones"]
     if parties == ["labels"] and methode == "GET":
@@ -81,14 +92,14 @@ def _api(etat: dict, methode: str, chemin: str, champs: dict, corps: dict | None
         portees = [i for i in etat["issues"] if champs["labels"] in i["labels"]]
         return portees[: int(champs.get("per_page", 30))]
     _sortir(1, f"gh: Not Found (HTTP 404) {methode} {chemin}\n")
-    return None
 
 
 def main() -> None:
     args = sys.argv[1:]
     fichier = Path(os.environ["FAUX_GH_ETAT"])
     etat = json.loads(fichier.read_text(encoding="utf-8"))
-    entree, methode = {"args": args, "repertoire": str(Path.cwd())}, "GET"
+    entree: dict[str, Any] = {"args": args, "repertoire": str(Path.cwd())}
+    methode = "GET"
     if args[0] == "api":
         methode, chemin, champs, corps = _analyser(args[1:])
         entree.update(methode=methode, chemin=chemin, corps=corps)
@@ -104,7 +115,8 @@ def main() -> None:
     if echec == "422" and methode != "GET":
         corps_erreur = {"message": "Validation Failed", "errors": [{"code": "invalid"}]}
         _sortir(1, "gh: Validation Failed (HTTP 422)\n", corps_erreur)
-    reponse = _api(etat, methode, chemin, champs, corps)
+    # sans --input, le corps est vide : seules les ecritures le lisent
+    reponse = _api(etat, methode, chemin, champs, corps or {})
     fichier.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
     if reponse is not None:
         sys.stdout.write(json.dumps(reponse))
