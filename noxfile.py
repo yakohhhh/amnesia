@@ -1,13 +1,13 @@
-"""Sessions nox : lint et tests, installes depuis uv.lock.
+"""Sessions nox : lint, typage et tests, installes depuis uv.lock.
 
 Lister les sessions : ``uv run nox -l``.
-Meme chose que la CI : ``uv run nox -s lint tests``.
+Meme chose que la CI : ``uv run nox -s lint typecheck tests``.
 """
 
 import nox
 
 nox.options.default_venv_backend = "uv"
-nox.options.sessions = ["lint", "tests"]
+nox.options.sessions = ["lint", "typecheck", "tests"]
 nox.options.error_on_missing_interpreters = True
 
 # du plancher de requires-python a la derniere version stable
@@ -31,6 +31,13 @@ def lint(session: nox.Session) -> None:
     _sync(session)
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
+
+
+@nox.session(python=PYTHONS[0])
+def typecheck(session: nox.Session) -> None:
+    _sync(session)
+    # sans argument : cibles et mode strict lus dans [tool.mypy] de pyproject.toml
+    session.run("mypy", *session.posargs)
 
 
 @nox.session(python=PYTHONS)

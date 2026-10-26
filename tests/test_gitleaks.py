@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 
 RACINE = Path(__file__).resolve().parent.parent
-GITLEAKS = os.environ.get("GITLEAKS_BIN") or shutil.which("gitleaks")
+# chaine vide si absent : subprocess.run n'accepte pas None dans ses arguments
+GITLEAKS = os.environ.get("GITLEAKS_BIN") or shutil.which("gitleaks") or ""
 
 pytestmark = pytest.mark.skipif(not GITLEAKS, reason="binaire gitleaks absent")
 
@@ -74,7 +75,9 @@ def _regles_declenchees(
     ],
     ids=["env", "yaml", "powershell", "tenant", "autorite-msal", "az-cli", "azure-env"],
 )
-def test_secret_pres_d_un_identifiant_entra(tmp_path, nom, contenu):
+def test_secret_pres_d_un_identifiant_entra(
+    tmp_path: Path, nom: str, contenu: str
+) -> None:
     assert "secret-pres-d-un-guid-entra" in _regles_declenchees(tmp_path, nom, contenu)
 
 
@@ -96,11 +99,11 @@ def test_secret_pres_d_un_identifiant_entra(tmp_path, nom, contenu):
     ],
     ids=["code-azure-identity", "fixture-graph", "sans-identifiant", "gabarit-url"],
 )
-def test_pas_de_faux_positif(tmp_path, nom, contenu):
+def test_pas_de_faux_positif(tmp_path: Path, nom: str, contenu: str) -> None:
     assert _regles_declenchees(tmp_path, nom, contenu) == set()
 
 
-def test_identifiants_dans_une_url(tmp_path):
+def test_identifiants_dans_une_url(tmp_path: Path) -> None:
     url = "winrm://audit:" + "P@ssw0rd!2026" + "@dc01.acme.local"
     regles = _regles_declenchees(tmp_path, "cible.txt", url + "\n")
     assert "identifiants-dans-une-url" in regles
@@ -111,7 +114,7 @@ def _cle_aws() -> str:
     return "AKIA" + "Q4ZT7XK2MBV5NR3W"
 
 
-def test_archive_ouverte_avec_max_archive_depth(tmp_path):
+def test_archive_ouverte_avec_max_archive_depth(tmp_path: Path) -> None:
     with zipfile.ZipFile(tmp_path / "bundle.zip", "w") as archive:
         archive.writestr("config/.env", f"AWS_ACCESS_KEY_ID={_cle_aws()}\n")
     sans = _regles_declenchees(tmp_path, "bundle.zip", "")
@@ -120,7 +123,7 @@ def test_archive_ouverte_avec_max_archive_depth(tmp_path):
     assert "aws-access-token" in avec
 
 
-def test_gitleaks_allow_ignore_cote_serveur(tmp_path):
+def test_gitleaks_allow_ignore_cote_serveur(tmp_path: Path) -> None:
     ligne = f'cle = "{_cle_aws()}"  # gitleaks:allow\n'
     assert _regles_declenchees(tmp_path, "a.py", ligne) == set()
     regles = _regles_declenchees(tmp_path, "a.py", ligne, "--ignore-gitleaks-allow")
