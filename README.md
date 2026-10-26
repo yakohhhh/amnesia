@@ -48,14 +48,15 @@ amnesia --help
 
 ## Développement
 
-Les outils (ruff, pytest, nox) sont épinglés dans `pyproject.toml` et figés
+Les outils (ruff, mypy, pytest, nox) sont épinglés dans `pyproject.toml` et figés
 avec leurs empreintes dans `uv.lock`.
 
 ```bash
-uv sync                    # installe le projet et le groupe dev depuis uv.lock
-uv run nox -l              # liste des sessions
-uv run nox -s lint tests   # lint + tests sur toutes les versions supportées
-uv run pytest              # tests sur l'interpréteur de .python-version
+uv sync                             # installe le projet et le groupe dev depuis uv.lock
+uv run nox -l                       # liste des sessions
+uv run nox -s lint typecheck tests  # lint, typage + tests (toutes versions)
+uv run mypy                         # typage strict de src et tests
+uv run pytest                       # tests sur l'interpréteur de .python-version
 ```
 
 Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.

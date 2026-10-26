@@ -49,9 +49,9 @@ def _codes(source: str) -> set[str]:
     ],
     ids=["datetime-sans-fuseau", "print", "eval", "noqa-nu", "bidi", "zwsp"],
 )
-def test_regle_detectee(source, code):
+def test_regle_detectee(source: str, code: str) -> None:
     assert code in _codes(source)
 
 
-def test_typographie_francaise_acceptee():
+def test_typographie_francaise_acceptee() -> None:
     assert _codes('MSG = "l’audit – partiel"\n') == set()
