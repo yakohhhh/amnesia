@@ -17,6 +17,9 @@ uv run --locked scripts/sync_github.py             # applique le plan
 uv run --locked scripts/sync_github.py --dry-run   # « Aucune modification »
 ```
 
+- **Dépôt cible** : `--repo propriétaire/dépôt`, ou par défaut le dépôt de ce
+  checkout. `gh` est toujours lancé depuis la racine du dépôt et sans `GH_REPO` :
+  lancer le script depuis un autre répertoire ne change pas la cible.
 - **Idempotent** : seuls les écarts sont créés ou modifiés ; une deuxième
   exécution n'annonce et n'effectue rien.
 - **`--dry-run`** : lit l'état distant et affiche le plan, sans aucun appel en
@@ -66,7 +69,7 @@ correction :
   déjà ouvertes ;
 - chaque exécution indexait tout l'arbre de travail (`git add -A`) puis le
   commitait ;
-- il renvoyait vers un fichier `GO-LIVE.md` inexistant, et ses 5 labels, aux
+- il renvoyait vers un guide de mise en ligne inexistant, et ses 5 labels, aux
   descriptions sans accents, ne couvraient pas la taxonomie du backlog.
 
 Les issues du backlog ont depuis été créées hors de ce script ; la création

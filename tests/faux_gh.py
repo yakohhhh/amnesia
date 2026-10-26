@@ -4,6 +4,8 @@ L'etat du depot simule (labels, milestones, issues) est lu et reecrit dans le
 fichier JSON FAUX_GH_ETAT ; chaque appel est journalise dans FAUX_GH_JOURNAL.
 FAUX_GH_ECHEC simule une panne : « auth » (gh non connecte, code 4 comme gh) ou
 « 422 » (toute ecriture refusee, statut sur stderr et corps sur stdout comme gh).
+Comme gh, « repo view » privilegie GH_REPO, et la methode par defaut de « api » est
+GET, ou POST des qu'un champ ou un corps est fourni sans -X.
 """
 
 import json
@@ -22,12 +24,13 @@ def _sortir(code: int, stderr: str = "", stdout: object = None) -> None:
 
 def _analyser(args: list[str]) -> tuple[str, str, dict, dict | None]:
     methode, chemin, champs, corps = "GET", "", {}, None
+    explicite = False
     i = 0
     while i < len(args):
         arg = args[i]
-        if arg == "-X":
-            methode, i = args[i + 1], i + 1
-        elif arg == "-f":
+        if arg in {"-X", "--method"}:
+            methode, explicite, i = args[i + 1], True, i + 1
+        elif arg in {"-f", "-F", "--raw-field", "--field"}:
             cle, _, valeur = args[i + 1].partition("=")
             champs[cle], i = valeur, i + 1
         elif arg == "--input":
@@ -35,6 +38,9 @@ def _analyser(args: list[str]) -> tuple[str, str, dict, dict | None]:
         elif arg not in {"--paginate", "--slurp"}:
             chemin = arg
         i += 1
+    # comme gh : sans -X, un champ ou un corps fait un POST (pas la requete d'URL)
+    if not explicite and (champs or corps is not None):
+        methode = "POST"
     chemin, _, requete = chemin.partition("?")
     champs.update(parse_qsl(requete))
     return methode, chemin, champs, corps
@@ -82,7 +88,7 @@ def main() -> None:
     args = sys.argv[1:]
     fichier = Path(os.environ["FAUX_GH_ETAT"])
     etat = json.loads(fichier.read_text(encoding="utf-8"))
-    entree, methode = {"args": args}, "GET"
+    entree, methode = {"args": args, "repertoire": str(Path.cwd())}, "GET"
     if args[0] == "api":
         methode, chemin, champs, corps = _analyser(args[1:])
         entree.update(methode=methode, chemin=chemin, corps=corps)
@@ -94,7 +100,7 @@ def main() -> None:
     if echec == "auth":
         _sortir(4, "To get started with GitHub CLI, please run:  gh auth login\n")
     if args[:2] == ["repo", "view"]:
-        _sortir(0, stdout={"nameWithOwner": etat["depot"]})
+        _sortir(0, stdout={"nameWithOwner": os.environ.get("GH_REPO", etat["depot"])})
     if echec == "422" and methode != "GET":
         corps_erreur = {"message": "Validation Failed", "errors": [{"code": "invalid"}]}
         _sortir(1, "gh: Validation Failed (HTTP 422)\n", corps_erreur)

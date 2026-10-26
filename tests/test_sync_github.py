@@ -8,6 +8,7 @@ exerce.
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -18,7 +19,7 @@ RACINE = Path(__file__).resolve().parent.parent
 FAUX_GH = Path(__file__).resolve().parent / "faux_gh.py"
 DEPOT = "proprietaire/amnesia"
 
-# Etat laisse par l'ancien scripts/create-github-repo.sh : labels par defaut de
+# Etat laisse par l'ancien script de bootstrap (retire) : labels par defaut de
 # GitHub, 5 labels du projet sans accents, 4 milestones.
 ETAT_INITIAL = {
     "depot": DEPOT,
@@ -66,6 +67,7 @@ def github(tmp_path, monkeypatch):
     monkeypatch.setenv("FAUX_GH_ETAT", str(etat))
     monkeypatch.setenv("FAUX_GH_JOURNAL", str(journal))
     monkeypatch.delenv("FAUX_GH_ECHEC", raising=False)
+    monkeypatch.delenv("GH_REPO", raising=False)
 
     class Github:
         def etat(self) -> dict:
@@ -241,11 +243,48 @@ def test_depot_courant_par_defaut(sync, github, capsys):
     assert f"Depot : {DEPOT}" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("depot", ["../../user", "a/b?x=1", "a", "a/b/c"])
+def test_depot_par_defaut_ignore_repertoire_et_gh_repo(
+    sync, github, tmp_path, monkeypatch, capsys
+):
+    # lance depuis un autre depot, GH_REPO positionne : la cible reste ce checkout
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GH_REPO", "tiers/client")
+    assert sync.main(["--dry-run"]) == 0
+    assert f"Depot : {DEPOT}" in capsys.readouterr().out
+    vue = next(a for a in github.appels() if a["args"][:2] == ["repo", "view"])
+    assert Path(vue["repertoire"]).resolve() == RACINE
+
+
+@pytest.mark.parametrize(
+    "depot", ["../../user", "a/b?x=1", "a", "a/b/c", "a/..", "a/.", "a/../b"]
+)
 def test_depot_invalide_refuse(sync, github, depot, capsys):
     assert sync.main(["--repo", depot, "--dry-run"]) == 1
     assert "depot invalide" in capsys.readouterr().err
     assert github.appels() == []
+
+
+@pytest.mark.parametrize(
+    ("options", "methode"),
+    [
+        (["-f", "labels=bug"], "POST"),
+        (["--input", "-"], "POST"),
+        (["-X", "GET", "-f", "labels=bug"], "GET"),
+        ([], "GET"),
+    ],
+)
+def test_faux_gh_methode_par_defaut_de_gh(github, options, methode):
+    # gh fait un POST des qu'un champ ou un corps est passe sans -X : le faux gh
+    # doit le journaliser comme une ecriture, sinon les tests --dry-run mentent
+    chemin = f"repos/{DEPOT}/issues?labels=bug"
+    subprocess.run(  # noqa: S603 - interpreteur courant et faux gh du depot
+        [sys.executable, str(FAUX_GH), "api", chemin, *options],
+        input="{}",
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert [appel["methode"] for appel in github.appels()] == [methode]
 
 
 def test_gh_introuvable(sync, github, monkeypatch, capsys):

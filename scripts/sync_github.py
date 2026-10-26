@@ -28,6 +28,7 @@ message de GitHub.
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -45,7 +46,7 @@ COMMANDE_GH = ["gh"]
 
 COULEUR = re.compile(r"[0-9a-fA-F]{6}")
 # le nom du depot entre dans les chemins d'API : ni « .. » ni « ? » possibles
-DEPOT = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
+DEPOT = re.compile(r"[A-Za-z0-9-]+/(?!\.\.?$)[A-Za-z0-9._-]+")
 DESCRIPTION_MAX = 100  # limite de GitHub pour un label
 ETATS = ("open", "closed")
 
@@ -68,6 +69,9 @@ def _afficher(texte: str, *, erreur: bool = False) -> None:
 
 def gh(*args: str, corps: dict | None = None) -> object:
     """Lance gh, renvoie sa sortie JSON ; leve Erreur avec le message de GitHub."""
+    # gh deduit le depot du repertoire courant ou de GH_REPO : lance depuis RACINE
+    # sans GH_REPO, il vise toujours ce checkout, d'ou que vienne l'appel
+    environnement = {cle: val for cle, val in os.environ.items() if cle != "GH_REPO"}
     try:
         resultat = subprocess.run(  # noqa: S603 - arguments en liste, sans shell
             [*COMMANDE_GH, *args],
@@ -75,6 +79,8 @@ def gh(*args: str, corps: dict | None = None) -> object:
             capture_output=True,
             encoding="utf-8",
             check=False,
+            cwd=RACINE,
+            env=environnement,
         )
     except FileNotFoundError as exc:
         raise Erreur(f"gh introuvable ({exc}) : installer GitHub CLI") from exc
@@ -265,7 +271,9 @@ def _depot_courant() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--repo", help="PROPRIETAIRE/DEPOT (defaut : depot courant)")
+    parser.add_argument(
+        "--repo", help="PROPRIETAIRE/DEPOT (defaut : le depot de ce checkout)"
+    )
     parser.add_argument(
         "--dry-run", action="store_true", help="affiche le plan sans rien ecrire"
     )
