@@ -11,6 +11,8 @@ planter à cause d'un encodage.
 - Exception : les scripts et données PowerShell (`.ps1`, `.psm1`, `.psd1`,
   `.psrc`, `.pssc`) sont en **UTF-8 avec BOM** et CRLF. Sans BOM, Windows
   PowerShell 5.1 les lit dans la page de code ANSI et corrompt les accents.
+- Exception : les scripts batch (`.bat`, `.cmd`) sont en CRLF, que `cmd.exe`
+  exige ; ils restent en UTF-8 sans BOM.
 
 ## Textes destinés à l'utilisateur
 
@@ -41,16 +43,28 @@ encodée dans la page ANSI (cp1252 sur un poste français) : `→` y lève
 `UnicodeEncodeError`. `’` échoue de même en cp850, page OEM de la console, avec
 `PYTHONLEGACYWINDOWSSTDIO` ou un `PYTHONIOENCODING` imposé.
 
-Au démarrage, `amnesia.cli.main()` passe donc stdout et stderr en
-`errors="replace"` quand leur encodage n'est pas UTF-8 : un caractère
-impossible à encoder devient `?`, sans crash. Un flux déjà tolérant (stderr en
-`backslashreplace`) est laissé tel quel.
+Même en UTF-8, un argument d'argv contenant un octet non UTF-8 (nom de fichier
+Latin-1 passé par un script, par exemple) est décodé en surrogate (`\udcff`),
+que l'UTF-8 strict refuse ; `surrogateescape` (UTF-8 Mode) échoue de même sur
+un surrogate isolé hors de U+DC80..U+DCFF, possible dans un nom Windows.
+
+Au démarrage, `amnesia.cli.main()` passe donc stdout et stderr, quand leur
+gestionnaire d'erreurs peut lever (`strict`, `surrogateescape`,
+`surrogatepass`), en :
+
+- `errors="replace"` si leur encodage n'est pas UTF-8 : un caractère
+  impossible à encoder devient `?` ;
+- `errors="backslashreplace"` en UTF-8 : seul un surrogate échoue, et il
+  s'écrit `\udcff`, ce qui garde la valeur de l'octet d'origine.
+
+Un flux déjà tolérant (stderr en `backslashreplace`) est laissé tel quel.
 
 ## Garde-fous
 
 - `tests/unit/test_encodage.py` lance la CLI en sous-processus, sortie
-  redirigée, sous `PYTHONIOENCODING=cp1252` puis `cp850` : code 0, aucun
-  traceback.
+  redirigée, sous `PYTHONIOENCODING=cp1252` puis `cp850`, et en UTF-8 strict
+  avec un octet non UTF-8 dans argv (POSIX) : code 0, aucun traceback. Ces
+  tests visent une cible `.invalid` (RFC 6761), jamais `localhost`.
 - La suite tourne avec `PYTHONWARNDEFAULTENCODING=1` (EncodingWarning,
   PEP 597) et `-W error::EncodingWarning` : un `open()` ou un
   `subprocess.run(text=True)` sans encodage exécuté par un test le fait

@@ -11,24 +11,26 @@ from . import __version__
 from .checks import default_checks
 
 # gestionnaires d'erreurs qui levent UnicodeEncodeError sur un caractere absent
-# de la page de code ; les autres (backslashreplace de stderr...) sont gardes
+# de la page de code ou sur un surrogate isole (surrogateescape ne couvre que
+# U+DC80..U+DCFF) ; les autres (backslashreplace de stderr...) sont gardes
 _ERREURS_FATALES = frozenset({"strict", "surrogateescape", "surrogatepass"})
 
 
 def _proteger_sorties() -> None:
-    """Remplace par « ? » ce que stdout ou stderr ne savent pas encoder.
+    """Empêche stdout et stderr de planter sur un caractère impossible à encoder.
 
     Sous Windows avant Python 3.15, une sortie redirigée est encodée dans la page
-    ANSI (cp1252) ou OEM (cp850) : « → » ou « ’ » y lèveraient UnicodeEncodeError.
+    ANSI (cp1252) ou OEM (cp850) : « → » ou « ’ » y lèveraient UnicodeEncodeError
+    et y deviennent « ? ». Même en UTF-8, un argument d'argv contenant un octet
+    non UTF-8 (décodé en surrogate) ferait planter print() : il s'écrit « \\udcff ».
     """
     for flux in (sys.stdout, sys.stderr):
         # None sous pythonw, ou flux remplace par un objet sans reconfigure()
-        if (
-            isinstance(flux, io.TextIOWrapper)
-            and flux.errors in _ERREURS_FATALES
-            and codecs.lookup(flux.encoding).name != "utf-8"
-        ):
-            flux.reconfigure(errors="replace")
+        if isinstance(flux, io.TextIOWrapper) and flux.errors in _ERREURS_FATALES:
+            # en UTF-8 seuls les surrogates echouent : backslashreplace garde la
+            # valeur de l'octet d'origine, utile a l'analyste
+            utf8 = codecs.lookup(flux.encoding).name == "utf-8"
+            flux.reconfigure(errors="backslashreplace" if utf8 else "replace")
 
 
 def build_parser() -> argparse.ArgumentParser:

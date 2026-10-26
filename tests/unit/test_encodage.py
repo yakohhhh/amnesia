@@ -34,7 +34,9 @@ def test_titres_sans_mot_desaccentue():
             assert mot not in check.title.lower(), check.id
 
 
-def _cli(tmp_path: Path, encodage: str, *args: str) -> subprocess.CompletedProcess:
+def _cli(
+    tmp_path: Path, encodage: str, *args: str | bytes
+) -> subprocess.CompletedProcess:
     # sortie redirigee vers un pipe, comme « amnesia audit > rapport.txt » ;
     # -X warn_default_encoding -W error : un open() sans encoding casse aussi la CLI
     env = {**os.environ, "PYTHONIOENCODING": encodage}
@@ -58,9 +60,17 @@ def _cli(tmp_path: Path, encodage: str, *args: str) -> subprocess.CompletedProce
 
 @pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
 def test_sortie_redirigee_page_de_code(tmp_path, encodage):
-    # « → » vient de la CLI, « ’ » du chemin de rapport ; absents de cp850, et
-    # « → » absent de cp1252 : sans repli, UnicodeEncodeError
-    args = ("audit", "--out", "rapport d’audit.json")
+    # « → » vient de la CLI, « ’ » de la cible et du rapport ; absents de cp850,
+    # et « → » absent de cp1252 : sans repli, UnicodeEncodeError.
+    # Cible .invalid (RFC 6761), jamais localhost : une fois les run()
+    # implementes, ce test auditerait sinon la machine qui l'execute.
+    args = (
+        "audit",
+        "--target",
+        "poste d’essai.invalid",
+        "--out",
+        "rapport d’audit.json",
+    )
     reference = _cli(tmp_path, "utf-8", *args)
     assert reference.returncode == 0, reference.stderr
     texte = reference.stdout.decode("utf-8")
@@ -84,6 +94,33 @@ def test_aide_et_liste_redirigees_page_de_code(tmp_path, encodage):
         assert "é" in resultat.stdout.decode(encodage), args
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="argv en octets : POSIX")
+def test_argv_non_utf8_sortie_utf8(tmp_path):
+    # nom Latin-1 passe par un script : l'octet 0xff devient le surrogate
+    # U+DCFF, que l'UTF-8 strict refuse
+    resultat = _cli(tmp_path, "utf-8:strict", "audit", "--target", b"a\xffb.invalid")
+    assert resultat.returncode == 0, resultat.stderr
+    assert resultat.stderr == b""
+    assert b"audit de a\\udcffb.invalid " in resultat.stdout
+
+
+@pytest.mark.parametrize(
+    ("errors", "cible", "attendu"),
+    [
+        # octet 0xff d'argv sous POSIX
+        ("strict", "a\udcffb.invalid", b"a\\udcffb.invalid"),
+        # surrogate isole d'un nom Windows en UTF-8 Mode, hors U+DC80..U+DCFF
+        ("surrogateescape", "a\ud800b.invalid", b"a\\ud800b.invalid"),
+    ],
+)
+def test_surrogate_en_sortie_utf8(monkeypatch, errors, cible, attendu):
+    sortie = _flux("utf-8", errors)
+    monkeypatch.setattr(sys, "stdout", sortie)
+    assert main(["audit", "--target", cible, "--out", "r.json"]) == 0
+    sortie.flush()
+    assert attendu in sortie.buffer.getvalue()
+
+
 def _flux(encodage: str, errors: str) -> io.TextIOWrapper:
     return io.TextIOWrapper(io.BytesIO(), encoding=encodage, errors=errors)
 
@@ -95,9 +132,12 @@ def _flux(encodage: str, errors: str) -> io.TextIOWrapper:
         ("cp850", "surrogateescape", "replace"),
         # stderr garde backslashreplace, deja sans crash et plus informatif
         ("cp1252", "backslashreplace", "backslashreplace"),
-        # en UTF-8 tout s'encode : flux laisse tel quel
-        ("utf-8", "strict", "strict"),
-        ("UTF8", "strict", "strict"),
+        # en UTF-8 seuls les surrogates echouent : rendus en \udcxx
+        ("utf-8", "strict", "backslashreplace"),
+        ("UTF8", "strict", "backslashreplace"),
+        # UTF-8 Mode : surrogateescape plante sur un surrogate hors U+DC80..U+DCFF
+        ("utf-8", "surrogateescape", "backslashreplace"),
+        ("utf-8", "replace", "replace"),
     ],
 )
 def test_proteger_sorties(monkeypatch, encodage, errors, attendu):
