@@ -98,12 +98,9 @@ def test_code_annote_accepte(tmp_path: Path) -> None:
     assert _mypy(tmp_path, source) == (0, set())
 
 
-@pytest.fixture(scope="module")
-def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    if not UV:
-        pytest.skip("uv absent")
+def _copie_source(source: Path) -> Path:
     # construction sur une copie : ni build/ ni egg-info dans le depot
-    source = tmp_path_factory.mktemp("source")
+    source.mkdir(exist_ok=True)
     for nom in ("pyproject.toml", "uv.lock", "README.md", "LICENSE"):
         shutil.copy2(RACINE / nom, source / nom)
     shutil.copytree(
@@ -111,17 +108,55 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
         source / "src",
         ignore=shutil.ignore_patterns("__pycache__", "*.egg-info"),
     )
-    dist = tmp_path_factory.mktemp("dist")
-    # sdist puis wheel construit depuis le sdist, comme pour une publication
-    sortie = subprocess.run(  # noqa: S603 - binaire uv, arguments constants
+    return source
+
+
+def _uv_build(source: Path, dist: Path) -> subprocess.CompletedProcess[str]:
+    # sdist puis wheel construit depuis le sdist, comme pour une publication.
+    # cwd : uv lit [tool.uv] (build-constraint, exclude-newer) dans le
+    # repertoire courant, pas dans la source passee en argument
+    return subprocess.run(  # noqa: S603 - binaire uv, arguments constants
         [UV, "build", "--quiet", "--out-dir", str(dist), str(source)],
         capture_output=True,
         text=True,
+        cwd=source,
         check=False,
     )
+
+
+@pytest.fixture(scope="module")
+def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    if not UV:
+        pytest.skip("uv absent")
+    source = _copie_source(tmp_path_factory.mktemp("source"))
+    dist = tmp_path_factory.mktemp("dist")
+    sortie = _uv_build(source, dist)
     assert sortie.returncode == 0, sortie.stderr
     (fichier,) = dist.glob("*.whl")
     return fichier
+
+
+def test_build_applique_tool_uv_hors_du_depot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not UV:
+        pytest.skip("uv absent")
+    # contrainte de build insatisfiable : le build doit echouer, meme si pytest
+    # tourne hors du depot (sinon setuptools non epingle, hors delai de carence)
+    source = _copie_source(tmp_path / "source")
+    pyproject = source / "pyproject.toml"
+    (epingle,) = _pyproject()["tool"]["uv"]["build-constraint-dependencies"]
+    texte = pyproject.read_text(encoding="utf-8")
+    assert texte.count(f'"{epingle}"') == 1
+    pyproject.write_text(
+        texte.replace(f'"{epingle}"', '"setuptools==0.9.8"'), encoding="utf-8"
+    )
+    ailleurs = tmp_path / "ailleurs"
+    ailleurs.mkdir()
+    monkeypatch.chdir(ailleurs)
+    sortie = _uv_build(source, tmp_path / "dist")
+    assert sortie.returncode != 0
+    assert "setuptools==0.9.8" in sortie.stderr
 
 
 def test_wheel_contient_py_typed(wheel: Path) -> None:
