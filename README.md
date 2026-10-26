@@ -101,7 +101,8 @@ MSP et aux cabinets d'audit, rapport client en marque blanche. Tu peux même le
 facturer comme prestation dès la v0.
 
 > Nom PyPI : le paquet s'appelle `amnesia-dfr` (le nom `amnesia` est pris), mais
-> la commande reste `amnesia`.
+> la commande reste `amnesia`. Il n'est pas encore publié (#33) : installe-le
+> depuis les sources, jamais par son nom depuis PyPI.
 
 ## Scope & légal
 

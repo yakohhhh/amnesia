@@ -147,6 +147,37 @@ def test_long_description_sans_lien_relatif(metadata: email.message.Message) -> 
     assert not relatifs
 
 
+# installation de amnesia-dfr par son nom depuis un index (pip, pipx, uv, uvx),
+# nom normalise selon la PEP 503 ; un chemin de wheel (dist/amnesia_dfr-...) passe
+INSTALLATION_PAR_NOM = re.compile(
+    r"\b(?:pip3?\s+install|pipx\s+(?:install|run)|uvx"
+    r"|uv\s+(?:tool\s+(?:install|run)|pip\s+install|add))\b"
+    r"[^`\n]*?(?<![\w./\\-])amnesia[-_.]+dfr(?![\w./\\*-])",
+    re.IGNORECASE,
+)
+
+
+def test_aucune_installation_par_nom_avant_publication() -> None:
+    # amnesia-dfr n'est pas reserve sur PyPI : un tiers peut l'enregistrer. La
+    # documentation installe depuis les sources ou le wheel local. A retirer par
+    # #33 une fois le nom publie (docs/PAQUET.md).
+    assert INSTALLATION_PAR_NOM.search("pipx install amnesia-dfr")
+    assert INSTALLATION_PAR_NOM.search("uvx --from Amnesia_DFR==0.1.0 amnesia")
+    assert not INSTALLATION_PAR_NOM.search(
+        "uv tool install dist/amnesia_dfr-0.1.0-py3-none-any.whl"
+    )
+    documents = [RACINE / "README.md", *sorted((RACINE / "docs").rglob("*.md"))]
+    trouvees = [
+        f"{document.relative_to(RACINE)}:{numero}"
+        for document in documents
+        for numero, ligne in enumerate(
+            document.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if INSTALLATION_PAR_NOM.search(ligne)
+    ]
+    assert not trouvees
+
+
 def test_package_data_dans_le_wheel(wheel: zipfile.ZipFile) -> None:
     assert SONDES
     contenu = set(wheel.namelist())

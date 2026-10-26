@@ -60,6 +60,20 @@ conforme à PyPI, contenu listé avec `tar -t` puis lu en texte) :
   2010 et exécute son `setup.py`. La documentation donne donc toujours le nom
   complet `amnesia-dfr`, jamais `amnesia` seul.
 
+**Le nom `amnesia-dfr` n'est pas encore réservé sur PyPI** (404 sur
+`https://pypi.org/pypi/amnesia-dfr/json`, vérifié le 26 octobre 2026). N'importe
+qui peut l'enregistrer, et une installation par le nom seul (`uv tool install`,
+`pipx`) installerait alors un paquet tiers. C'est le risque de `pip install amnesia`,
+reporté sur le nom recommandé. Jusqu'à la première publication (#33, Trusted
+Publishing ; un publisher « pending » ne réserve pas le nom) :
+
+- installer uniquement depuis les sources (voir le README) ou depuis un wheel
+  construit localement avec `uv build` :
+  `uv tool install dist/amnesia_dfr-<version>-py3-none-any.whl` ;
+- aucune commande de la documentation n'installe `amnesia-dfr` par son nom depuis
+  un index. Un test parcourt `README.md` et `docs/` et échoue sinon ; #33 le retire
+  quand il ajoute la ligne d'installation PyPI, une fois le nom publié.
+
 À réexaminer si `amnesia` expose une API importable par des tiers (plugins), ou si
 une collision est signalée.
 
