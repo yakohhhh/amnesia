@@ -47,7 +47,7 @@ def _menaces() -> dict[str, list[str]]:
     return menaces
 
 
-def test_schema_de_flux_avec_frontieres_de_confiance():
+def test_schema_de_flux_avec_frontieres_de_confiance() -> None:
     flux = _section("Flux")
     (schema,) = re.findall(r"```mermaid\n(.*?)```", flux, flags=re.DOTALL)
     zones = re.findall(r"^\s*subgraph (Z\d+)\[", schema, flags=re.MULTILINE)
@@ -89,17 +89,17 @@ def test_schema_de_flux_avec_frontieres_de_confiance():
         ),
     ],
 )
-def test_elements_minimaux_du_ticket(titre, elements):
+def test_elements_minimaux_du_ticket(titre: str, elements: list[str]) -> None:
     corps = _section(titre)
     for element in elements:
         assert element in corps, element
 
 
-def test_rapport_vers_client_dans_les_flux():
+def test_rapport_vers_client_dans_les_flux() -> None:
     assert any("Rapport → client" in c for c in _lignes("Flux", "F").values())
 
 
-def test_chaque_menace_classee_traitee_et_rattachee_a_un_ticket():
+def test_chaque_menace_classee_traitee_et_rattachee_a_un_ticket() -> None:
     acteurs = set(_lignes("Acteurs", "AC"))
     actifs = set(_lignes("Actifs", "A"))
     for ident, cellules in _menaces().items():
@@ -113,8 +113,8 @@ def test_chaque_menace_classee_traitee_et_rattachee_a_un_ticket():
         assert set(cibles.split(", ")) <= actifs, ident
 
 
-def test_six_categories_couvertes_et_tableau_de_couverture_a_jour():
-    attendu = {lettre: set() for lettre in STRIDE}
+def test_six_categories_couvertes_et_tableau_de_couverture_a_jour() -> None:
+    attendu: dict[str, set[str]] = {lettre: set() for lettre in STRIDE}
     for ident, cellules in _menaces().items():
         attendu[cellules[1]].add(ident)
     couverture = {}
@@ -127,7 +127,7 @@ def test_six_categories_couvertes_et_tableau_de_couverture_a_jour():
     assert all(attendu.values())
 
 
-def test_identifiants_cites_tous_definis():
+def test_identifiants_cites_tous_definis() -> None:
     # un renvoi (RR10 depuis une mesure, A7 depuis un acteur...) vers un
     # identifiant absent des tableaux serait une promesse sans contenu
     definis = set()
@@ -145,14 +145,14 @@ def test_identifiants_cites_tous_definis():
     assert cites - definis == set()
 
 
-def test_risques_residuels_justifies():
+def test_risques_residuels_justifies() -> None:
     for ident, cellules in _lignes("Risques résiduels", "RR").items():
         _, risque, justification = cellules
         assert risque, ident
         assert len(justification) > 40, ident
 
 
-def test_regle_de_revision_ecrite():
+def test_regle_de_revision_ecrite() -> None:
     revision = _section("Révision")
     for exigence in ["Nouveau transport ou connecteur", "Clôture de chaque milestone"]:
         assert exigence in revision
