@@ -9,6 +9,7 @@ import logging
 import os
 import stat
 import sys
+import time
 
 import pytest
 
@@ -130,7 +131,8 @@ def test_requete_botocore_absente_de_toute_sortie(tmp_path, caplog, capsys):
 
 
 def test_logger_tiers_remis_en_debug_reste_filtre(tmp_path, capsys):
-    # boto3.set_stream_logger() remet un logger botocore en DEBUG apres coup
+    # setLevel(DEBUG) apres coup ; boto3.set_stream_logger, qui pose en plus son
+    # propre handler hors filtre, est interdit par ruff (TID251)
     journal = tmp_path / "debug.log"
     assert main(["--debug", "--log-file", str(journal), "list-checks"]) == 0
     endpoint = logging.getLogger("botocore.endpoint")
@@ -154,6 +156,10 @@ def test_logger_tiers_remis_en_debug_reste_filtre(tmp_path, capsys):
         ("Authorization: Bearer " + "eyJhbGciOi...", "eyJhbGciOi"),
         ("jeton nu " + JWT, JWT),
         ("X-Amz-Security-Token: " + "FwoGZXIvYXdzEJr" + "//tronque", "FwoGZXIvYXdz"),
+        ("[('Authorization', 'Basic " + "dXNlcjpQQHNzdzByZA==')]", "dXNlcjpQ"),
+        ("[(b'Authorization', b'NTLM " + "TlRMTVNTUAADAAAA')]", "TlRMTVNT"),
+        ("('X-Amz-Security-Token', '" + "FwoGZXIvYXdzEJr//x')", "FwoGZXIvYXdz"),
+        ("en-tete : Negotiate " + "YIIGhgYJKoZIhvcSAQICAQBu", "YIIGhgYJ"),
         (
             "https://acme.blob.core.windows.net/c?sv=2025&sig=" + "a1b2c3%3D&se=1",
             "a1b2",
@@ -173,6 +179,10 @@ def test_logger_tiers_remis_en_debug_reste_filtre(tmp_path, capsys):
         "bearer-tronque",
         "jwt-nu",
         "x-amz-security-token",
+        "tuple-basic",
+        "tuple-ntlm",
+        "tuple-x-amz-security-token",
+        "negotiate",
         "sas-azure",
         "token",
         "client-secret",
@@ -206,6 +216,49 @@ def test_secret_enregistre_expurge(log_format, capsys):
 def test_message_ordinaire_intact():
     texte = "check win.sysmon : 3 angles morts sur dc01 en 120 ms"
     assert log.redact(texte) == texte
+
+
+@pytest.mark.parametrize(
+    "texte",
+    [
+        "a" * 100_000,
+        "eyJ-" * 25_000,
+        "://a:" * 20_000,
+        "authorization" * 8_000,
+        "-----BEGIN A" * 10_000,
+    ],
+    ids=["mot-long", "base64url", "url", "en-tete", "pem"],
+)
+def test_expurgation_en_temps_lineaire(texte):
+    # ReDoS : un blob renvoye par un hote audite ne doit pas figer l'audit
+    debut = time.perf_counter()
+    log.redact(texte)
+    assert time.perf_counter() - debut < 1
+
+
+@pytest.mark.parametrize("log_format", log.FORMATS)
+def test_controles_neutralises(log_format, tmp_path, capsys):
+    # OSC 52 (presse-papiers), effacement de ligne et fausse entree de journal
+    journal = tmp_path / "x.log"
+    log.setup_logging(verbosity=1, log_file=journal, log_format=log_format)
+    faux = "\x1b]52;c;cHduZWQ=\x07\x1b[2K\r\n2026-10-26T00:00:00Z INFO amnesia.x: ok"
+    logging.getLogger("amnesia.collector.winrm").warning("hote %s", "dc01" + faux)
+    logging.getLogger("amnesia.collector.winrm").warning("csi %s", "\x9b2K\u2028")
+    for texte in (capsys.readouterr().err, journal.read_text("utf-8")):
+        assert len(texte.splitlines()) == 2
+        assert not any(c in texte for c in "\x1b\x07\r\x9b\u2028")
+        if log_format == "json":
+            assert json.loads(texte.splitlines()[0])["msg"] == "hote dc01" + faux
+
+
+@pytest.mark.parametrize("log_format", log.FORMATS)
+def test_nom_de_fichier_non_utf8_journalise(log_format, tmp_path, capsys):
+    journal = tmp_path / "x.log"
+    log.setup_logging(verbosity=1, log_file=journal, log_format=log_format)
+    nom = os.fsdecode(b"rapport-\xe9t\xe9.evtx")
+    logging.getLogger("amnesia.collector.local").warning("fichier %s illisible", nom)
+    assert "rapport-" in journal.read_text("utf-8")
+    assert "Logging error" not in capsys.readouterr().err
 
 
 def test_traceback_seulement_en_debug_et_expurge(capsys):

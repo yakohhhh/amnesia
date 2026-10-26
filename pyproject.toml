@@ -57,6 +57,7 @@ select = [
     "PLE",  # erreurs pylint, dont PLE2502/PLE251x : caracteres bidi et invisibles
             # (Trojan Source, CVE-2021-42574), actives par defaut dans ruff
     "PGH004",  # noqa sans code interdit : il eteindrait aussi S et DTZ
+    "TID251",  # API interdites (banned-api ci-dessous)
 ]
 # apostrophe typographique et tiret demi-cadratin des textes francais
 allowed-confusables = ["’", "–"]
@@ -66,6 +67,12 @@ allowed-confusables = ["’", "–"]
 "src/amnesia/cli.py" = ["T201"]
 # assert est l'idiome de pytest
 "tests/**" = ["S101"]
+
+# set_stream_logger pose sur botocore un handler sans plafond ni expurgation :
+# les requetes signees (Authorization, X-Amz-Security-Token) sortiraient en clair
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"boto3.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
+"botocore.session.Session.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
 
 [tool.ruff.lint.isort]
 known-first-party = ["amnesia"]
