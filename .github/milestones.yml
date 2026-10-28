@@ -1,0 +1,23 @@
+# Milestones du depot, appliquees par scripts/sync_github.py (voir
+# docs/dev/github.md). Identifiees par leur titre exact, tiret cadratin compris :
+# renommer une milestone ici en creerait une nouvelle. Une milestone absente d'ici
+# n'est jamais supprimee. « state » (open ou closed) est facultatif : sans lui,
+# l'etat decide sur GitHub est laisse tel quel.
+milestones:
+  - title: "M0 — Scaffold"
+    description: "Mise en place"
+  - title: "M1 — MVP (Windows + AD)"
+    description: "Checks endpoints + AD + rapport des angles morts"
+  - title: "M2 — Cloud"
+    description: "M365/Entra, CloudTrail, forwarding SIEM"
+  - title: "M3 — Linux & virtualisation"
+    description: >-
+      Cibles Linux et virtualisation : collecte SSH, journald/rsyslog/logrotate,
+      auditd, collecteur POSIX hors ligne, vSphere (vCenter et ESXi).
+  - title: "Offre v0 — prestation pilote"
+    description: >-
+      Piste commerciale et juridique du premier diagnostic payant : positionnement,
+      offre, cadre contractuel, méthodologie de mission, pilote client et landing
+      page. Calendrier propre, dépend du livrable du M1.
+  - title: "Backlog"
+    description: "Plus tard"

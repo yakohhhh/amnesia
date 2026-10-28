@@ -5,7 +5,9 @@ import re
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -14,19 +16,21 @@ RACINE = Path(__file__).resolve().parent.parent
 PRE_COMMIT = RACINE / ".pre-commit-config.yaml"
 
 
-def _pre_commit() -> dict:
-    return yaml.safe_load(PRE_COMMIT.read_text(encoding="utf-8"))
+def _pre_commit() -> dict[str, Any]:
+    config: dict[str, Any] = yaml.safe_load(PRE_COMMIT.read_text(encoding="utf-8"))
+    return config
 
 
-def _hook(hook_id: str) -> dict:
+def _hook(hook_id: str) -> dict[str, Any]:
     for depot in _pre_commit()["repos"]:
         for hook in depot["hooks"]:
             if hook["id"] == hook_id:
-                return hook
+                trouve: dict[str, Any] = hook
+                return trouve
     raise AssertionError(f"hook {hook_id} absent")
 
 
-def test_hooks_python_installes_depuis_uv_lock():
+def test_hooks_python_installes_depuis_uv_lock() -> None:
     # ruff et pre-commit-hooks ne passent pas par les environnements pip de
     # pre-commit (sans empreintes) : hooks locaux lances par uv run --locked.
     depots = {d["repo"] for d in _pre_commit()["repos"]}
@@ -46,7 +50,7 @@ def test_hooks_python_installes_depuis_uv_lock():
                 assert "--frozen" not in hook["entry"], hook
 
 
-def test_depots_distants_figes_sur_un_sha():
+def test_depots_distants_figes_sur_un_sha() -> None:
     distants = [d for d in _pre_commit()["repos"] if d["repo"] not in {"local", "meta"}]
     assert distants
     for depot in distants:
@@ -79,7 +83,7 @@ def _bloque(hook_id: str, chemin: str) -> bool:
         "tests/fixtures/windows/raw/dc01-security.xml",
     ],
 )
-def test_sorties_client_refusees(chemin):
+def test_sorties_client_refusees(chemin: str) -> None:
     assert _bloque("interdire-sorties-amnesia", chemin)
 
 
@@ -93,7 +97,7 @@ def test_sorties_client_refusees(chemin):
         "README.md",
     ],
 )
-def test_fichiers_du_projet_acceptes(chemin):
+def test_fichiers_du_projet_acceptes(chemin: str) -> None:
     assert not _bloque("interdire-sorties-amnesia", chemin)
     assert not _bloque("interdire-fichiers-secrets", chemin)
 
@@ -102,20 +106,21 @@ def test_fichiers_du_projet_acceptes(chemin):
     "chemin",
     [".env", ".env.local", "cfg/.ENV.prod", "graph-acme.pfx", "a.P12", "x.key"],
 )
-def test_fichiers_de_secrets_refuses(chemin):
+def test_fichiers_de_secrets_refuses(chemin: str) -> None:
     assert _bloque("interdire-fichiers-secrets", chemin)
 
 
 @pytest.mark.parametrize("chemin", [".env.example", "cfg/.env.example", ".envrc"])
-def test_modeles_de_configuration_acceptes(chemin):
+def test_modeles_de_configuration_acceptes(chemin: str) -> None:
     assert not _bloque("interdire-fichiers-secrets", chemin)
 
 
-def _regle_gitleaks(regle_id: str) -> dict:
+def _regle_gitleaks(regle_id: str) -> dict[str, Any]:
     config = tomllib.loads((RACINE / ".gitleaks.toml").read_text(encoding="utf-8"))
     for regle in config["rules"]:
         if regle["id"] == regle_id:
-            return regle
+            trouvee: dict[str, Any] = regle
+            return trouvee
     raise AssertionError(f"regle gitleaks {regle_id} absente")
 
 
@@ -153,7 +158,7 @@ def _url(schema: str, compte: str, mdp: str, hote: str) -> str:
         "deux-points-dans-le-mdp",
     ],
 )
-def test_identifiants_dans_une_url_detectes(parties):
+def test_identifiants_dans_une_url_detectes(parties: tuple[str, str, str, str]) -> None:
     assert _secret_detecte("identifiants-dans-une-url", _url(*parties))
 
 
@@ -169,11 +174,11 @@ def test_identifiants_dans_une_url_detectes(parties):
         "winrm://${COMPTE}:${MDP}@dc01",
     ],
 )
-def test_url_sans_identifiants_acceptees(ligne):
+def test_url_sans_identifiants_acceptees(ligne: str) -> None:
     assert not _secret_detecte("identifiants-dans-une-url", ligne)
 
 
-def test_gitleaks_en_mode_fichier_recoit_les_fichiers():
+def test_gitleaks_en_mode_fichier_recoit_les_fichiers() -> None:
     # le manifeste amont declare pass_filenames: false ; sans surcharge, la
     # boucle du hook ne recoit aucun fichier et passe a vide
     (hook,) = [
@@ -198,18 +203,18 @@ WORKFLOWS = sorted(
 SHA_EPINGLE = re.compile(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}")
 
 
-def _charger(wf: Path) -> tuple[str, dict]:
+def _charger(wf: Path) -> tuple[str, dict[str, Any]]:
     texte = wf.read_text(encoding="utf-8")
     return texte, yaml.safe_load(texte)
 
 
-def _etapes(doc: dict):
+def _etapes(doc: dict[str, Any]) -> Iterator[tuple[str, Any, Any]]:
     for nom, job in doc["jobs"].items():
         for etape in job.get("steps", []):
             yield nom, job, etape
 
 
-def test_actions_epinglees_sur_un_sha_avec_version():
+def test_actions_epinglees_sur_un_sha_avec_version() -> None:
     assert WORKFLOWS
     for wf in WORKFLOWS:
         texte, doc = _charger(wf)
@@ -223,7 +228,7 @@ def test_actions_epinglees_sur_un_sha_avec_version():
                 assert re.search(r"@[0-9a-f]{40} # v\d+\.\d+\.\d+$", ligne), ligne
 
 
-def test_workflows_durcis():
+def test_workflows_durcis() -> None:
     assert WORKFLOWS
     for wf in WORKFLOWS:
         texte, doc = _charger(wf)
@@ -246,12 +251,12 @@ def test_workflows_durcis():
                 assert ("WINDOWS" in cle[1]) == windows, f"{wf.name}:{nom}"
 
 
-def test_ci_ok_attend_tous_les_jobs():
+def test_ci_ok_attend_tous_les_jobs() -> None:
     _, doc = _charger(RACINE / ".github" / "workflows" / "ci.yml")
     assert set(doc["jobs"]["ci-ok"]["needs"]) == set(doc["jobs"]) - {"ci-ok"}
 
 
-def test_ci_rejoue_les_garde_fous_anti_fuite():
+def test_ci_rejoue_les_garde_fous_anti_fuite() -> None:
     _, doc = _charger(RACINE / ".github" / "workflows" / "ci.yml")
     job = doc["jobs"]["gitleaks"]
     commandes = "\n".join(e.get("run", "") for e in job["steps"])
@@ -318,7 +323,7 @@ def _depot(tmp_path: Path, fichiers: list[str]) -> Path:
     return depot
 
 
-def test_verifier_chemins_noms_accentues(tmp_path):
+def test_verifier_chemins_noms_accentues(tmp_path: Path) -> None:
     acceptes = ["src/ok.py", ".env.example", "docs/guide.pdf"]
     refuses = ["Rapport-Société.pdf", "clients/clé/.env"]
     sortie = _verifier(_depot(tmp_path, [*acceptes, *refuses]))
@@ -330,14 +335,14 @@ def test_verifier_chemins_noms_accentues(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason='« " » interdit par NTFS')
-def test_verifier_chemins_nom_avec_guillemet(tmp_path):
+def test_verifier_chemins_nom_avec_guillemet(tmp_path: Path) -> None:
     # git echappe aussi « " » hors du mode -z ; le controle CI tourne sous Linux
     sortie = _verifier(_depot(tmp_path, ['reports/a"b.txt']))
     assert sortie.returncode == 1
     assert 'reports/a"b.txt' in sortie.stdout
 
 
-def test_verifier_chemins_fichier_ajoute_dans_un_merge(tmp_path):
+def test_verifier_chemins_fichier_ajoute_dans_un_merge(tmp_path: Path) -> None:
     depot = _depot(tmp_path, ["a.txt"])
     _git(depot, "switch", "-q", "-c", "branche")
     (depot / "b.txt").write_text("b\n", encoding="utf-8")
@@ -355,7 +360,7 @@ def test_verifier_chemins_fichier_ajoute_dans_un_merge(tmp_path):
     assert "interdire-fichiers-secrets : .env" in sortie.stdout
 
 
-def test_verifier_chemins_depot_propre(tmp_path):
+def test_verifier_chemins_depot_propre(tmp_path: Path) -> None:
     sortie = _verifier(_depot(tmp_path, ["src/ok.py", "README.md"]))
     assert sortie.returncode == 0, sortie.stdout
     assert "0 interdits" in sortie.stdout
