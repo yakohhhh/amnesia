@@ -275,7 +275,10 @@ def test_nom_de_fichier_non_utf8_journalise(
 ) -> None:
     journal = tmp_path / "x.log"
     log.setup_logging(verbosity=1, log_file=journal, log_format=log_format)
-    nom = os.fsdecode(b"rapport-\xe9t\xe9.evtx")
+    # ce que os.fsdecode rend sous POSIX pour b"rapport-\xe9t\xe9.evtx" (octets non
+    # UTF-8 en surrogates) ; ecrit tel quel car os.fsdecode est strict sous Windows
+    nom = "rapport-\udce9t\udce9.evtx"
+    assert sys.platform == "win32" or nom == os.fsdecode(b"rapport-\xe9t\xe9.evtx")
     logging.getLogger("amnesia.collector.local").warning("fichier %s illisible", nom)
     assert "rapport-" in journal.read_text("utf-8")
     assert "Logging error" not in capsys.readouterr().err
