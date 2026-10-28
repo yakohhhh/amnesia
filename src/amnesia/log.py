@@ -20,7 +20,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 from urllib.parse import quote
 
 LOGGER = "amnesia"
@@ -203,7 +203,8 @@ class _FormatTexte(logging.Formatter):
     une fausse entree.
     """
 
-    converter = time.gmtime
+    # staticmethod : appele sur l'instance, time.gmtime ne recoit pas self
+    converter = staticmethod(time.gmtime)
 
     def __init__(self, tracebacks: bool) -> None:
         super().__init__(
@@ -262,7 +263,7 @@ class _FormatJson(logging.Formatter):
         )
 
 
-class _Stderr(logging.StreamHandler):
+class _Stderr(logging.StreamHandler[TextIO]):
     """Ecrit sur le sys.stderr courant, resolu a chaque entree (comme lastResort)."""
 
     @property

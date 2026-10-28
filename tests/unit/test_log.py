@@ -10,6 +10,8 @@ import os
 import stat
 import sys
 import time
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -21,7 +23,7 @@ JWT = "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJzdWIiOiJhdWRpdCJ9.c2lnbmF0dXJl"
 
 
 @pytest.fixture(autouse=True)
-def journal_propre():
+def journal_propre() -> Iterator[None]:
     """Retire les handlers d'amnesia et restaure les niveaux apres chaque test."""
     noms = ["", log.LOGGER, *log.TIERS]
     niveaux = {nom: logging.getLogger(nom).level for nom in noms}
@@ -36,7 +38,7 @@ def journal_propre():
         logging.getLogger(nom).setLevel(niveau)
 
 
-def _verbosite(argv):
+def _verbosite(argv: list[str]) -> tuple[int, bool]:
     args = build_parser().parse_args(argv)
     return args.verbose, args.quiet
 
@@ -45,14 +47,14 @@ def _verbosite(argv):
     "argv",
     [["-v", "audit"], ["audit", "-v"], ["--verbose", "list-checks"]],
 )
-def test_v_accepte_avant_et_apres_la_sous_commande(argv):
+def test_v_accepte_avant_et_apres_la_sous_commande(argv: list[str]) -> None:
     assert _verbosite(argv) == (1, False)
     assert main(argv) == 0
     assert logging.getLogger(log.LOGGER).level == logging.INFO
 
 
 @pytest.mark.parametrize("argv", [["-vv", "audit"], ["audit", "-vv"]])
-def test_vv_donne_debug_pour_amnesia(argv):
+def test_vv_donne_debug_pour_amnesia(argv: list[str]) -> None:
     assert main(argv) == 0
     assert logging.getLogger(log.LOGGER).level == logging.DEBUG
     assert logging.getLogger().level >= logging.WARNING
@@ -67,7 +69,9 @@ def test_vv_donne_debug_pour_amnesia(argv):
         ["audit", "-q", "--debug"],
     ],
 )
-def test_q_et_v_incompatibles(argv, capsys):
+def test_q_et_v_incompatibles(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
     with pytest.raises(SystemExit) as exc:
         main(argv)
     assert exc.value.code == 2
@@ -75,7 +79,9 @@ def test_q_et_v_incompatibles(argv, capsys):
 
 
 @pytest.mark.parametrize("argv", [["-q", "audit"], ["audit", "-q"]])
-def test_q_silencieux_sans_erreur(argv, capsys):
+def test_q_silencieux_sans_erreur(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
     assert main(argv) == 0
     logging.getLogger("amnesia.check.win.sysmon").warning("avertissement masque")
     sortie = capsys.readouterr()
@@ -83,13 +89,15 @@ def test_q_silencieux_sans_erreur(argv, capsys):
     assert "[stub]" in sortie.out
 
 
-def test_q_laisse_passer_les_erreurs(capsys):
+def test_q_laisse_passer_les_erreurs(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["-q", "list-checks"]) == 0
     logging.getLogger("amnesia.check.win.sysmon").error("echec du check")
     assert "echec du check" in capsys.readouterr().err
 
 
-def test_diagnostics_v_sur_stderr_jamais_sur_stdout(capsys):
+def test_diagnostics_v_sur_stderr_jamais_sur_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert main(["-v", "audit"]) == 0
     logging.getLogger("amnesia.check.win.sysmon").info("diagnostic du check")
     sortie = capsys.readouterr()
@@ -100,12 +108,12 @@ def test_diagnostics_v_sur_stderr_jamais_sur_stdout(capsys):
     assert "[stub]" in sortie.out
 
 
-def test_sans_option_pas_de_diagnostic_info(capsys):
+def test_sans_option_pas_de_diagnostic_info(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["audit"]) == 0
     assert capsys.readouterr().err == ""
 
 
-def test_debug_ne_touche_ni_la_racine_ni_les_tiers():
+def test_debug_ne_touche_ni_la_racine_ni_les_tiers() -> None:
     assert main(["--debug", "list-checks"]) == 0
     assert logging.getLogger(log.LOGGER).level == logging.DEBUG
     assert logging.getLogger().level > logging.DEBUG
@@ -116,7 +124,9 @@ def test_debug_ne_touche_ni_la_racine_ni_les_tiers():
         )
 
 
-def test_requete_botocore_absente_de_toute_sortie(tmp_path, caplog, capsys):
+def test_requete_botocore_absente_de_toute_sortie(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
     journal = tmp_path / "debug.log"
     assert main(["--debug", "--log-file", str(journal), "list-checks"]) == 0
     jeton = "AWS4-HMAC-SHA256 Credential=" + CLE_AWS + "/20261026/eu-west-3/s3"
@@ -130,7 +140,9 @@ def test_requete_botocore_absente_de_toute_sortie(tmp_path, caplog, capsys):
         assert CLE_AWS not in texte
 
 
-def test_logger_tiers_remis_en_debug_reste_filtre(tmp_path, capsys):
+def test_logger_tiers_remis_en_debug_reste_filtre(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     # setLevel(DEBUG) apres coup ; boto3.set_stream_logger, qui pose en plus son
     # propre handler hors filtre, est interdit par ruff (TID251)
     journal = tmp_path / "debug.log"
@@ -191,7 +203,9 @@ def test_logger_tiers_remis_en_debug_reste_filtre(tmp_path, capsys):
     ],
 )
 @pytest.mark.parametrize("log_format", log.FORMATS)
-def test_message_expurge(message, secret, log_format, capsys):
+def test_message_expurge(
+    message: str, secret: str, log_format: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     log.setup_logging(verbosity=1, log_format=log_format)
     logging.getLogger("amnesia.collector.winrm").info(message)
     err = capsys.readouterr().err
@@ -200,7 +214,9 @@ def test_message_expurge(message, secret, log_format, capsys):
 
 
 @pytest.mark.parametrize("log_format", log.FORMATS)
-def test_secret_enregistre_expurge(log_format, capsys):
+def test_secret_enregistre_expurge(
+    log_format: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     secret = "valeur-" + "tres-privee/+"
     log.register_secret(secret)
     log.setup_logging(verbosity=1, log_format=log_format)
@@ -213,7 +229,7 @@ def test_secret_enregistre_expurge(log_format, capsys):
     assert err.count(log.MASQUE) >= 2
 
 
-def test_message_ordinaire_intact():
+def test_message_ordinaire_intact() -> None:
     texte = "check win.sysmon : 3 angles morts sur dc01 en 120 ms"
     assert log.redact(texte) == texte
 
@@ -229,7 +245,7 @@ def test_message_ordinaire_intact():
     ],
     ids=["mot-long", "base64url", "url", "en-tete", "pem"],
 )
-def test_expurgation_en_temps_lineaire(texte):
+def test_expurgation_en_temps_lineaire(texte: str) -> None:
     # ReDoS : un blob renvoye par un hote audite ne doit pas figer l'audit
     debut = time.perf_counter()
     log.redact(texte)
@@ -237,7 +253,9 @@ def test_expurgation_en_temps_lineaire(texte):
 
 
 @pytest.mark.parametrize("log_format", log.FORMATS)
-def test_controles_neutralises(log_format, tmp_path, capsys):
+def test_controles_neutralises(
+    log_format: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     # OSC 52 (presse-papiers), effacement de ligne et fausse entree de journal
     journal = tmp_path / "x.log"
     log.setup_logging(verbosity=1, log_file=journal, log_format=log_format)
@@ -252,7 +270,9 @@ def test_controles_neutralises(log_format, tmp_path, capsys):
 
 
 @pytest.mark.parametrize("log_format", log.FORMATS)
-def test_nom_de_fichier_non_utf8_journalise(log_format, tmp_path, capsys):
+def test_nom_de_fichier_non_utf8_journalise(
+    log_format: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     journal = tmp_path / "x.log"
     log.setup_logging(verbosity=1, log_file=journal, log_format=log_format)
     nom = os.fsdecode(b"rapport-\xe9t\xe9.evtx")
@@ -261,7 +281,9 @@ def test_nom_de_fichier_non_utf8_journalise(log_format, tmp_path, capsys):
     assert "Logging error" not in capsys.readouterr().err
 
 
-def test_traceback_seulement_en_debug_et_expurge(capsys):
+def test_traceback_seulement_en_debug_et_expurge(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     log.setup_logging(verbosity=1)
     try:
         raise RuntimeError("password=" + "hunter2")
@@ -279,7 +301,7 @@ def test_traceback_seulement_en_debug_et_expurge(capsys):
     assert "hunter2" not in err
 
 
-def test_json_dans_fichier(tmp_path, capsys):
+def test_json_dans_fichier(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     journal = tmp_path / "x.jsonl"
     argv = ["--log-format", "json", "--log-file", str(journal), "-v", "audit"]
     assert main(argv) == 0
@@ -311,7 +333,7 @@ def test_json_dans_fichier(tmp_path, capsys):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="droits POSIX")
-def test_fichier_de_journal_en_0600(tmp_path):
+def test_fichier_de_journal_en_0600(tmp_path: Path) -> None:
     journal = tmp_path / "x.jsonl"
     assert main(["--log-file", str(journal), "list-checks"]) == 0
     assert stat.S_IMODE(journal.stat().st_mode) == 0o600
@@ -325,7 +347,9 @@ def test_fichier_de_journal_en_0600(tmp_path):
 
 
 @pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="O_NOFOLLOW requis")
-def test_lien_symbolique_refuse(tmp_path, capsys):
+def test_lien_symbolique_refuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     cible = tmp_path / "cible.log"
     cible.write_text("", encoding="utf-8")
     lien = tmp_path / "lien.log"
@@ -336,18 +360,18 @@ def test_lien_symbolique_refuse(tmp_path, capsys):
     assert "--log-file" in capsys.readouterr().err
 
 
-def test_format_de_journal_inconnu():
+def test_format_de_journal_inconnu() -> None:
     with pytest.raises(ValueError, match="format"):
         log.setup_logging(log_format="xml")
 
 
-def test_reconfiguration_sans_doublon(capsys):
+def test_reconfiguration_sans_doublon(capsys: pytest.CaptureFixture[str]) -> None:
     log.setup_logging(verbosity=1)
     log.setup_logging(verbosity=1)
     logging.getLogger("amnesia").info("une seule fois")
     assert capsys.readouterr().err.count("une seule fois") == 1
 
 
-def test_loggers_enfants():
+def test_loggers_enfants() -> None:
     assert log.check_logger("win.sysmon").name == "amnesia.check.win.sysmon"
     assert log.collector_logger("winrm").name == "amnesia.collector.winrm"
