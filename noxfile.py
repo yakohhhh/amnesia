@@ -48,7 +48,8 @@ def typecheck(session: nox.Session) -> None:
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
     _sync(session)
-    session.run("pytest", *session.posargs)
+    # sans argument, comme la CI : suite complete et seuil de couverture
+    session.run("pytest", *(session.posargs or ["--cov", "--cov-report=term-missing"]))
 
 
 @nox.session(python=PYTHONS[0])

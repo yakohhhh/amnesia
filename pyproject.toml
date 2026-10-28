@@ -70,6 +70,7 @@ dev = [
     "pre-commit-hooks==6.0.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
+    "pytest-socket==0.8.1",
     "pyyaml==6.0.3",
     "ruff==0.17.1",
     # backend de build, meme version que build-constraint-dependencies : les
@@ -101,6 +102,30 @@ version = { attr = "amnesia.__version__" }
 # heritent des types de Check et Gap), schemas (#22), catalogue (#46) et gabarits
 # de rapport (#77) ; tests/test_paquet.py verifie leur presence
 amnesia = ["py.typed", "schemas/*.json", "catalog/*.toml", "templates/**/*"]
+
+[tool.pytest.ini_options]
+# Marqueurs (windows, admin, lab, cloud, network) et options --run-* :
+# tests/conftest.py, qui les declare et les applique.
+testpaths = ["tests"]
+# --import-mode=importlib : fichiers de test homonymes permis (unit/, integration/)
+# -p no:socket : hooks de pytest-socket desactives, le conftest coupe le reseau
+# lui-meme avec ses fonctions (voir sa docstring)
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib -p no:socket"
+xfail_strict = true
+filterwarnings = [
+    "error",
+    # pytest-socket double SocketBlockedError d'un UserWarning, que "error"
+    # leverait a la place de l'exception attendue
+    "ignore:A test tried to use socket:UserWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["amnesia"]
+
+[tool.coverage.report]
+# applique par pytest-cov des que --cov est passe (job CI test, session nox tests)
+fail_under = 80
 
 [tool.ruff]
 # target-version n'est pas fixe : ruff la deduit de project.requires-python.
