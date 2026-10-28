@@ -25,7 +25,8 @@ répondre.
 ## État
 
 Squelette fonctionnel : moteur de checks + CLI. Les checks listent déjà leur
-intention ; leur `run()` est à implémenter — voir [`docs/ROADMAP.md`](docs/ROADMAP.md).
+intention ; leur `run()` est à implémenter — voir
+[`docs/ROADMAP.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/ROADMAP.md).
 
 ## Démarrer
 
@@ -55,9 +56,15 @@ avec leurs empreintes dans `uv.lock`.
 uv sync                             # installe le projet et le groupe dev depuis uv.lock
 uv run nox -l                       # liste des sessions
 uv run nox -s lint typecheck tests  # lint, typage + tests (toutes versions)
+uv run nox -s build                 # sdist + wheel contrôlés, wheel installé dans un venv vierge
 uv run mypy                         # typage strict de src et tests
 uv run pytest                       # tests sur l'interpréteur de .python-version
 ```
+
+La version n'est écrite qu'à un endroit : `__version__` dans
+`src/amnesia/__init__.py`. Ce README est publié tel quel sur PyPI : liens absolus
+uniquement. Choix de paquet (version minimale de Python, nom d'import) :
+[`docs/PAQUET.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/PAQUET.md).
 
 Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 
@@ -94,7 +101,8 @@ MSP et aux cabinets d'audit, rapport client en marque blanche. Tu peux même le
 facturer comme prestation dès la v0.
 
 > Nom PyPI : le paquet s'appelle `amnesia-dfr` (le nom `amnesia` est pris), mais
-> la commande reste `amnesia`.
+> la commande reste `amnesia`. Il n'est pas encore publié (#33) : installe-le
+> depuis les sources, jamais par son nom depuis PyPI.
 
 ## Scope & légal
 
