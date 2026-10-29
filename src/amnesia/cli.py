@@ -12,6 +12,7 @@ from pathlib import Path
 from . import __version__
 from .checks import default_checks
 from .log import FORMATS, setup_logging
+from .target import FORMES, Target, TargetError
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,15 @@ def _proteger_sorties() -> None:
             flux.reconfigure(errors="backslashreplace" if utf8 else "replace")
 
 
+def _cible(valeur: str) -> Target:
+    """Type argparse de --target : un refus devient une erreur d'usage (code 2)."""
+    try:
+        return Target.parse(valeur)
+    except TargetError as exc:
+        # ArgumentTypeError : argparse affiche ce message et non la saisie brute
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="amnesia",
@@ -104,7 +114,9 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser(
         "audit", parents=[journal], help="Lance les checks et liste les angles morts"
     )
-    a.add_argument("--target", default="localhost", help="hôte / tenant à auditer")
+    a.add_argument(
+        "--target", default="localhost", type=_cible, help=f"cible : {FORMES}"
+    )
     a.add_argument("--out", default="amnesia-report.json", help="rapport de sortie")
 
     sub.add_parser(
@@ -138,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "audit":
-        print(f"[stub] audit de {args.target} → {args.out}")
+        print(f"[stub] audit de {args.target.id} → {args.out}")
         print(
             f"[stub] {len(checks)} checks enregistrés. "
             "Implémente leur run() : src/amnesia/checks/"

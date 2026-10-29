@@ -85,7 +85,10 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import PurePath
 from traceback import extract_tb
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..target import Target
 
 
 @dataclass
@@ -103,7 +106,7 @@ class Check:
     id: str = "base"
     title: str = "base"
 
-    def run(self, target: str) -> list[Gap]:  # pragma: no cover - stub
+    def run(self, target: Target) -> list[Gap]:  # pragma: no cover - stub
         raise NotImplementedError("check non implémenté — voir docs/ROADMAP.md")
 
 

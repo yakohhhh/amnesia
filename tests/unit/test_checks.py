@@ -5,6 +5,7 @@ import re
 import pytest
 
 from amnesia.checks import Check, Gap, default_checks, windows
+from amnesia.target import Target
 
 FORMAT_ID = re.compile(r"[a-z]+\.[a-z0-9_]+")
 
@@ -42,7 +43,7 @@ def test_checks_windows_enregistres() -> None:
 
 def test_run_non_implemente() -> None:
     with pytest.raises(NotImplementedError):
-        Check().run("localhost")
+        Check().run(Target.parse("localhost"))
 
 
 def test_gap_severite_par_defaut() -> None:

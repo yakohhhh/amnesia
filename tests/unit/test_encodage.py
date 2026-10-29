@@ -60,14 +60,15 @@ def _cli(
 
 @pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
 def test_sortie_redirigee_page_de_code(tmp_path: Path, encodage: str) -> None:
-    # « → » vient de la CLI, « ’ » de la cible et du rapport ; absents de cp850,
-    # et « → » absent de cp1252 : sans repli, UnicodeEncodeError.
+    # « → » vient de la CLI, « ’ » du nom du rapport ; absents de cp850, et
+    # « → » absent de cp1252 : sans repli, UnicodeEncodeError. La cible est
+    # validee en ASCII (#18) : le texte non ASCII passe par --out.
     # Cible .invalid (RFC 6761), jamais localhost : une fois les run()
-    # implementes, ce test auditerait sinon la machine qui l'execute.
+    # implémentés, ce test auditerait sinon la machine qui l'execute.
     args = (
         "audit",
         "--target",
-        "poste d’essai.invalid",
+        "winrm://poste-essai.invalid",
         "--out",
         "rapport d’audit.json",
     )
@@ -98,27 +99,38 @@ def test_aide_et_liste_redirigees_page_de_code(tmp_path: Path, encodage: str) ->
 def test_argv_non_utf8_sortie_utf8(tmp_path: Path) -> None:
     # nom Latin-1 passe par un script : l'octet 0xff devient le surrogate
     # U+DCFF, que l'UTF-8 strict refuse
-    resultat = _cli(tmp_path, "utf-8:strict", "audit", "--target", b"a\xffb.invalid")
+    # (la cible, validee en ASCII par #18, refuserait l'octet : il passe par --out)
+    resultat = _cli(
+        tmp_path,
+        "utf-8:strict",
+        "audit",
+        "--target",
+        "winrm://essai.invalid",
+        "--out",
+        b"a\xffb.json",
+    )
     assert resultat.returncode == 0, resultat.stderr
     assert resultat.stderr == b""
-    assert b"audit de a\\udcffb.invalid " in resultat.stdout
+    assert "→ a\\udcffb.json".encode() in resultat.stdout
 
 
 @pytest.mark.parametrize(
-    ("errors", "cible", "attendu"),
+    ("errors", "rapport", "attendu"),
     [
         # octet 0xff d'argv sous POSIX
-        ("strict", "a\udcffb.invalid", b"a\\udcffb.invalid"),
+        ("strict", "a\udcffb.json", b"a\\udcffb.json"),
         # surrogate isole d'un nom Windows en UTF-8 Mode, hors U+DC80..U+DCFF
-        ("surrogateescape", "a\ud800b.invalid", b"a\\ud800b.invalid"),
+        ("surrogateescape", "a\ud800b.json", b"a\\ud800b.json"),
     ],
 )
 def test_surrogate_en_sortie_utf8(
-    monkeypatch: pytest.MonkeyPatch, errors: str, cible: str, attendu: bytes
+    monkeypatch: pytest.MonkeyPatch, errors: str, rapport: str, attendu: bytes
 ) -> None:
     sortie = _flux("utf-8", errors)
     monkeypatch.setattr(sys, "stdout", sortie)
-    assert main(["audit", "--target", cible, "--out", "r.json"]) == 0
+    # le surrogate passe par --out : la cible est validee en ASCII (#18)
+    cible = "winrm://essai.invalid"
+    assert main(["audit", "--target", cible, "--out", rapport]) == 0
     sortie.flush()
     tampon = sortie.buffer
     assert isinstance(tampon, io.BytesIO)

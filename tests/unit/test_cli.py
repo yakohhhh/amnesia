@@ -9,6 +9,7 @@ import pytest
 from amnesia import __version__
 from amnesia.checks import Check, default_checks
 from amnesia.cli import build_parser, main
+from amnesia.target import Target
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -34,7 +35,7 @@ def test_commande_amnesia_pointe_sur_main() -> None:
 
 def test_audit_valeurs_par_defaut() -> None:
     args = build_parser().parse_args(["audit"])
-    assert (args.target, args.out) == ("localhost", "amnesia-report.json")
+    assert (args.target, args.out) == (Target.parse("localhost"), "amnesia-report.json")
 
 
 def test_audit_stub(
@@ -42,7 +43,8 @@ def test_audit_stub(
     tmp_path: Path,
     registre_factice: Sequence[Check],
 ) -> None:
-    assert main(["audit", "--target", "dc01"]) == 0
+    # un nom nu (« dc01 ») est refuse depuis #18 : le transport est explicite
+    assert main(["audit", "--target", "winrm://dc01"]) == 0
     sortie = capsys.readouterr().out
     assert all(c.id in sortie for c in registre_factice)
     assert list(tmp_path.iterdir()) == []  # cwd isole par le conftest

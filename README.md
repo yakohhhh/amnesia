@@ -36,7 +36,7 @@ automatiquement) :
 ```bash
 uv sync
 uv run amnesia list-checks
-uv run amnesia audit --target dc01
+uv run amnesia audit --target winrm://dc01
 ```
 
 Sans uv, toujours dans un environnement virtuel :
