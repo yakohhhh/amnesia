@@ -202,7 +202,10 @@ def test_timeout_court_rend_la_main_vite(liberation: threading.Event) -> None:
     # le check suivant part sur un thread neuf, sans attendre le check bloque
     assert resultats["test.suivant"].status is Status.PASS
     duree = resultats["test.lent"].duration_s
-    assert duree is not None and 0.2 <= duree < 2
+    # sous Windows, l'attente de Future.result() peut rendre la main une
+    # fraction de milliseconde avant que time.monotonic() n'ait avance de
+    # 0.2 s (granularite des horloges) : marge de 50 ms sur la borne basse
+    assert duree is not None and 0.15 <= duree < 2
 
 
 def test_keyboard_interrupt_rend_un_audit_partiel() -> None:
