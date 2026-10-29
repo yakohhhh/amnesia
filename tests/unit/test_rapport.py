@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import io
 import json
 import os
 import re
+import subprocess
+import sys
 from collections import Counter
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
@@ -38,12 +41,14 @@ from amnesia.cli import main
 from amnesia.facts import Fact, FactSet
 from amnesia.report import (
     MASK,
+    PATH_OPTIONS,
     SCHEMA_VERSION,
     SENSITIVE_OPTIONS,
     build_report,
     dumps_report,
     load_schema,
     redact_argv,
+    schema_bytes,
     schema_text,
 )
 from amnesia.target import Kind, Target, Transport
@@ -506,9 +511,69 @@ def test_options_sensibles_couvertes() -> None:
         ]
 
 
+@pytest.mark.parametrize(
+    ("argv", "attendu"),
+    [
+        # option et chemin separes, chemin POSIX
+        (["--out", "/home/compte-factice/clients/r.json"], ["--out", "r.json"]),
+        # forme --opt=valeur
+        (["--log-file=/Users/compte-factice/audit.log"], ["--log-file=audit.log"]),
+        # abreviations acceptees par argparse
+        (["--ou", "/srv/compte-factice/r.json"], ["--ou", "r.json"]),
+        (["--log-fi=/tmp/compte-factice/a.log"], ["--log-fi=a.log"]),
+        # chemin Windows, reconnu aussi sous POSIX
+        (["--out", r"C:\Users\compte-factice\r.json"], ["--out", "r.json"]),
+        ([r"--out=C:\Users\compte-factice\r.json"], ["--out=r.json"]),
+        (["--log-file", "D:audit.log"], ["--log-file", "audit.log"]),
+        # chemin deja relatif : inchange
+        (["--out", "rapport.json"], ["--out", "rapport.json"]),
+        # une option sensible a la place du chemin reste masquee
+        (["--out", "--token", "abc"], ["--out", "--token", MASK]),
+        (["--out", "--token=abc"], ["--out", f"--token={MASK}"]),
+        # le nom de fichier passe encore par assainir()
+        (["--out", "/home/x/password=abc"], ["--out", f"password={MASK}"]),
+    ],
+)
+def test_argv_chemins_reduits_au_nom_de_fichier(
+    argv: list[str], attendu: list[str]
+) -> None:
+    assert redact_argv(argv) == attendu
+
+
+def test_argv_sans_chemin_du_poste_dans_le_rapport() -> None:
+    argv = [
+        "audit",
+        "--out",
+        "/home/compte-factice/clients/ACME/rapport.json",
+        r"--log-file=C:\Users\compte-factice\audit.log",
+    ]
+    texte = dumps_report(build_report(audit_de_reference(), argv=argv))
+    assert "compte-factice" not in texte
+    assert "ACME" not in texte
+    assert json.loads(texte)["run"]["argv"] == [
+        "audit",
+        "--out",
+        "rapport.json",
+        "--log-file=audit.log",
+    ]
+
+
+def test_options_a_chemin_couvertes() -> None:
+    assert PATH_OPTIONS == ("--out", "--log-file")
+
+
 def test_argv_non_textuel_refuse() -> None:
     with pytest.raises(TypeError, match="argv"):
         redact_argv([b"--token"])  # type: ignore[list-item]
+
+
+@pytest.mark.parametrize("argv", ["--token abc", b"--token abc", bytearray(b"--t")])
+def test_argv_en_chaine_unique_refuse(argv: Any) -> None:
+    # une chaine serait parcourue caractere par caractere, sans aucun masquage
+    with pytest.raises(TypeError, match="pas une chaîne"):
+        redact_argv(argv)
+    with pytest.raises(TypeError, match="pas une chaîne"):
+        build_report(audit_de_reference(), argv=argv)
 
 
 # --- encodage et donnees hostiles ---------------------------------------------
@@ -558,17 +623,40 @@ def test_dumps_echappe_un_rapport_quelconque() -> None:
     assert json.loads(texte) == {"cl\\udcffe": ["v\\udcfe"]}
 
 
-def test_valeurs_de_la_cible_ecrites_telles_quelles() -> None:
-    # neutralisation des caracteres C1 et bidi : rendus (#45), pas le rapport
-    message = "journal \u202eexe.txt\u202c \x85 fin"
+CONTROLES = (
+    [chr(c) for c in range(0x7F, 0xA0)]
+    + [chr(c) for c in (0x061C, 0x200E, 0x200F, 0x2028, 0x2029)]
+    + [chr(c) for c in range(0x202A, 0x202F)]
+    + [chr(c) for c in range(0x2066, 0x206A)]
+)
+
+
+def test_controles_de_la_cible_echappes() -> None:
+    # CSI et OSC C1 (effacement d'ecran, titre), DEL, Trojan Source (U+202E)
+    message = "journal \x9b2J\x9d52;c;QUJD\x9c \u202eexe.txt\u202c \x7f \x85 fin \u00e9"
     resultat = CheckResult.not_applicable("win.exemple", CIBLE.id, message)
     audit = dataclasses.replace(audit_de_reference(), results=(resultat,))
     texte = dumps_report(build_report(audit, check_versions={}))
-    assert "\u202e" in texte
-    assert "\x85" in texte
+    for controle in CONTROLES:
+        assert controle not in texte, hex(ord(controle))
+    octets = texte.encode("utf-8")
+    for brut in (b"\xc2\x9b", b"\xc2\x9d", b"\xe2\x80\xae", b"\x7f"):
+        assert brut not in octets
+    assert r"\u009b2J\u009d52" in texte
+    assert r"\u202eexe.txt\u202c" in texte
+    # meme valeur une fois relue ; accents toujours lisibles
     assert json.loads(texte)["results"][0]["message"] == message
+    assert "fin \u00e9" in texte
     # C0 : echappes par JSON
     assert "\x1b" not in dumps_report({"m": "\x1b[31m"})
+
+
+def test_echappement_des_controles_conserve_la_valeur() -> None:
+    valeur = {"cl\u202ee": ["".join(CONTROLES), "texte \u00e9 \u2192 \u2019"]}
+    texte = dumps_report(valeur)
+    assert not any(c in texte for c in CONTROLES)
+    assert json.loads(texte) == valeur
+    assert "texte \u00e9 \u2192 \u2019" in texte
 
 
 def test_operateur_absent_du_rapport() -> None:
@@ -666,12 +754,25 @@ def test_schema_refuse_un_rapport_incoherent() -> None:
         cible[chemin[-1]] = valeur
         with pytest.raises(jsonschema.ValidationError):
             VALIDATEUR.validate(modifie)
-    # statut error sans motif, statut pass avec motif
-    for statut, motif in [("error", None), ("pass", "timeout")]:
+    # statut error ou skipped sans motif, statut pass avec motif : seule la
+    # regle statut/motif doit etre en cause (error garde un objet valide)
+    erreur = {"type": "RuntimeError", "message": "x", "traceback": None}
+    for statut, motif, info in [
+        ("error", None, erreur),
+        ("skipped", None, None),
+        ("pass", "timeout", None),
+    ]:
         modifie = copy.deepcopy(rapport)
-        modifie["results"][0].update(status=statut, reason=motif)
-        with pytest.raises(jsonschema.ValidationError):
-            VALIDATEUR.validate(modifie)
+        modifie["results"][0].update(status=statut, reason=motif, error=info)
+        erreurs = list(VALIDATEUR.iter_errors(modifie))
+        assert erreurs, statut
+        for e in erreurs:
+            assert list(e.absolute_path)[-1:] == ["reason"], (statut, e.message)
+    # le meme resultat avec un motif est accepte : les cas ci-dessus ne
+    # tombent que sur le motif
+    modifie = copy.deepcopy(rapport)
+    modifie["results"][0].update(status="error", reason="timeout", error=erreur)
+    VALIDATEUR.validate(modifie)
 
 
 def test_schema_tolere_un_champ_ajoute() -> None:
@@ -692,6 +793,33 @@ def test_amnesia_schema_affiche_le_schema(capsys: pytest.CaptureFixture[str]) ->
     jsonschema.Draft202012Validator.check_schema(schema)
     assert schema == SCHEMA
     assert sortie.endswith("}\n")
+
+
+def test_amnesia_schema_sans_tampon(monkeypatch: pytest.MonkeyPatch) -> None:
+    # flux sans .buffer (remplace par l'appelant) : repli sur print()
+    sortie = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", sortie)
+    assert main(["schema"]) == 0
+    assert sortie.getvalue() == schema_text()
+
+
+@pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
+def test_amnesia_schema_redirige_reste_en_utf8(tmp_path: Path, encodage: str) -> None:
+    # « amnesia schema > f.json » sous Windows avant 3.15 : sortie en page ANSI
+    # ou OEM ; le JSON reste l'UTF-8 embarque, octet pour octet (ni cp1252 ni CRLF)
+    env = {**os.environ, "PYTHONIOENCODING": encodage}
+    env.pop("PYTHONUTF8", None)
+    resultat = subprocess.run(
+        [sys.executable, "-X", "utf8=0", "-m", "amnesia", "schema"],
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+        env=env,
+    )
+    assert resultat.returncode == 0, resultat.stderr
+    assert resultat.stderr == b""
+    assert resultat.stdout == schema_bytes()
+    assert json.loads(resultat.stdout.decode("utf-8")) == SCHEMA
 
 
 # --- documentation -----------------------------------------------------------

@@ -28,24 +28,30 @@ UTF-8 strict. Il est remplacé par son échappement ``\\udcff`` (même forme que
 sortie de la CLI, docs/dev/encodage.md) : le texte rendu s'encode toujours en
 UTF-8.
 
-Données venues de la cible : messages, preuves et textes des Gaps sont écrits
-tels quels, caractères de contrôle C1 (U+0080 à U+009F) et de direction
-bidirectionnelle (U+202E...) compris ; seuls ceux en dessous de U+0020 sont
-échappés par JSON (``\\u001b``). Les neutraliser à l'affichage revient aux rendus
-(terminal, Markdown, HTML : #23, #45, #77), jamais au rapport, qui doit garder la
-valeur observée.
+Données venues de la cible : messages, preuves et textes des Gaps gardent la
+valeur observée, mais aucun caractère de contrôle n'est écrit brut. JSON échappe
+ceux en dessous de U+0020 (``\\u001b``) ; ``dumps_report()`` échappe aussi DEL et
+les contrôles C1 (U+007F à U+009F, dont CSI U+009B et OSC U+009D), les contrôles
+bidirectionnels (U+061C, U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069) et
+les séparateurs U+2028/U+2029, sous la forme ``\\u009b``. ``json.loads()`` relit
+la même valeur, mais ``cat``, ``less`` ou un diff du rapport ne peuvent plus
+piloter le terminal ni inverser le texte affiché (Trojan Source).
 
-Le rapport ne porte pas le nom du compte local qui a lancé l'audit
-(``AuditResult.operator``) : il est remis au client.
+Le rapport ne porte ni le nom du compte local qui a lancé l'audit
+(``AuditResult.operator``), ni l'arborescence de son poste : il est remis au
+client. ``run.argv`` omet le programme et ne garde que le nom de fichier des
+options à chemin (``--out``, ``--log-file``).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from importlib.resources import files
+from pathlib import PureWindowsPath
 from typing import Any
 
 from .checks import REGISTRY
@@ -66,6 +72,12 @@ SENSITIVE_OPTIONS = ("--password", "--token", "--secret", "--client-secret")
 
 MASK = "***"
 
+PATH_OPTIONS = ("--out", "--log-file")
+"""Options à chemin : seul le nom de fichier est gardé dans ``run.argv``."""
+
+_CONTROLES_BRUTS = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]")
+"""DEL, C1, bidi et U+2028/U+2029 : échappés en ``\\u009b`` par ``dumps_report()``."""
+
 
 def load_schema() -> dict[str, Any]:
     """JSON Schema du rapport v1, lu dans le paquet installé."""
@@ -75,17 +87,32 @@ def load_schema() -> dict[str, Any]:
 
 def schema_text() -> str:
     """Texte du JSON Schema du rapport v1, tel qu'embarqué dans le paquet."""
-    return files("amnesia").joinpath(SCHEMA_RESOURCE).read_text(encoding="utf-8")
+    return schema_bytes().decode("utf-8")
 
 
-def _sensible(option: str) -> bool:
+def schema_bytes() -> bytes:
+    """Octets UTF-8 du JSON Schema du rapport v1, tels qu'embarqués dans le paquet."""
+    return files("amnesia").joinpath(SCHEMA_RESOURCE).read_bytes()
+
+
+def _abrege(option: str, options: Sequence[str]) -> bool:
     # argparse accepte une abreviation non ambigue (--tok pour --token) : tout
-    # prefixe d'une option sensible est masque, quitte a masquer trop
+    # prefixe d'une de ces options compte, quitte a masquer trop
     return (
         option.startswith("--")
         and len(option) > 2
-        and any(sensible.startswith(option) for sensible in SENSITIVE_OPTIONS)
+        and any(candidate.startswith(option) for candidate in options)
     )
+
+
+def _sensible(option: str) -> bool:
+    return _abrege(option, SENSITIVE_OPTIONS)
+
+
+def _nom_de_fichier(chemin: str) -> str:
+    # PureWindowsPath coupe sur « / » comme sur « \ » : /home/<compte>/...,
+    # ~/... et C:\Users\<compte>\... perdent tous leur repertoire
+    return assainir(PureWindowsPath(chemin).name)
 
 
 def redact_argv(argv: Iterable[str]) -> list[str]:
@@ -94,12 +121,22 @@ def redact_argv(argv: Iterable[str]) -> list[str]:
     ``--token abc`` devient ``--token ***`` et ``--token=abc`` ``--token=***``,
     pour ``--password``, ``--token``, ``--secret``, ``--client-secret`` et
     leurs abréviations. L'argument qui suit une option sensible est masqué quelle
-    que soit sa forme. Les autres arguments passent par ``assainir()`` :
-    identifiants dans une URL, ``password=...``, caractères non imprimables et
-    surrogates rendus visibles (``\\udcff``).
+    que soit sa forme. ``--out`` et ``--log-file`` (abréviations et forme
+    ``--out=...`` comprises) ne gardent que le nom de fichier :
+    ``--out /home/<compte>/r.json`` devient ``--out r.json``. Les autres
+    arguments passent par ``assainir()`` : identifiants dans une URL,
+    ``password=...``, caractères non imprimables et surrogates rendus visibles
+    (``\\udcff``).
+
+    Lève ``TypeError`` si ``argv`` est une chaîne (elle serait parcourue
+    caractère par caractère, sans aucun masquage) ou contient autre chose que
+    des chaînes.
     """
+    if isinstance(argv, str | bytes | bytearray):
+        raise TypeError("argv : liste d'arguments attendue, pas une chaîne")
     masques: list[str] = []
     masquer_suivant = False
+    chemin_suivant = False
     for argument in argv:
         if not isinstance(argument, str):
             raise TypeError(f"argv : chaîne attendue, reçu {type(argument).__name__}")
@@ -107,13 +144,26 @@ def redact_argv(argv: Iterable[str]) -> list[str]:
             masques.append(MASK)
             masquer_suivant = False
             continue
-        option, egal, _valeur = argument.partition("=")
+        option, egal, valeur = argument.partition("=")
         if _sensible(option):
+            # avant le chemin attendu : « --out --token abc » masque encore abc
+            chemin_suivant = False
             if egal:
                 masques.append(f"{option}={MASK}")
             else:
                 masques.append(option)
                 masquer_suivant = True
+            continue
+        if chemin_suivant:
+            masques.append(_nom_de_fichier(argument))
+            chemin_suivant = False
+            continue
+        if _abrege(option, PATH_OPTIONS):
+            if egal:
+                masques.append(f"{assainir(option)}={_nom_de_fichier(valeur)}")
+            else:
+                masques.append(assainir(option))
+                chemin_suivant = True
             continue
         masques.append(assainir(argument))
     return masques
@@ -268,9 +318,15 @@ def dumps_report(report: Mapping[str, Any]) -> str:
 
     ``ensure_ascii=False`` (accents lisibles), indentation de 2, clés dans
     l'ordre de ``build_report()``, saut de ligne final. Les surrogates isolés
-    sont échappés (``\\udcff``) ; un flottant non fini lève ``ValueError``.
+    sont échappés (``\\udcff``) ; DEL, C1, contrôles bidirectionnels et
+    U+2028/U+2029 le sont en échappement JSON (``\\u009b``, ``\\u202e``), qui
+    garde la valeur relue par ``json.loads()``. Un flottant non fini lève
+    ``ValueError``.
     """
     texte = json.dumps(
         _sans_surrogates(report), ensure_ascii=False, indent=2, allow_nan=False
     )
+    # ces caracteres ne peuvent figurer que dans une chaine JSON (la syntaxe
+    # est en ASCII) : l'echappement \uXXXX y est toujours valide
+    texte = _CONTROLES_BRUTS.sub(lambda m: f"\\u{ord(m.group()):04x}", texte)
     return texte + "\n"

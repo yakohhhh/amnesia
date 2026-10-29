@@ -10,7 +10,8 @@ Schema et déterministe.
   texte JSON.
 - Schéma : `src/amnesia/schemas/report-v1.schema.json` (JSON Schema draft
   2020-12), embarqué dans le paquet, lu par `amnesia.report.load_schema()` et
-  affiché par `amnesia schema`.
+  affiché par `amnesia schema` (octets UTF-8 embarqués, même sortie redirigée
+  sous Windows : `amnesia schema > report-v1.schema.json`).
 - Exemple complet : en fin de document ; il est validé par le schéma dans les
   tests, comme le golden `tests/golden/report.json`.
 - Écriture du fichier (`--out`, permissions) : #24 et #25.
@@ -27,7 +28,9 @@ Deux sérialisations du même audit sont identiques octet pour octet :
   et empreinte (`Gap.sort_key()`) ;
 - horodatages RFC 3339 en UTC, suffixe `Z` ;
 - UTF-8 sans BOM, `ensure_ascii=False` (accents lisibles), indentation de 2
-  espaces, saut de ligne final.
+  espaces, saut de ligne final ;
+- caractères de contrôle toujours échappés en `\uXXXX` (voir « Sécurité et
+  confidentialité »).
 
 Le golden `tests/golden/report.json` se régénère avec :
 
@@ -72,7 +75,7 @@ Tous les champs sont toujours présents ; une valeur absente vaut `null`.
 | `complete` | booléen | Vrai si chaque check a été évalué ou exclu par l'utilisateur, sans interruption. Faux dès qu'un résultat est en `error`, ou en `skipped` pour un autre motif que `user_excluded`. |
 | `interrupted` | booléen | Vrai si l'audit a été interrompu (Ctrl+C) : résultats partiels. |
 | `profile` | chaîne ou `null` | Profil d'audit ; `null` tant que les profils (#47) n'existent pas. |
-| `argv` | tableau de chaînes | Arguments de la ligne de commande, sans le programme ; valeurs sensibles masquées (voir plus bas). |
+| `argv` | tableau de chaînes | Arguments de la ligne de commande, sans le programme ; valeurs sensibles masquées, chemins réduits au nom de fichier (voir plus bas). |
 
 ### `targets[]`
 
@@ -178,6 +181,13 @@ politique de versionnage du projet (#31) reprend cette règle.
   `--token ***` et `--token=abc` devient `--token=***`. Les autres arguments
   sont caviardés comme les messages d'erreur (identifiants dans une URL,
   `password=...`). Le chemin du programme (`sys.argv[0]`) n'est pas repris.
+- **Pas de chemin du poste de l'auditeur** : `--out` et `--log-file`, leurs
+  abréviations (`--ou`) et leur forme `--out=...` ne gardent que le nom de
+  fichier, chemin POSIX ou Windows : `--out /home/<compte>/clients/r.json` et
+  `--out C:\Users\<compte>\r.json` deviennent `--out r.json`. Limite : la
+  cible d'un bundle (`bundle:<chemin>`, #18) est reprise telle quelle dans
+  `targets[].id` et dans `run.argv` ; un chemin relatif évite d'y écrire
+  l'arborescence du poste.
 - **Pas d'opérateur** : le compte local qui a lancé l'audit
   (`AuditResult.operator`) n'est pas écrit dans le rapport remis au client.
 - **Texte non UTF-8** : un surrogate isolé (octet non UTF-8 d'un argument ou
@@ -186,12 +196,18 @@ politique de versionnage du projet (#31) reprend cette règle.
   ([`docs/dev/encodage.md`](dev/encodage.md)) : le rapport s'écrit toujours en
   UTF-8 strict. La forme est déterministe, mais ne se distingue pas d'un texte
   qui contenait déjà `\udcff`.
-- **Valeurs venues de la cible écrites telles quelles** : messages, textes et
-  preuves des Gaps gardent la valeur observée, caractères de contrôle C1
-  (U+0080 à U+009F), de direction bidirectionnelle (U+202E...) et séparateurs
-  U+2028/U+2029 compris ; seuls les caractères sous U+0020 sont échappés par
-  JSON (`\u001b`). Tout consommateur qui les affiche (terminal, Markdown, HTML,
-  PDF) doit les neutraliser : c'est le rôle des rendus (#23, #45, #77).
+- **Valeurs venues de la cible : aucun caractère de contrôle brut** : messages,
+  textes et preuves des Gaps gardent la valeur observée, mais les caractères de
+  contrôle n'apparaissent dans le fichier que sous forme d'échappement JSON.
+  JSON échappe ceux sous U+0020 (`\u001b`) ; `dumps_report()` échappe aussi DEL
+  et les contrôles C1 (U+007F à U+009F, dont CSI U+009B et OSC U+009D), les
+  contrôles de direction bidirectionnelle (U+061C, U+200E, U+200F, U+202A à
+  U+202E, U+2066 à U+2069) et les séparateurs U+2028/U+2029 (`\u009b`,
+  `\u202e`). `json.loads()` relit exactement la même valeur, mais `cat`, `less`,
+  `jq` ou un diff du rapport ne peuvent plus piloter le terminal ni inverser le
+  texte affiché (Trojan Source). Les accents restent lisibles. Les rendus (#23,
+  #45, #77) neutralisent toujours ces caractères à l'affichage, une fois la
+  valeur décodée.
 
 ## Exemple complet
 
