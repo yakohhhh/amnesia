@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import getpass
 import logging
+import subprocess
 import threading
 import time
 from collections import Counter
@@ -14,7 +15,7 @@ from typing import Any
 import pytest
 
 import amnesia
-from amnesia import AuditResult, run_audit
+from amnesia import AuditResult, run_audit, runner
 from amnesia.checks import REGISTRY, Check, Gap
 from amnesia.checks.base import (
     CheckResult,
@@ -609,7 +610,9 @@ def test_operateur_par_defaut(monkeypatch: pytest.MonkeyPatch) -> None:
     assert run_audit([], CIBLE, CollecteurFactice()).operator == OPERATEUR_INCONNU
 
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), True])
+@pytest.mark.parametrize(
+    "timeout", [0, -1, float("inf"), float("nan"), True, threading.TIMEOUT_MAX * 2]
+)
 def test_timeout_invalide(timeout: float) -> None:
     with pytest.raises(ValueError, match="timeout invalide"):
         auditer([], timeout=timeout)
@@ -642,3 +645,99 @@ def test_audit_result_trie_a_la_construction() -> None:
             operator="",
             results=("pas un résultat",),  # type: ignore[arg-type]
         )
+
+
+# --- revue adversariale (#21) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        NotApplicable(None),  # type: ignore[arg-type]
+        CheckSkipped(Reason.NOT_COLLECTED, 42),  # type: ignore[arg-type]
+    ],
+)
+def test_saut_invalide_devient_erreur_interne_sans_arreter_l_audit(
+    exc: BaseException,
+) -> None:
+    suivant = Factice("test.c_suivant", conforme)
+    audit = auditer(
+        [Factice("test.a_ok", conforme), Factice("test.b_bogue", leve(exc)), suivant]
+    )
+    resultats = par_id(audit)
+    assert resultats["test.a_ok"].status is Status.PASS
+    fautif = resultats["test.b_bogue"]
+    assert (fautif.status, fautif.reason) == (Status.ERROR, Reason.INTERNAL_ERROR)
+    assert resultats["test.c_suivant"].status is Status.PASS
+    assert suivant.appels == 1
+
+
+def test_filet_de_securite_si_l_evaluation_leve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def plante(*args: object, **kwargs: object) -> CheckResult:
+        raise RuntimeError("conversion impossible")
+
+    monkeypatch.setattr(runner, "_evaluer", plante)
+    audit = auditer([Factice("test.a", conforme), Factice("test.b", conforme)])
+    assert [(r.status, r.reason) for r in audit.results] == [
+        (Status.ERROR, Reason.INTERNAL_ERROR),
+        (Status.ERROR, Reason.INTERNAL_ERROR),
+    ]
+
+
+def _echec_wevtutil() -> subprocess.CalledProcessError:
+    commande = ["wevtutil", "qe", "Security", f"/p:{MDP}", "-Password", MDP]
+    return subprocess.CalledProcessError(5, commande)
+
+
+def test_journal_d_erreur_interne_caviarde(caplog: pytest.LogCaptureFixture) -> None:
+    # handler hote en DEBUG, sans le filtre d'expurgation d'amnesia
+    caplog.set_level(logging.DEBUG, logger="amnesia")
+
+    def implicite(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
+        try:
+            raise _echec_wevtutil()
+        except subprocess.CalledProcessError:
+            raise RuntimeError("collecte wevtutil echouee")  # noqa: B904
+
+    def explicite(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
+        try:
+            raise _echec_wevtutil()
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError("collecte wevtutil echouee") from exc
+
+    audit = auditer(
+        [Factice("test.a", implicite), Factice("test.b", explicite)], debug=True
+    )
+    assert all(r.reason is Reason.INTERNAL_ERROR for r in audit.results)
+    assert all(r.exc_info is None for r in caplog.records)
+    assert MDP not in caplog.text
+    assert "RuntimeError : collecte wevtutil echouee" in caplog.text
+
+
+def test_check_sans_fait_non_bloque_par_une_collecte_bloquee(
+    liberation: threading.Event,
+) -> None:
+    class Bloquant:
+        def collect(
+            self, target: Target, names: Iterable[str], *, timeout: float
+        ) -> FactSet:
+            liberation.wait(5.0)
+            return FactSet()
+
+    debut = time.monotonic()
+    audit = auditer(
+        [
+            Factice("test.a", conforme, ("windows.sysmon.service",)),
+            Factice("test.b", conforme),
+            Factice("test.c", conforme),
+        ],
+        collector=Bloquant(),
+        timeout=0.3,
+    )
+    resultats = par_id(audit)
+    assert resultats["test.a"].reason is Reason.TIMEOUT
+    assert resultats["test.b"].status is Status.PASS
+    assert resultats["test.c"].status is Status.PASS
+    assert time.monotonic() - debut < 2.0

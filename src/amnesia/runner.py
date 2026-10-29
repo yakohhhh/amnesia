@@ -37,7 +37,9 @@ attendrait la fin du check bloqué.
 
 Un thread Python ne peut pas être tué : le check bloqué continue en arrière-plan
 (l'interpréteur l'attend à la sortie) et garde le verrou du ``CachingCollector``
-s'il est bloqué dans une collecte. Les collecteurs bornent donc eux-mêmes leurs
+s'il est bloqué dans une collecte : les checks suivants qui demandent des faits
+attendent alors ce verrou, ceux sans fait requis ne collectent rien et s'exécutent
+normalement. Les collecteurs bornent donc eux-mêmes leurs
 appels (``subprocess.run(timeout=...)``, timeouts WinRM) avec le ``timeout``
 qu'ils reçoivent.
 
@@ -54,6 +56,7 @@ import functools
 import getpass
 import logging
 import math
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping
@@ -68,13 +71,14 @@ from .checks.base import (
     Check,
     CheckResult,
     CheckSkipped,
+    ErrorInfo,
     NotApplicable,
     Reason,
     Severity,
     Status,
 )
 from .checks.context import Context
-from .facts import CachingCollector, Collector, resolve
+from .facts import CachingCollector, Collector, FactSet, resolve
 from .log import check_logger
 from .target import Target
 
@@ -109,11 +113,14 @@ def _operateur() -> str:
 
 
 def _verifier_timeout(timeout: float) -> None:
+    # au-dela de TIMEOUT_MAX (~49,7 jours sous Windows), Future.result() leve
+    # OverflowError
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, int | float)
         or not math.isfinite(timeout)
         or timeout <= 0
+        or timeout > threading.TIMEOUT_MAX
     ):
         raise ValueError(f"timeout invalide : {timeout!r} (secondes > 0 attendues)")
 
@@ -245,6 +252,56 @@ def _verifier_resultat(resultat: object, check_id: str, cible: str) -> CheckResu
     return resultat
 
 
+def _erreur_interne(
+    check_id: str,
+    cible: str,
+    journal: logging.Logger,
+    exc: BaseException,
+    *,
+    debug: bool,
+) -> CheckResult:
+    """Résultat ``error`` / ``internal_error`` ; journal caviardé comme le résultat."""
+    info = ErrorInfo.from_exception(exc)
+    # jamais exc_info : la trace complete (exceptions chainees, str() brut d'un
+    # CalledProcessError, chemins absolus) contournerait le caviardage
+    # d'ErrorInfo, y compris sous un handler hote sans filtre d'expurgation
+    journal.debug("exception %s : %s", info.type, info.message, extra={"target": cible})
+    return CheckResult.failed(
+        check_id, cible, Reason.INTERNAL_ERROR, exc, with_traceback=debug
+    )
+
+
+def _evaluer_brut(
+    check: Check,
+    collecteur: CachingCollector,
+    contexte: Context,
+    *,
+    timeout: float,
+) -> CheckResult:
+    """Collecte, résolution, évaluation ; convertit les sauts levés par le check."""
+    cible = contexte.target
+    try:
+        # sans fait requis, aucune collecte : le verrou du cache peut etre tenu
+        # par un check abandonne apres un depassement de delai
+        faits = (
+            collecteur.collect(cible, check.requires_facts, timeout=timeout)
+            if check.requires_facts
+            else FactSet()
+        )
+        impose = resolve(check.id, cible.id, check.requires_facts, faits)
+        if impose is not None:
+            return impose
+        return _verifier_resultat(check.evaluate(faits, contexte), check.id, cible.id)
+    except CheckSkipped as exc:
+        return CheckResult.skipped(check.id, cible.id, exc.reason, exc.message)
+    except NotApplicable as exc:
+        return CheckResult.not_applicable(check.id, cible.id, exc.message)
+    except NotImplementedError:
+        return CheckResult.skipped(
+            check.id, cible.id, Reason.NOT_IMPLEMENTED, "check non implémenté"
+        )
+
+
 def _evaluer(
     check: Check,
     collecteur: CachingCollector,
@@ -255,32 +312,18 @@ def _evaluer(
 ) -> CheckResult:
     """Collecte, résolution puis évaluation d'un check (thread de travail).
 
-    Ne lève que ``KeyboardInterrupt`` : toute autre exception devient un résultat.
+    Ne lève que ``KeyboardInterrupt`` : toute autre exception devient un résultat,
+    y compris celle levée en convertissant un ``CheckSkipped`` ou un
+    ``NotApplicable`` invalide (message qui n'est pas une chaîne).
     """
-    cible = contexte.target
     try:
-        faits = collecteur.collect(cible, check.requires_facts, timeout=timeout)
-        impose = resolve(check.id, cible.id, check.requires_facts, faits)
-        if impose is not None:
-            return impose
-        return _verifier_resultat(check.evaluate(faits, contexte), check.id, cible.id)
+        return _evaluer_brut(check, collecteur, contexte, timeout=timeout)
     except KeyboardInterrupt:
         raise
-    except CheckSkipped as exc:
-        return CheckResult.skipped(check.id, cible.id, exc.reason, exc.message)
-    except NotApplicable as exc:
-        return CheckResult.not_applicable(check.id, cible.id, exc.message)
-    except NotImplementedError:
-        return CheckResult.skipped(
-            check.id, cible.id, Reason.NOT_IMPLEMENTED, "check non implémenté"
-        )
     except BaseException as exc:
         # SystemExit compris : un check ne fait jamais tomber l'audit
-        contexte.logger.debug(
-            "exception %s", type(exc).__name__, exc_info=exc, extra={"target": cible.id}
-        )
-        return CheckResult.failed(
-            check.id, cible.id, Reason.INTERNAL_ERROR, exc, with_traceback=debug
+        return _erreur_interne(
+            check.id, contexte.target.id, contexte.logger, exc, debug=debug
         )
 
 
@@ -321,6 +364,11 @@ def _executer(
         executeur.abandonner()
         journal.warning("interrompu", extra={"target": target.id})
         raise
+    except Exception as exc:
+        # filet de securite : _evaluer ne devrait lever que KeyboardInterrupt.
+        # Pas BaseException : un SystemExit du thread principal (gestionnaire de
+        # signal) doit arreter l'audit
+        resultat = _erreur_interne(check.id, target.id, journal, exc, debug=debug)
     duree = time.monotonic() - debut
     resultat = dataclasses.replace(resultat, duration_s=duree)
     statut = resultat.status.value
