@@ -211,6 +211,18 @@ Pour les rejouer sur tout le dépôt : `uv run pre-commit run --all-files`.
 - Imiter le style des fichiers voisins (nommage, docstrings, commentaires), et
   n'ajouter une dépendance qu'en cas de nécessité.
 
+## Architecture et décisions
+
+[`docs/architecture.md`](docs/architecture.md) décrit le flux d'un audit (cible
+→ transport → collecte → évaluation → résultats → rapport JSON → rendus), les
+modules de `src/amnesia/` et les dépendances autorisées entre eux, vérifiées par
+`tests/test_architecture.py`, et les frontières de confiance. Le « pourquoi »
+des choix structurants est dans le registre des décisions,
+[`docs/adr/README.md`](docs/adr/README.md), au format MADR : une PR qui change
+une frontière entre modules, un transport, un format ou une garantie de
+sécurité ajoute un ADR, ou cite celui qu'elle applique. Le modèle de PR pose la
+question.
+
 ## Workflow Git
 
 ### Une issue, une branche, une PR
