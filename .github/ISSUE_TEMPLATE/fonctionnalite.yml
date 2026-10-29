@@ -1,0 +1,35 @@
+# Demande de fonctionnalite hors checks (CLI, rapport, packaging...). Un
+# nouveau check passe par nouveau-check.yml.
+name: Fonctionnalité
+description: Proposer une amélioration qui n'est pas un nouveau check (CLI, rapport, collecte, documentation…).
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Pour proposer un check, utilise plutôt le formulaire « Nouveau check ». **Aucune donnée client** dans cette issue : ni nom d'hôte, ni domaine, ni adresse IP, ni identifiant de tenant.
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Besoin
+      description: Le problème rencontré, et pour qui (auditeur, client, intégrateur).
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+      description: Ce que tu proposes, et comment on saurait que c'est fait.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+  - type: checkboxes
+    id: engagements
+    attributes:
+      label: Vérifications
+      options:
+        - label: Cette issue ne contient aucune donnée client (noms d'hôtes, domaines, IP, identifiants de tenant).
+          required: true
