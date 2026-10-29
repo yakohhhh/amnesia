@@ -38,6 +38,9 @@ la première version sera la 0.1.0 (milestone M0).
   défaut), un check en échec ou bloqué n'arrête pas les autres, résultats triés
   par sévérité avec comptes par statut et par sévérité ; un Ctrl+C rend un
   audit partiel marqué interrompu (#195).
+- Politique de sécurité `SECURITY.md` : signalement privé des vulnérabilités par
+  GitHub, délais de traitement, périmètre, divulgation coordonnée, et règles de
+  manipulation des rapports et des données client (#196).
 - Rapport JSON versionné (`schema_version` 1.0.0) et son JSON Schema
   draft 2020-12, embarqué dans le paquet et affiché par `amnesia schema` :
   un résultat par check et par cible, Gaps triés par sévérité, comptes par

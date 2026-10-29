@@ -23,7 +23,7 @@ from .render import (
     load_report,
     render_report,
 )
-from .report import schema_text
+from .report import schema_bytes, schema_text
 from .target import FORMES, Target, TargetError
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,24 @@ def _proteger_sorties() -> None:
             # valeur de l'octet d'origine, utile a l'analyste
             utf8 = codecs.lookup(flux.encoding).name == "utf-8"
             flux.reconfigure(errors="backslashreplace" if utf8 else "replace")
+
+
+def _ecrire_schema() -> None:
+    """Écrit le JSON Schema embarqué sur stdout, octet pour octet, en UTF-8.
+
+    JSON s'échange en UTF-8 (RFC 8259) : sous Windows avant Python 3.15, une
+    sortie redirigée en mode texte serait encodée en cp1252 et ses fins de ligne
+    en CRLF. Les octets passent donc par ``sys.stdout.buffer`` ; sans tampon
+    (flux remplacé, pythonw), repli sur ``print()``.
+    """
+    tampon = getattr(sys.stdout, "buffer", None)
+    if tampon is None:
+        # texte embarque tel quel : il finit deja par un saut de ligne
+        print(schema_text(), end="")
+        return
+    sys.stdout.flush()
+    tampon.write(schema_bytes())
+    tampon.flush()
 
 
 def _cible(valeur: str) -> Target:
@@ -245,8 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         return _rendre(args)
 
     if args.cmd == "schema":
-        # texte embarque tel quel : il finit deja par un saut de ligne
-        print(schema_text(), end="")
+        _ecrire_schema()
         return 0
 
     if args.cmd == "audit":

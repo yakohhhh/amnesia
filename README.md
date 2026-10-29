@@ -125,6 +125,11 @@ facturer comme prestation dès la v0.
 Lecture seule, sur un périmètre que tu es autorisé à auditer. `amnesia` lit des
 configurations, pas des données métier.
 
+Un rapport est confidentiel : les règles de stockage, de transmission et de
+conservation des données client, et le canal de signalement des vulnérabilités,
+sont dans
+[`SECURITY.md`](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md).
+
 ## Licence
 
 MIT.
