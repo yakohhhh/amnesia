@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from ..checks.base import CheckResult, Reason
+from ..checks.base import CheckResult, Reason, assainir
 from .model import Fact, FactSet, UnavailableReason
 
 _MOTIF_D_ERREUR: dict[UnavailableReason, Reason] = {
@@ -84,10 +84,12 @@ def resolve(
         )
     if sans_objet:
         noms = ", ".join(f.name for f in sans_objet)
+        # source ecrite par un collecteur ou lue d'un bundle : peut porter un
+        # secret (winrm://user:mdp@hote, /p:...), caviardee comme une erreur
         return CheckResult.not_applicable(
             check_id,
             target,
             f"fait(s) non pris en charge par la cible : {noms} "
-            f"(source : {sans_objet[0].source})",
+            f"(source : {assainir(sans_objet[0].source)})",
         )
     return None

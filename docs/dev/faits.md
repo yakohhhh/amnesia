@@ -89,7 +89,8 @@ Plusieurs faits indisponibles : l'erreur l'emporte sur le saut, qui l'emporte
 sur `not_applicable`. Un check n'est sans objet que si tous ses faits manquants
 sont `unsupported` : le doute penche vers « non évalué », jamais vers
 « vérifié ». Le message d'erreur nomme le fait, son motif et sa source, et passe
-par le caviardage d'`ErrorInfo`.
+par le caviardage d'`ErrorInfo` ; la source citée par un résultat
+`not_applicable` passe par le même caviardage (`assainir()`).
 
 ## Collecteurs
 

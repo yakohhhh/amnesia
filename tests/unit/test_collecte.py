@@ -38,8 +38,8 @@ DC01 = Target.parse("winrm://dc01")
 
 IDS_EXISTANTS = {
     "win.audit_policy",
-    "win.powershell_logging",
     "win.event_log_retention",
+    "win.powershell_logging",
     "win.sysmon",
     "win.time_sync",
 }
@@ -212,6 +212,23 @@ def test_erreur_de_fait_caviardee() -> None:
     assert "motdepasse" not in resultat.message
     assert "motdepasse" not in resultat.error.message
     assert FactUnavailableError(fait).fact is fait
+
+
+@pytest.mark.parametrize("raison", list(UnavailableReason))
+def test_source_caviardee_quel_que_soit_le_motif(raison: UnavailableReason) -> None:
+    # unsupported (not_applicable) compris : la source finit aussi au rapport
+    fait = Fact.unavailable(
+        "windows.auditpol.backup",
+        raison,
+        source="winrm://audit:motdepasse@dc01 wevtutil gl Security /p:Secret123",
+        collected_at=INSTANT,
+    )
+    resultat = resolve("win.audit_policy", "winrm://dc01", [fait.name], FactSet([fait]))
+    assert resultat is not None
+    sortie = repr(resultat.to_dict())
+    for secret in ("motdepasse", "Secret123"):
+        assert secret not in resultat.message
+        assert secret not in sortie
 
 
 # --- CachingCollector -------------------------------------------------------

@@ -105,7 +105,7 @@ SEVERITES = tuple(s.value for s in sorted(Severity, reverse=True))
 # fullmatch et non match : « $ » accepterait un saut de ligne final
 _FORMAT_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
 
-# methode d'evaluation dont la surcharge rend un check « implemente »
+# methode d'evaluation dont la surcharge rend un check « implemente » (#20)
 _METHODE_EVALUATION = "evaluate"
 
 # paquets de domaine charges par le registre par defaut ; un nouveau domaine

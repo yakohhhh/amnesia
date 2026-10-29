@@ -264,6 +264,70 @@ def test_fichier_de_faits_invalide(tmp_path: Path, contenu: str, motif: str) -> 
         load_facts(chemin)
 
 
+def _enveloppe_brute(valeur: str) -> str:
+    # valeur JSON brute d'un fait ok, sans passer par json.dumps
+    return (
+        f'{{"schema": "{SCHEMA}", "facts": {{"windows.a.b": {{"status": "ok", '
+        f'"value": {valeur}, "source": "s", '
+        '"collected_at": "2026-10-21T09:30:00Z"}}}'
+    )
+
+
+@pytest.mark.parametrize(
+    ("contenu", "motif"),
+    [
+        # epuise la pile de json.loads, avant la borne _PROFONDEUR_MAX
+        (
+            _enveloppe_brute("[" * 200_000 + "]" * 200_000).encode(),
+            "JSON trop imbriqué",
+        ),
+        # latin-1 : 0xe9 seul n'est pas de l'UTF-8
+        (_enveloppe_brute('"s\xe9curit\xe9"').encode("latin-1"), "non UTF-8"),
+        # au-dela de sys.get_int_max_str_digits()
+        (_enveloppe_brute("9" * 5000).encode(), "nombre JSON hors limites"),
+        # avant datetime.min une fois ramene en UTC
+        (
+            _enveloppe_brute("1")
+            .replace("2026-10-21T09:30:00Z", "0001-01-01T00:00:00+01:00")
+            .encode(),
+            "collected_at hors limites",
+        ),
+    ],
+    ids=["imbrication", "latin-1", "entier-geant", "horodatage-hors-limites"],
+)
+def test_fichier_hostile_leve_factsformaterror(
+    tmp_path: Path, contenu: bytes, motif: str
+) -> None:
+    # le fichier peut venir d'un client (#52) : jamais d'autre exception
+    chemin = tmp_path / "faits.json"
+    chemin.write_bytes(contenu)
+    with pytest.raises(FactsFormatError, match=motif):
+        load_facts(chemin)
+
+
+def test_fichier_utf8_avec_bom_accepte(tmp_path: Path) -> None:
+    # Windows PowerShell 5.1 : Out-File -Encoding utf8 ecrit un BOM
+    chemin = tmp_path / "faits.json"
+    chemin.write_bytes(b"\xef\xbb\xbf" + _enveloppe_brute("1").encode())
+    assert load_facts(chemin).value("windows.a.b") == 1
+
+
+def test_cle_hostile_echappee_dans_le_message(tmp_path: Path) -> None:
+    # 1e400 donne inf (hors parse_constant) : le message cite le chemin de la cle
+    cle = "\x1b[2J\x1b[31mFAUX OK\n" + "x" * 500
+    chemin = tmp_path / "faits.json"
+    chemin.write_text(
+        _enveloppe_brute(json.dumps({cle: 1e400}).replace("Infinity", "1e400")),
+        encoding="utf-8",
+    )
+    with pytest.raises(FactsFormatError, match="non fini") as erreur:
+        load_facts(chemin)
+    message = str(erreur.value)
+    assert message.isprintable()
+    assert "\x1b" not in message
+    assert len(message) < 300
+
+
 def _fait_json(**champs: object) -> dict[str, object]:
     fait: dict[str, object] = {
         "status": "ok",
