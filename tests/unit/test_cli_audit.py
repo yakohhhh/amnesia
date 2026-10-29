@@ -344,6 +344,72 @@ def test_lien_symbolique_refuse(
     assert not cible.exists()
 
 
+def test_lien_symbolique_avec_overwrite_cible_intacte(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _registre(monkeypatch, conforme())
+    cible = tmp_path / "victime.txt"
+    cible.write_text("SECRET\n", encoding="utf-8")
+    lien = tmp_path / "r.json"
+    try:
+        lien.symlink_to(cible)
+    except (OSError, NotImplementedError):
+        pytest.skip("liens symboliques indisponibles")
+    # --overwrite remplace le lien lui-meme, jamais ce qu'il pointe (CWE-59)
+    assert main(["audit", "--out", str(lien), "--overwrite"]) == exitcodes.OK
+    assert cible.read_text(encoding="utf-8") == "SECRET\n"
+    assert not lien.is_symlink()
+    assert _rapport(lien)["summary"]["total"] == 1
+
+
+def test_lien_physique_avec_overwrite_cible_intacte(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _registre(monkeypatch, conforme())
+    cible = tmp_path / "victime.txt"
+    cible.write_text("SECRET\n", encoding="utf-8")
+    lien = tmp_path / "r.json"
+    try:
+        lien.hardlink_to(cible)
+    except (OSError, NotImplementedError):
+        pytest.skip("liens physiques indisponibles")
+    assert main(["audit", "--out", str(lien), "--overwrite"]) == exitcodes.OK
+    assert cible.read_text(encoding="utf-8") == "SECRET\n"
+    assert _rapport(lien)["summary"]["total"] == 1
+
+
+def test_overwrite_sur_un_repertoire_code_4(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registre(monkeypatch, conforme())
+    dossier = tmp_path / "r.json"
+    dossier.mkdir()
+    (dossier / "temoin").write_text("", encoding="utf-8")
+    assert main(["audit", "--out", str(dossier), "--overwrite"]) == exitcodes.FATAL
+    assert (dossier / "temoin").exists()
+    assert "écriture impossible" in capsys.readouterr().err
+
+
+def test_chemin_out_neutralise_sur_le_terminal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registre(monkeypatch, conforme())
+    rapport = tmp_path / "x\x1b[31mrouge\x1b[0m\x1b]0;titre\x07.json"
+    assert main(["audit", "--out", str(rapport)]) == exitcodes.OK
+    sortie = capsys.readouterr()
+    assert "Rapport JSON : " in sortie.out
+    assert "\x1b" not in sortie.out
+    assert "\x07" not in sortie.out
+    assert "\\x1b[31mrouge" in sortie.out
+    with pytest.raises(SystemExit) as exc:
+        main(["audit", "--out", str(rapport)])
+    assert exc.value.code == exitcodes.USAGE
+    sortie = capsys.readouterr()
+    assert "existe déjà" in sortie.err
+    assert "\x1b" not in sortie.err
+    assert "\x07" not in sortie.err
+
+
 def test_rapport_ecrit_en_utf8_sans_bom_fins_de_ligne_lf(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

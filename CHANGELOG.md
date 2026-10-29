@@ -57,7 +57,8 @@ la première version sera la 0.1.0 (milestone M0).
   ANSI, contrôles, bidi) et échappées en Markdown ; un rapport d'une autre
   version majeure de format est refusé (code 4) (#23).
 - `amnesia audit` lance réellement les checks : rapport JSON écrit dans `--out`
-  (jamais écrasé sans `--overwrite` ; `--out -` : JSON sur stdout, rendu texte
+  (jamais écrasé sans `--overwrite` ; un lien planté à cet emplacement n'est
+  jamais suivi, même en écrasant ; `--out -` : JSON sur stdout, rendu texte
   sur stderr), rendu texte ou JSON sur stdout (`--format`, `--no-color`,
   `NO_COLOR`). Codes de sortie stables (`amnesia.exitcodes`, table dans
   `amnesia audit --help` et le README) : 0 audit complet sans angle mort au

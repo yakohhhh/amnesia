@@ -19,7 +19,7 @@ from typing import Any
 
 from . import __version__
 from .checks import REGISTRY, CheckMeta, default_checks
-from .checks.base import ErrorInfo
+from .checks.base import ErrorInfo, assainir
 from .exitcodes import (
     DEFAULT_FAIL_ON,
     FAIL_ON,
@@ -248,12 +248,18 @@ def _collecteur(target: Target) -> Collector:
 def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> bool:
     """Écrit le rapport dans ``chemin`` ; faux (et journal) si c'est impossible.
 
-    Sans ``overwrite``, un fichier existant n'est jamais écrasé (mode ``x``,
-    qui refuse aussi un lien symbolique, même cassé). Permissions, écriture
+    Le fichier est toujours créé en mode ``x`` (``O_EXCL``), qui ne suit jamais
+    un lien, symbolique ou physique, planté à cet emplacement. Sans
+    ``overwrite``, un fichier existant n'est donc jamais écrasé. Avec, l'entrée
+    présente est d'abord retirée (un lien est retiré, sa cible reste intacte),
+    puis le rapport est créé à sa place ; une entrée réapparue entre les deux
+    fait échouer la création : rien n'est écrasé. Permissions, écriture
     atomique et emplacement par défaut : #25.
     """
     try:
-        with chemin.open("wb" if overwrite else "xb") as fichier:
+        if overwrite:
+            chemin.unlink(missing_ok=True)
+        with chemin.open("xb") as fichier:
             fichier.write(octets)
     except OSError as exc:
         logger.error(
@@ -283,9 +289,13 @@ def _auditer(
     """
     vers_stdout = args.out == SORTIE_STANDARD
     chemin = None if vers_stdout else Path(args.out)
+    # le chemin vient de la ligne de commande : neutralise avant tout echo
+    chemin_affiche = assainir(str(chemin)) if chemin is not None else ""
     # avant l'audit : perdre un audit entier pour un fichier deja la serait pire
     if chemin is not None and not args.overwrite and chemin.exists():
-        parser.error(f"--out {chemin} : existe déjà (--overwrite pour l'écraser)")
+        parser.error(
+            f"--out {chemin_affiche} : existe déjà (--overwrite pour l'écraser)"
+        )
     # instances neuves : aucun etat ne passe d'un audit a l'autre
     checks = default_checks()
     audit = run_audit(checks, args.target, _collecteur(args.target), debug=args.debug)
@@ -304,7 +314,7 @@ def _auditer(
     if args.format == "text":
         flux_texte.write(_rendu_texte(rapport, flux_texte, no_color=args.no_color))
         if chemin is not None:
-            flux_texte.write(f"Rapport JSON : {chemin}\n")
+            flux_texte.write(f"Rapport JSON : {chemin_affiche}\n")
         flux_texte.flush()
     if audit.interrupted:
         return INTERRUPTED
