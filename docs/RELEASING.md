@@ -8,9 +8,9 @@ release, PyPI, release GitHub) relève de #33 : ce document décrit ce qui la
 précède et ce qu'elle doit appliquer.
 
 **État.** Rien n'a encore été publié : aucun tag, aucune release GitHub, aucun
-paquet sur PyPI. La version déclarée aujourd'hui dans `src/amnesia/__init__.py`
-est un marqueur de développement, jamais publié ni tagué. La première version
-publiée sera la 0.1.0 (milestone M0), par le workflow de #33.
+paquet sur PyPI. La version déclarée aujourd'hui dans `src/amnesia/__init__.py`,
+`0.1.0.dev0`, est une version de développement, jamais publiée ni taguée. La
+première version publiée sera la 0.1.0 (milestone M0), par le workflow de #33.
 
 Les tests de `tests/test_versionnage.py` vérifient la forme de ce document et du
 CHANGELOG (table des milestones, surfaces publiques, catégories, renvois du
@@ -35,8 +35,12 @@ dépendance, et le changement de version est relu dans la PR de release. Le tag
 est créé d'après `__version__`, jamais l'inverse ; le workflow de #33 refuse un
 tag qui ne lui correspond pas.
 
-Entre deux releases, `__version__` garde la dernière version publiée : elle ne
-change que dans la PR de release.
+Entre deux releases, `__version__` porte une version de développement PEP 440,
+jamais publiée : `0.2.0.dev0` après la 0.1.0. Un rapport produit par du code non
+publié ne se confond ainsi jamais avec un rapport d'une release (#142, menace
+M14). `__version__` ne prend une version publiable (`X.Y.Z` ou `X.Y.ZrcN`) que
+dans la PR de release, et revient à une version de développement juste après le
+tag.
 
 ## SemVer
 
@@ -216,7 +220,12 @@ français.
   refactorisation sans effet visible) n'y figurent pas : l'historique git les
   garde.
 - Une version publiée prend le titre `## [X.Y.Z] - AAAA-MM-JJ` (date UTC du tag,
-  ISO 8601) et un lien de comparaison en bas du fichier.
+  ISO 8601) et un lien de comparaison en bas du fichier. Seule une version finale
+  est datée, jamais une pré-version ni une version de développement.
+- Les versions sont rangées par numéro décroissant. Les dates ne décroissent
+  qu'au sein d'une série `MAJEUR.MINEUR` : un correctif d'une série ancienne
+  (0.1.1) peut sortir après une mineure plus récente (0.2.0), et se range sous
+  elle.
 - Les entrées sont écrites à la main, sans Conventional Commits. Un générateur de
   notes (git-cliff, release-drafter) pourra être ajouté plus tard sans imposer de
   format de commit ; la release GitHub reprend la section de la version (#33).
@@ -228,14 +237,25 @@ français.
 - **Workflow de release (#33) mergé** et publishers PyPI configurés. Tant que ce
   n'est pas le cas, aucun tag n'est poussé : un tag poussé ne doit plus jamais
   être déplacé, et la 0.1.0 inaugure le workflow.
-- **Clé de signature** (GPG ou SSH) configurée dans git et déclarée sur GitHub
-  comme clé de signature, pour que le tag apparaisse « Verified » :
+- **Réglages du dépôt** de la section « Protections côté GitHub » en place.
+- **Clé de signature** SSH (recommandée) ou GPG, configurée dans git, déclarée sur
+  GitHub comme clé de signature pour que le tag apparaisse « Verified », et
+  inscrite par une PR relue dans `.github/allowed_signers`. Ce fichier, au format
+  `allowed_signers` de git (une ligne `<e-mail> <clé publique>`, l'e-mail étant
+  celui de `user.email`), est la liste des clés autorisées à signer une release :
+  #33 vérifie le tag contre lui. Sans lui, `git tag -v` échoue sur un tag SSH
+  pourtant bien signé (« gpg.ssh.allowedSignersFile needs to be configured »).
 
   ```sh
-  git config --global user.signingkey <clé>   # empreinte GPG, ou chemin de la clé SSH publique
+  git config --global user.signingkey <clé>   # chemin de la clé SSH publique, ou empreinte GPG
   git config --global gpg.format ssh          # seulement pour une clé SSH
   git config --global tag.gpgSign true        # tout tag annoté est signé
+  git config gpg.ssh.allowedSignersFile .github/allowed_signers   # dans le clone du dépôt
   ```
+
+  Avec une clé GPG, `git tag -v` s'appuie sur le trousseau local ; la clé publique
+  est alors versionnée à côté de `.github/allowed_signers` pour que #33 puisse
+  l'importer avant la vérification.
 
 ### Checklist
 
@@ -295,11 +315,26 @@ français.
    CHANGELOG) et la page PyPI avec ses attestations (#33), puis fermer la
    milestone (`state: closed` dans `.github/milestones.yml`, puis
    `scripts/sync_github.py`).
+10. **Retour en développement** : PR qui passe `__version__` à la version de
+    développement suivante, jamais publiée. Après une version finale X.Y.Z, c'est
+    `__version__ = "X.Y+1.0.dev0"` sur `main` (`0.2.0.dev0` après la 0.1.0) et
+    `X.Y.Z+1.dev0` sur une branche de maintenance ; après une pré-version,
+    `X.Y.Z.devN` avec N incrémenté. Le test du CHANGELOG exige que cette version
+    suive la dernière version datée.
 
 ### Ce que la publication (#33) doit garantir
 
 - déclenchement par le push d'un tag `v*`, et par lui seul ;
-- échec avant toute publication si le tag diffère de `v` + `__version__` ;
+- échec avant toute publication si le tag diffère de `v` + `__version__`, ou si
+  c'est une version de développement (`.devN`), qui n'est jamais publiée ;
+- échec avant toute publication si le tag n'est pas un tag annoté signé par une
+  clé de la liste autorisée (`git verify-tag "$GITHUB_REF_NAME"`), liste lue
+  depuis `origin/main` (`git show origin/main:.github/allowed_signers`) et non
+  depuis le commit taggé ;
+- échec si le commit taggé n'est ancêtre ni de `origin/main` ni d'une branche
+  `maint/*` protégée (`git merge-base --is-ancestor`) ;
+- job de publication dans l'environnement `pypi` (section « Protections côté
+  GitHub ») ;
 - pré-version (`rcN`) publiée sur TestPyPI, version finale sur PyPI, par Trusted
   Publishing avec attestations, sans jeton stocké ;
 - release GitHub avec le sdist, le wheel et la section du CHANGELOG de la
@@ -308,16 +343,21 @@ français.
 ### Pré-versions
 
 `vX.Y.ZrcN` suit la même checklist, avec `__version__ = "X.Y.ZrcN"` ; le
-CHANGELOG ne date pas de pré-version, il ne date que la version finale. La 0.1.0
-passe par `v0.1.0rc1` sur TestPyPI avant PyPI (#33).
+CHANGELOG ne date pas de pré-version, il ne date que la version finale. Le test
+du CHANGELOG accepte une pré-version tant que la dernière version datée précède
+X.Y.Z. La 0.1.0 passe par `v0.1.0rc1` sur TestPyPI avant PyPI (#33).
 
 ### Correctifs
 
 Une version corrective (X.Y.Z+1) suit la même checklist. Si `main` contient déjà
 des changements destinés à la mineure suivante, le correctif part d'une branche de
-maintenance créée depuis le tag (`git switch -c maint/X.Y.x vX.Y.Z`), y est
-reporté par `git cherry-pick`, puis taggé depuis cette branche après relecture.
-L'entrée du CHANGELOG figure aussi dans `main`.
+maintenance créée depuis le tag par un mainteneur (`git switch -c maint/X.Y.x
+vX.Y.Z`), protégée comme `main` (section « Protections côté GitHub »). Chaque
+report y arrive par une PR (`git cherry-pick` sur une branche de travail), relue
+et avec la CI verte, jamais par un push direct ; le tag est posé sur le merge de
+la PR de release de cette branche. L'entrée du CHANGELOG est aussi reportée dans
+`main`, rangée par numéro de version : la 0.1.1 publiée après la 0.2.0 se place
+sous la 0.2.0.
 
 ### Interdits
 
@@ -328,12 +368,28 @@ L'entrée du CHANGELOG figure aussi dans `main`.
   correctif.
 - Publier depuis un poste (`twine upload`, `uv publish`) : seul le workflow de
   #33 publie.
-- Tagger un commit qui n'est pas sur `main` ou sur une branche de maintenance.
+- Tagger un commit qui n'est pas sur `main` ou sur une branche `maint/*`
+  protégée, ou dont `__version__` est une version de développement.
+- Pousser un commit directement sur une branche `maint/*`.
 
 ### Protections côté GitHub
 
-Réglages du dépôt, à la main du propriétaire (#13) : un ruleset sur les tags `v*`
-qui réserve leur création aux mainteneurs et interdit leur mise à jour et leur
-suppression, et un environnement `pypi` pour le job de publication (#33). Le tag
-signé et le Trusted Publishing répondent à la menace M22 du
-[modèle de menace](threat-model.md) (chaîne de publication compromise).
+Réglages du dépôt, à la main du propriétaire (#13), à mettre en place avant le
+premier tag :
+
+- un ruleset sur les tags `v*` qui réserve leur création aux mainteneurs et
+  interdit leur mise à jour et leur suppression ;
+- un ruleset sur les branches `maint/*` équivalent à la protection de `main` :
+  PR obligatoire, `ci-ok` requis, ni push forcé ni suppression, création réservée
+  aux mainteneurs ;
+- un environnement `pypi` limité aux tags `v*`, avec approbation obligatoire d'un
+  mainteneur, et le Trusted Publisher PyPI lié à cet environnement. Le workflow
+  d'un tag s'exécute depuis le commit taggé : un tag posé sur un commit hors de
+  `main` peut neutraliser les contrôles du workflow, pas l'approbation de
+  l'environnement.
+
+Ensemble, la signature du tag vérifiée par #33 contre `.github/allowed_signers`,
+ces réglages et le Trusted Publishing répondent à la menace M22 du
+[modèle de menace](threat-model.md) (chaîne de publication compromise). Pris
+isolément, un tag signé ne protège de rien : tant que rien ne vérifie la
+signature, un jeton de mainteneur volé suffit à pousser un tag non signé.

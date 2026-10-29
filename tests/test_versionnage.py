@@ -26,9 +26,16 @@ DEPOT = "https://github.com/yakohhhh/amnesia"
 # l'ordre du format (Added, Changed, Deprecated, Removed, Fixed, Security)
 CATEGORIES = ("Ajouté", "Modifié", "Déprécié", "Supprimé", "Corrigé", "Sécurité")
 ANGLAIS = ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security")
-# X.Y.Z, ou pre-version en notation PEP 440 (0.1.0rc1)
-VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:rc(\d+))?")
+# X.Y.Z, pre-version (0.1.0rc1) ou version de developpement (0.2.0.dev0), en
+# notation PEP 440
+VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:(rc|\.dev)(\d+))?")
+# une version datee est toujours une version finale
+FINALE = re.compile(r"\d+\.\d+\.\d+")
+# PEP 440 : 0.2.0.dev0 < 0.2.0rc1 < 0.2.0
+PHASES: dict[str | None, int] = {".dev": 0, "rc": 1, None: 2}
 TITRE_VERSION = re.compile(r"\[([^\]]+)\] - (\S+)")
+# date.fromisoformat accepte aussi 20270115 ou 2027-W03-1 depuis Python 3.11
+JOUR = re.compile(r"\d{4}-\d{2}-\d{2}")
 # convention des ids de checks (#17)
 ID_CHECK = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
 
@@ -60,12 +67,11 @@ Format : https://keepachangelog.com/fr/1.1.0/ et https://semver.org/lang/fr/
 """
 
 
-def _cle(version: str) -> tuple[int, int, int, float]:
+def _cle(version: str) -> tuple[int, int, int, int, int]:
     trouvee = VERSION.fullmatch(version)
     assert trouvee, version
-    majeur, mineur, correctif, rc = trouvee.groups()
-    # une pre-version precede la version finale : 0.1.0rc1 < 0.1.0
-    return (int(majeur), int(mineur), int(correctif), int(rc) if rc else float("inf"))
+    majeur, mineur, correctif, phase, numero = trouvee.groups()
+    return (int(majeur), int(mineur), int(correctif), PHASES[phase], int(numero or 0))
 
 
 def erreurs_changelog(texte: str, version: str) -> list[str]:
@@ -88,8 +94,12 @@ def erreurs_changelog(texte: str, version: str) -> list[str]:
         elif titre := TITRE_VERSION.fullmatch(entete):
             numero, jour = titre.groups()
             etiquettes.append(numero)
-            if not VERSION.fullmatch(numero):
+            # une pre-version ou une version de developpement n'est jamais datee
+            if not FINALE.fullmatch(numero):
                 erreurs.append(f"version invalide : {numero}")
+                continue
+            if not JOUR.fullmatch(jour):
+                erreurs.append(f"date invalide pour {numero} : {jour}")
                 continue
             try:
                 publiees.append((numero, date.fromisoformat(jour)))
@@ -108,15 +118,47 @@ def erreurs_changelog(texte: str, version: str) -> list[str]:
         (_cle(v) for v, _ in publiees), reverse=True
     ):
         erreurs.append("versions hors de l'ordre décroissant")
-    if [j for _, j in publiees] != sorted((j for _, j in publiees), reverse=True):
+    if _dates_desordonnees(publiees):
         erreurs.append("dates hors de l'ordre décroissant")
-    if publiees and publiees[0][0] != version:
-        erreurs.append(f"dernière version {publiees[0][0]} ≠ __version__ {version}")
+    if publiees:
+        erreurs += _erreurs_version(publiees[0][0], version)
     for etiquette in etiquettes:
         lien = rf"^\[{re.escape(etiquette)}\]: {re.escape(DEPOT)}/\S+$"
         if not re.search(lien, texte, flags=re.MULTILINE):
             erreurs.append(f"lien de comparaison absent : [{etiquette}]")
     return erreurs
+
+
+def _dates_desordonnees(publiees: list[tuple[str, date]]) -> bool:
+    # les dates ne sont ordonnees qu'au sein d'une serie MAJEUR.MINEUR : un
+    # correctif d'une serie ancienne (0.1.1) peut sortir apres une mineure plus
+    # recente (0.2.0). Entre series, c'est la premiere release qui est ordonnee.
+    series: dict[tuple[int, int], list[date]] = {}
+    for numero, jour in publiees:
+        majeur, mineur, *_ = _cle(numero)
+        series.setdefault((majeur, mineur), []).append(jour)
+    premieres = [min(jours) for jours in series.values()]
+    return premieres != sorted(premieres, reverse=True) or any(
+        jours != sorted(jours, reverse=True) for jours in series.values()
+    )
+
+
+def _erreurs_version(derniere: str, version: str) -> list[str]:
+    # derniere : version datee la plus recente ; version : __version__
+    trouvee = VERSION.fullmatch(version)
+    if not trouvee:
+        return [f"__version__ invalide : {version}"]
+    if FINALE.fullmatch(version):
+        # le bump de __version__ et la datation du CHANGELOG vont dans la meme PR
+        if derniere != version:
+            return [f"dernière version {derniere} ≠ __version__ {version}"]
+        return []
+    # pre-version ou version de developpement : jamais datee, elle prepare une
+    # version finale posterieure a la derniere version publiee
+    finale = ".".join(trouvee.groups()[:3])
+    if _cle(derniere) >= _cle(finale):
+        return [f"__version__ {version} ne suit pas la dernière version {derniere}"]
+    return []
 
 
 def _erreurs_categories(entete: str, corps: str) -> list[str]:
@@ -171,8 +213,9 @@ def test_changelog_au_format_keep_a_changelog() -> None:
 
 def test_validateur_accepte_un_changelog_avec_versions() -> None:
     assert erreurs_changelog(CHANGELOG_VALIDE, "0.2.0") == []
-    # une pre-version precede la version finale
-    assert _cle("0.1.0rc1") < _cle("0.1.0") < _cle("0.1.1") < _cle("0.10.0")
+    # PEP 440 : developpement < pre-version < version finale
+    assert _cle("0.1.0.dev0") < _cle("0.1.0rc1") < _cle("0.1.0") < _cle("0.1.1")
+    assert _cle("0.1.1") < _cle("0.10.0.dev0") < _cle("0.10.0")
 
 
 @pytest.mark.parametrize(
@@ -185,8 +228,13 @@ def test_validateur_accepte_un_changelog_avec_versions() -> None:
         ("### Corrigé\n\n- Correctif (#3).\n", "### Corrigé\n", "catégorie vide"),
         ("### Modifié", "### Sécurité", "hors de l'ordre"),
         ("[0.2.0] - 2027-01-15", "[0.2.0] - 2027-13-15", "date invalide"),
+        ("[0.2.0] - 2027-01-15", "[0.2.0] - 20270115", "date invalide"),
+        ("[0.2.0] - 2027-01-15", "[0.2.0] - 2027-W03-5", "date invalide"),
         ("[0.2.0] - 2027-01-15", "[0.2.0] - 2026-01-15", "dates hors de l'ordre"),
         ("[0.2.0] - 2027-01-15", "[v0.2] - 2027-01-15", "version invalide"),
+        # une pre-version ou une version de developpement n'est jamais datee
+        ("[0.2.0] - 2027-01-15", "[0.2.0rc1] - 2027-01-15", "version invalide"),
+        ("[0.2.0] - 2027-01-15", "[0.2.0.dev0] - 2027-01-15", "version invalide"),
         ("## [0.1.0] - 2026-11-30", "## 0.1.0 (2026-11-30)", "section inattendue"),
         ("[0.1.0]: ", "[0.1]: ", "lien de comparaison absent : [0.1.0]"),
         ("## [0.2.0]", "## [0.0.9]", "versions hors de l'ordre"),
@@ -205,6 +253,34 @@ def test_derniere_version_du_changelog_egale_a_la_version_du_paquet() -> None:
     # le bump de __version__ et la datation du CHANGELOG vont dans la meme PR
     erreurs = erreurs_changelog(CHANGELOG_VALIDE, "0.3.0")
     assert erreurs == ["dernière version 0.2.0 ≠ __version__ 0.3.0"]
+    erreurs = erreurs_changelog(CHANGELOG_VALIDE, "v0.3")
+    assert erreurs == ["__version__ invalide : v0.3"]
+
+
+@pytest.mark.parametrize("version", ["0.3.0rc1", "0.3.0.dev0", "0.2.1.dev0"])
+def test_pre_version_ou_developpement_apres_la_derniere_version(version: str) -> None:
+    # PR de release d'une pre-version, ou main entre deux releases : rien de date
+    assert erreurs_changelog(CHANGELOG_VALIDE, version) == []
+
+
+@pytest.mark.parametrize("version", ["0.2.0rc1", "0.2.0.dev0", "0.1.1.dev0"])
+def test_pre_version_ou_developpement_deja_publiee_refusee(version: str) -> None:
+    erreurs = erreurs_changelog(CHANGELOG_VALIDE, version)
+    assert erreurs == [f"__version__ {version} ne suit pas la dernière version 0.2.0"]
+
+
+def test_correctif_d_une_serie_ancienne_publie_apres_une_mineure() -> None:
+    # 0.1.1 publiee depuis maint/0.1.x apres la 0.2.0, entree reportee dans main
+    # et rangee par numero de version
+    correctif = "## [0.1.1] - 2027-02-01\n\n### Corrigé\n\n- Correctif (#4).\n\n"
+    texte = CHANGELOG_VALIDE.replace("## [0.1.0]", correctif + "## [0.1.0]").replace(
+        "[0.1.0]: ", f"[0.1.1]: {DEPOT}/compare/v0.1.0...v0.1.1\n[0.1.0]: "
+    )
+    assert erreurs_changelog(texte, "0.2.0") == []
+    assert erreurs_changelog(texte, "0.3.0.dev0") == []
+    # au sein d'une serie, les dates restent decroissantes
+    texte = texte.replace("[0.1.1] - 2027-02-01", "[0.1.1] - 2026-11-01")
+    assert erreurs_changelog(texte, "0.2.0") == ["dates hors de l'ordre décroissant"]
 
 
 def test_version_publiee_sans_entree_refusee() -> None:
@@ -303,11 +379,33 @@ def test_procedure_de_bout_en_bout_dans_l_ordre() -> None:
         "git tag -s vX.Y.Z",
         "git tag -v vX.Y.Z",
         "git push origin vX.Y.Z",
+        '__version__ = "X.Y+1.0.dev0"',
     ]
     positions = [corps.find(etape) for etape in etapes]
     assert -1 not in positions, dict(zip(etapes, positions, strict=True))
     assert positions == sorted(positions)
     assert "#33" in corps
+    # git tag -v d'un tag SSH exige la liste des cles autorisees
+    assert "git config gpg.ssh.allowedSignersFile .github/allowed_signers" in corps
+
+
+def test_publication_verifie_signature_et_provenance_du_tag() -> None:
+    # sans ces controles, un jeton vole suffit a publier un tag non signe ou pose
+    # sur un commit non relu (menace M22)
+    garanties = _section(RELEASING, "Procédure de release").partition(
+        "### Ce que la publication (#33) doit garantir"
+    )[2]
+    for controle in (
+        'git verify-tag "$GITHUB_REF_NAME"',
+        "git show origin/main:.github/allowed_signers",
+        "git merge-base --is-ancestor",
+        "`.devN`",
+        "environnement `pypi`",
+    ):
+        assert controle in garanties.partition("### Pré-versions")[0], controle
+    protections = garanties.partition("### Protections côté GitHub")[2]
+    for reglage in ("tags `v*`", "branches `maint/*`", "approbation obligatoire"):
+        assert reglage in protections, reglage
 
 
 def test_liens_relatifs_des_documents_existent() -> None:
