@@ -5,6 +5,8 @@ import re
 import pytest
 
 from amnesia.checks import Check, Gap, default_checks
+from amnesia.checks.context import Context
+from amnesia.facts import FactSet
 from amnesia.target import Target
 
 FORMAT_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
@@ -35,9 +37,9 @@ def test_registre_renvoie_une_copie() -> None:
     assert default_checks()
 
 
-def test_run_non_implemente() -> None:
+def test_evaluate_non_implemente() -> None:
     with pytest.raises(NotImplementedError):
-        Check().run(Target.parse("localhost"))
+        Check().evaluate(FactSet(), Context(Target.parse("localhost")))
 
 
 def test_gap_severite_par_defaut() -> None:

@@ -105,9 +105,8 @@ SEVERITES = ("critical", "high", "medium", "low", "info")
 # fullmatch et non match : « $ » accepterait un saut de ligne final
 _FORMAT_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
 
-# methode d'evaluation dont la surcharge rend un check « implemente » (evaluate
-# avec #20)
-_METHODE_EVALUATION = "run"
+# methode d'evaluation dont la surcharge rend un check « implemente »
+_METHODE_EVALUATION = "evaluate"
 
 # paquets de domaine charges par le registre par defaut ; un nouveau domaine
 # (checks/m365/, #95) s'ajoute ici, et un test verifie qu'aucun n'est oublie

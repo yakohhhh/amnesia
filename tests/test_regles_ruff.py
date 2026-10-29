@@ -46,8 +46,26 @@ def _codes(source: str) -> set[str]:
         ("X = eval(input())  # noqa\n", "PGH004"),
         ('ROLE = "user\u202e"\n', "PLE2502"),
         ('ROLE = "ad\u200bmin"\n', "PLE2515"),
+        # collecteurs (#20) : argv en liste, jamais de shell
+        ('import subprocess\n\nsubprocess.run("auditpol /get", shell=True)\n', "S602"),
+        ('import os\n\nos.system("auditpol /get")\n', "S605"),
+        (
+            "def lancer(*a: object, **k: object) -> None: ...\n\n\n"
+            'lancer("auditpol /get", shell=True)\n',
+            "S604",
+        ),
     ],
-    ids=["datetime-sans-fuseau", "print", "eval", "noqa-nu", "bidi", "zwsp"],
+    ids=[
+        "datetime-sans-fuseau",
+        "print",
+        "eval",
+        "noqa-nu",
+        "bidi",
+        "zwsp",
+        "shell-subprocess",
+        "shell-os-system",
+        "shell-autre-appel",
+    ],
 )
 def test_regle_detectee(source: str, code: str) -> None:
     assert code in _codes(source)

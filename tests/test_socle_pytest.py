@@ -19,6 +19,9 @@ import pytest
 import yaml
 from pytest_socket import SocketBlockedError
 
+from amnesia.checks.base import Status
+from amnesia.checks.context import Context
+from amnesia.facts import FactSet
 from amnesia.target import Target
 
 if TYPE_CHECKING:
@@ -243,8 +246,10 @@ def test_fixtures_communes(
 ) -> None:
     (sans_gap, avec_gap) = registre_factice
     cible = Target.parse("winrm://dc01")
-    assert sans_gap.run(cible) == []
-    assert [g.severity for g in avec_gap.run(cible)] == ["high"]
+    contexte = Context(cible, clock=horloge_figee)
+    assert sans_gap.evaluate(FactSet(), contexte).status is Status.PASS
+    resultat = avec_gap.evaluate(FactSet(), contexte)
+    assert [g.severity for g in resultat.gaps] == ["high"]
     assert avec_gap.cibles == [cible]
     assert horloge_figee() == horloge_figee()
     assert horloge_figee().utcoffset() == timedelta(0)

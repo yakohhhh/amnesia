@@ -7,8 +7,11 @@ from pathlib import Path
 import pytest
 
 from amnesia import __version__, cli
-from amnesia.checks import Check, Domain, Gap, Registry, default_checks
+from amnesia.checks import Check, Domain, Registry, default_checks
+from amnesia.checks.base import CheckResult
+from amnesia.checks.context import Context
 from amnesia.cli import build_parser, main
+from amnesia.facts import FactSet
 from amnesia.target import Kind, Target
 
 
@@ -37,19 +40,19 @@ def test_list_checks_etat_et_colonnes(
     class Implemente(Check):
         id = "ad.implemente_long"
         title = "Check implémenté"
-        description = "Surcharge run()."
+        description = "Surcharge evaluate()."
         domain = Domain.AD
         target_kinds = (Kind.WINDOWS_HOST,)
         version = 1
         default_severity = "low"
 
-        def run(self, target: Target) -> list[Gap]:
-            return []
+        def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
+            return CheckResult.passed(self.id, ctx.target.id)
 
     class Stub(Check):
         id = "win.stub"
         title = "Check à écrire"
-        description = "Ne surcharge pas run()."
+        description = "Ne surcharge pas evaluate()."
         domain = Domain.WINDOWS
         target_kinds = (Kind.WINDOWS_HOST,)
         version = 1

@@ -1,0 +1,18 @@
+{
+  "schema": "amnesia.facts/1",
+  "facts": {
+    "windows.eventlog.config:Security": {
+      "status": "ok",
+      "value": {"max_size_bytes": 20971520, "retention": "overwrite"},
+      "source": "Get-WinEvent -ListLog Security",
+      "collected_at": "2026-10-21T09:30:00Z"
+    },
+    "windows.eventlog.config:System": {
+      "status": "unavailable",
+      "value": null,
+      "unavailable_reason": "access_denied",
+      "source": "Get-WinEvent -ListLog System",
+      "collected_at": "2026-10-21T09:30:00Z"
+    }
+  }
+}
