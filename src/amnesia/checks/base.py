@@ -92,7 +92,8 @@ from traceback import extract_tb
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 if TYPE_CHECKING:
-    from ..target import Target
+    from ..target import Kind, Target
+    from .registry import Domain
 
 
 # --- angle mort (Gap) : severite, preuve, references -------------------------
@@ -571,7 +572,7 @@ class Gap:
     a 4 jours.
 
     >>> gap = Gap(
-    ...     check_id="win.security_log_size",
+    ...     check_id="win.event_log_retention",
     ...     target="winrm://srv-file",
     ...     resource="Security",
     ...     question="Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?",
@@ -737,10 +738,26 @@ class Gap:
 
 
 class Check:
-    """Un contrôle de forensic readiness. Les sous-classes implémentent run()."""
+    """Un contrôle de forensic readiness. Les sous-classes implémentent run().
 
-    id: str = "base"
-    title: str = "base"
+    Métadonnées déclarées en attributs de classe, validées et figées en
+    ``CheckMeta`` par ``@register`` (``amnesia.checks.registry``) :
+
+    - obligatoires : ``id`` (``domaine.nom``), ``title``, ``description``,
+      ``domain``, ``target_kinds``, ``version`` (incrémentée quand la logique
+      change) et ``default_severity`` ;
+    - vides par défaut : ``requires_facts`` (#20) et ``question_ids`` (#46).
+    """
+
+    id: str
+    title: str
+    description: str
+    domain: Domain
+    target_kinds: tuple[Kind, ...]
+    version: int
+    default_severity: str
+    requires_facts: tuple[str, ...] = ()
+    question_ids: tuple[str, ...] = ()
 
     def run(self, target: Target) -> list[Gap]:  # pragma: no cover - stub
         raise NotImplementedError("check non implémenté — voir docs/ROADMAP.md")

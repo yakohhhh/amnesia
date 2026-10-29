@@ -49,7 +49,7 @@ def _preuve(**champs: Any) -> Evidence:
 
 def _gap(**champs: Any) -> Gap:
     valeurs: dict[str, Any] = {
-        "check_id": "win.security_log_size",
+        "check_id": "win.event_log_retention",
         "target": "winrm://srv-file",
         "resource": "Security",
         "question": "Qui s'est connecte en RDP sur SRV-FILE il y a trois semaines ?",
@@ -758,7 +758,7 @@ def test_check_result_porte_les_gaps_de_son_check_et_de_sa_cible() -> None:
     g = _gap()
     r = CheckResult.with_gaps(g.check_id, g.target, [g])
     assert r.to_dict()["gaps"] == [g.to_dict()]
-    with pytest.raises(ValueError, match=r"win\.security_log_size"):
+    with pytest.raises(ValueError, match=r"win\.event_log_retention"):
         CheckResult.with_gaps("win.sysmon", g.target, [g])
     with pytest.raises(ValueError, match="winrm://srv-file"):
         CheckResult.with_gaps(g.check_id, "local", [g])
@@ -796,6 +796,23 @@ def test_docstring_reprend_l_exemple_du_readme() -> None:
         "references=",
     ):
         assert fragment in Gap.__doc__, fragment
+
+
+def test_modele_exporte_par_le_paquet_checks() -> None:
+    from amnesia import checks
+
+    for nom in (
+        "Severity",
+        "Confidence",
+        "Evidence",
+        "Reference",
+        "ReferenceKind",
+        "Gap",
+    ):
+        assert nom in checks.__all__
+    assert checks.Severity is Severity
+    assert checks.Evidence is Evidence
+    assert checks.Reference is Reference
 
 
 def test_grille_de_severite_documentee() -> None:

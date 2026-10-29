@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .checks import default_checks
+from .checks import REGISTRY, CheckMeta, default_checks
 from .log import FORMATS, setup_logging
 from .target import FORMES, Target, TargetError
 
@@ -98,6 +98,23 @@ def _cible(valeur: str) -> Target:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
 
+ETATS = {True: "implémenté", False: "à implémenter"}
+
+
+def _lister_checks(metas: list[CheckMeta]) -> None:
+    """Une ligne par check : id, domaine, état et titre, en colonnes alignées."""
+    if not metas:
+        return
+    largeur_id = max(len(m.id) for m in metas)
+    largeur_domaine = max(len(m.domain.value) for m in metas)
+    largeur_etat = max(len(e) for e in ETATS.values())
+    for m in metas:
+        print(
+            f"{m.id:<{largeur_id}}  {m.domain.value:<{largeur_domaine}}  "
+            f"{ETATS[m.implemented]:<{largeur_etat}}  {m.title}"
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="amnesia",
@@ -142,14 +159,14 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         parser.error(f"--log-file {args.log_file} : {exc.strerror or exc}")
     logger.info("amnesia %s : commande %s", __version__, args.cmd)
-    checks = default_checks()
 
     if args.cmd == "list-checks":
-        for c in checks:
-            print(f"{c.id:24} {c.title}")
+        _lister_checks(REGISTRY.metas())
         return 0
 
     if args.cmd == "audit":
+        # instances neuves : aucun etat ne passe d'un audit a l'autre
+        checks = default_checks()
         print(f"[stub] audit de {args.target.id} → {args.out}")
         print(
             f"[stub] {len(checks)} checks enregistrés. "
