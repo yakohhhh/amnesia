@@ -78,4 +78,7 @@ def test_import_ne_charge_aucun_check() -> None:
         "print(sorted(m for m in sys.modules if m.startswith('amnesia.checks.')))\n"
     )
     assert sortie.returncode == 0, sortie.stderr
-    assert sortie.stdout.strip() == "['amnesia.checks.base', 'amnesia.checks.registry']"
+    # context : importe par le moteur (amnesia.runner, #21), ce n'est pas un check
+    assert sortie.stdout.strip() == (
+        "['amnesia.checks.base', 'amnesia.checks.context', 'amnesia.checks.registry']"
+    )
