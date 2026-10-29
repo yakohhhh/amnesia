@@ -15,8 +15,9 @@ le paquet). Conséquences :
 - `uv.lock` n'enregistre plus la version du projet : une montée de version ne le
   périme pas.
 
-La politique de versionnage (tags, setuptools-scm éventuel, CHANGELOG) relève de
-#31.
+La politique de versionnage, le CHANGELOG et la procédure de release sont décrits
+dans [`RELEASING.md`](RELEASING.md) (#31). La version reste écrite à la main, sans
+setuptools-scm, et le tag de release est créé d'après elle.
 
 ## Version minimale de Python : 3.11
 
@@ -82,7 +83,8 @@ une collision est signalée.
 - **Description** accentuée, **keywords**, **classifiers** (aucun `License ::`,
   PEP 639 : #30 ; `Typing :: Typed` arrive avec #9) et **`[project.urls]`**.
 - Le dépôt est privé : les URL renvoient une 404 aux visiteurs tant que la
-  visibilité n'est pas tranchée (#11, #13), et `CHANGELOG.md` arrive avec #31.
+  visibilité n'est pas tranchée (#11, #13). Le lien Changelog vise
+  `CHANGELOG.md` (#31).
 - Le `README.md` est la long_description publiée : liens absolus uniquement, un
   lien relatif pointerait vers pypi.org (test automatisé).
 
