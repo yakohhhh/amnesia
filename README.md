@@ -39,6 +39,7 @@ automatiquement) :
 uv sync
 uv run amnesia list-checks
 uv run amnesia audit --target winrm://dc01
+uv run amnesia render rapport.json --format md   # rendu d'un rapport archivé
 ```
 
 Sans uv, toujours dans un environnement virtuel :

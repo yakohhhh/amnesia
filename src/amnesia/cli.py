@@ -6,16 +6,30 @@ import argparse
 import codecs
 import io
 import logging
+import os
 import sys
 from pathlib import Path
 
 from . import __version__
 from .checks import REGISTRY, CheckMeta, default_checks
 from .log import FORMATS, setup_logging
+from .render import (
+    GROUP_BY,
+    RENDERERS,
+    SEVERITIES,
+    RenderOptions,
+    ReportError,
+    color_enabled,
+    load_report,
+    render_report,
+)
 from .report import schema_bytes, schema_text
 from .target import FORMES, Target, TargetError
 
 logger = logging.getLogger(__name__)
+
+# rapport d'entree illisible ou refuse ; table des codes de sortie : #24
+CODE_RAPPORT_ILLISIBLE = 4
 
 
 def _options_journal(defauts: bool) -> argparse.ArgumentParser:
@@ -134,6 +148,28 @@ def _lister_checks(metas: list[CheckMeta]) -> None:
         )
 
 
+def _rendre(args: argparse.Namespace) -> int:
+    """Commande render : rapport JSON vers stdout, en texte ou en Markdown."""
+    # repli ASCII (-> pour →) d'apres l'encodage reel de stdout (cp1252...)
+    encodage = getattr(sys.stdout, "encoding", None) or "utf-8"
+    couleur = args.format == "text" and color_enabled(
+        sys.stdout, os.environ, no_color=args.no_color
+    )
+    options = RenderOptions(
+        group_by=args.group_by,
+        min_severity=args.min_severity,
+        color=couleur,
+        encoding=encodage,
+    )
+    try:
+        texte = render_report(load_report(args.report), args.format, options)
+    except ReportError as exc:
+        logger.error("rapport %s refusé : %s", args.report, exc)
+        return CODE_RAPPORT_ILLISIBLE
+    sys.stdout.write(texte)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="amnesia",
@@ -158,6 +194,41 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "list-checks", parents=[journal], help="Liste les checks disponibles"
     )
+    r = sub.add_parser(
+        "render",
+        parents=[journal],
+        help="Rend un rapport JSON : les questions d'enquête sans réponse",
+        description=(
+            "Rend un rapport JSON produit par « amnesia audit », sans refaire "
+            "l'audit. Rapport illisible ou de format non pris en charge : code "
+            f"{CODE_RAPPORT_ILLISIBLE}."
+        ),
+    )
+    r.add_argument("report", type=Path, metavar="RAPPORT", help="rapport JSON")
+    r.add_argument(
+        "--format",
+        choices=tuple(RENDERERS),
+        default="text",
+        help="text (défaut, terminal) ou md (Markdown GFM)",
+    )
+    r.add_argument(
+        "--group-by",
+        choices=GROUP_BY,
+        default="severity",
+        help="regroupement des angles morts (défaut : severity)",
+    )
+    r.add_argument(
+        "--min-severity",
+        choices=SEVERITIES,
+        default="info",
+        help="masque les angles morts moins graves (ils restent comptés)",
+    )
+    r.add_argument(
+        "--no-color",
+        action="store_true",
+        help="sans couleurs ANSI (aussi avec NO_COLOR ou hors terminal)",
+    )
+
     sub.add_parser(
         "schema",
         parents=[journal],
@@ -187,6 +258,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "list-checks":
         _lister_checks(REGISTRY.metas())
         return 0
+
+    if args.cmd == "render":
+        return _rendre(args)
 
     if args.cmd == "schema":
         _ecrire_schema()
