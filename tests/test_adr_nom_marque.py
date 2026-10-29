@@ -173,6 +173,10 @@ def test_risques_residuels(texte: str) -> None:
     risques = _section(texte, "Risques résiduels").lower()
     assert "homonyme" in risques
     assert "pypi" in risques
+    # le depot est public : le front-running des domaines libres cites doit
+    # etre nomme, avec sa parade (reserver avant d'annoncer le nom)
+    assert "front-running des domaines" in risques
+    assert "avant d'annoncer" in risques
 
 
 def test_ecart_avec_le_code_exact(texte: str) -> None:

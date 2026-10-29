@@ -179,7 +179,21 @@ au dépôt.
   publication (#33). Entre le choix du nom et cette publication, rien n'empêche
   un tiers de le prendre ; la parade est de publier la première version sans
   attendre une fois le nom choisi, pas de squatter le nom avec un paquet vide
-  (pratique que PyPI décourage et que la PEP 541 permet de contester).
+  (pratique que PyPI décourage et que la PEP 541 permet de contester). Cette
+  parade suppose un nom choisi : tant qu'il ne l'est pas, le risque court
+  pour chaque candidat cité ici.
+- **Front-running des domaines.** Le dépôt est public et cet ADR nomme les
+  candidats et leurs domaines libres : des squatteurs surveillent les dépôts
+  publics et les listes de noms pour enregistrer les domaines avant
+  l'intéressé, puis les revendre. Aucun domaine n'est réservé au 29/10/2026,
+  et il n'existe pas d'équivalent de la PEP 541 pour les récupérer (une
+  procédure UDRP suppose une marque antérieure, que le projet n'a pas). Parade :
+  réserver le domaine principal (quelques euros par an, réversible) le jour
+  même du choix du nom, avant d'annoncer ce choix (ADR, README, landing page) ;
+  dès maintenant, réserver à bas coût le .io ou le .dev du candidat recommandé
+  pour couvrir la période entre cette étude et la décision, si le propriétaire
+  l'accepte. Si un domaine listé libre ici est pris entre-temps, les
+  vérifications sont à refaire et le classement à revoir avant le choix.
 - **Nom descriptif.** « lacune » décrit le service rendu : la marque verbale
   serait faible en classe 42 ; un logo ou une marque semi-figurative, ou un
   usage « lacune » accolé à une déclinaison distinctive, limite ce risque.
@@ -212,7 +226,9 @@ Actions qui reviennent au propriétaire, sans lesquelles l'ADR reste
 - **Choix final** du nom parmi les candidats (recommandation : « lacune »).
 - **Réservation d'au moins un domaine** (.com, plus .fr si la cible est
   française ; à défaut .io ou .dev, libres pour « lacune » et « souvenance » au
-  29/10/2026), à consigner ici. Aucun domaine n'est réservé à ce jour.
+  29/10/2026), à consigner ici. Aucun domaine n'est réservé à ce jour ; la
+  réservation se fait le jour du choix, avant toute annonce du nom (voir
+  [Risques résiduels](#risques-résiduels)).
 - **Adresse de contact projet.** Le propriétaire a désigné le 29/10/2026 une
   boîte personnelle, hors de tout domaine projet, comme adresse de contact
   provisoire ; elle n'est pas reproduite dans ce dépôt public, et aucun message
