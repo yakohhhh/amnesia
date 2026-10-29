@@ -22,6 +22,7 @@ Limite : un sous-processus lance par un test n'est pas filtre.
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 import socket
 import sys
@@ -186,7 +187,11 @@ def _repertoire_courant_isole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 class CheckFactice(Check):
-    """Check sans effet de bord : renvoie les Gaps fournis et note ses cibles."""
+    """Check sans effet de bord : renvoie les Gaps fournis et note ses cibles.
+
+    Les Gaps sont rattaches a ce check et a la cible recue, comme l'exige
+    CheckResult : le moteur (#21) peut les executer sur n'importe quelle cible.
+    """
 
     def __init__(self, id: str, title: str, gaps: list[Gap] | None = None) -> None:
         self.id = id
@@ -196,7 +201,10 @@ class CheckFactice(Check):
 
     def run(self, target: Target) -> list[Gap]:
         self.cibles.append(target)
-        return list(self.gaps)
+        return [
+            dataclasses.replace(g, check_id=self.id, target=target.id)
+            for g in self.gaps
+        ]
 
 
 @pytest.fixture

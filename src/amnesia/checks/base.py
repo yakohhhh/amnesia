@@ -84,7 +84,7 @@ import re
 import subprocess
 import unicodedata
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import PurePath
@@ -205,6 +205,14 @@ JSON: TypeAlias = (
 
 # au-dela, une preuve est refusee : une sortie hostile ne doit pas epuiser la pile
 _PROFONDEUR_MAX = 64
+# entiers sur 64 bits (tailles en octets, compteurs) : au-dela, json.dumps leve
+# (plus de 4300 chiffres) ou un lecteur JSON perd la valeur
+_ENTIER_MIN = -(2**63)
+_ENTIER_MAX = 2**64 - 1
+
+# chemin d'une valeur dans la preuve : racine, puis cles et indices ; formate
+# seulement en cas d'erreur, sans quoi son cout croitrait avec la taille des cles
+_Chemin: TypeAlias = tuple[str | int, ...]
 
 
 class _DictFige(Mapping[str, JSON]):
@@ -232,47 +240,80 @@ class _DictFige(Mapping[str, JSON]):
         return repr(self._valeurs)
 
 
-def _figer(valeur: object, chemin: str, profondeur: int = 0) -> JSON:
+def _lisible(chemin: _Chemin) -> str:
+    """Forme affichable d'un chemin : ``details['canaux'][1]``, clés tronquées."""
+    racine, *suite = chemin
+    return f"{racine}" + "".join(
+        f"[{c}]" if isinstance(c, int) else f"[{_apercu(c)}]" for c in suite
+    )
+
+
+def _texte_utf8(valeur: str, chemin: _Chemin) -> str:
+    """``valeur`` en ``str`` de base ; ValueError si l'UTF-8 strict la refuse."""
+    # surrogate isole (nom de fichier non UTF-8 decode en surrogateescape) : le
+    # rapport, ecrit en UTF-8, ne pourrait plus etre serialise
+    try:
+        valeur.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(
+            f"{_lisible(chemin)} : surrogate isolé, non encodable en UTF-8 "
+            "(le neutraliser avant, par exemple avec backslashreplace)"
+        ) from None
+    return str.__str__(valeur)
+
+
+def _figer(valeur: object, chemin: _Chemin, profondeur: int = 0) -> JSON:
     """Copie figée et sérialisable en JSON de ``valeur`` ; lève sinon.
 
     Dictionnaires en ``_DictFige`` à clés ``str``, listes et tuples en tuples,
     datetime en ISO 8601 UTC ; les sous-classes (enums...) deviennent le type
-    de base. Tout autre objet est refusé (TypeError), comme un flottant non fini
-    ou un datetime sans fuseau (ValueError).
+    de base. Tout autre objet est refusé (TypeError), comme un flottant non
+    fini, un entier hors de 64 bits, un texte non encodable en UTF-8 (surrogate
+    isolé) ou un datetime sans fuseau (ValueError).
     """
     if profondeur > _PROFONDEUR_MAX:
         raise ValueError(
-            f"{chemin} : preuve trop imbriquée (plus de {_PROFONDEUR_MAX} niveaux)"
+            f"{_lisible(chemin)} : preuve trop imbriquée "
+            f"(plus de {_PROFONDEUR_MAX} niveaux)"
         )
     if valeur is None or isinstance(valeur, bool):
         return valeur
     if isinstance(valeur, int):
+        if not _ENTIER_MIN <= valeur <= _ENTIER_MAX:
+            raise ValueError(
+                f"{_lisible(chemin)} : entier hors des bornes JSON (64 bits) : "
+                f"{valeur.bit_length()} bits"
+            )
         return int(valeur)
     if isinstance(valeur, float):
         if not math.isfinite(valeur):
-            raise ValueError(f"{chemin} : flottant non fini, hors JSON : {valeur!r}")
+            raise ValueError(
+                f"{_lisible(chemin)} : flottant non fini, hors JSON : {valeur!r}"
+            )
         return float(valeur)
     if isinstance(valeur, str):
-        return str.__str__(valeur)
+        return _texte_utf8(valeur, chemin)
     if isinstance(valeur, datetime):
         if valeur.utcoffset() is None:
-            raise ValueError(f"{chemin} : datetime sans fuseau horaire")
+            raise ValueError(f"{_lisible(chemin)} : datetime sans fuseau horaire")
         return valeur.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(valeur, Mapping):
         copie: dict[str, JSON] = {}
         for cle, sous_valeur in valeur.items():
             if not isinstance(cle, str):
-                raise TypeError(f"{chemin} : clé non textuelle {cle!r}")
-            copie[str.__str__(cle)] = _figer(
-                sous_valeur, f"{chemin}[{cle!r}]", profondeur + 1
+                raise TypeError(f"{_lisible(chemin)} : clé non textuelle {cle!r}")
+            sous_chemin = (*chemin, cle)
+            copie[_texte_utf8(cle, sous_chemin)] = _figer(
+                sous_valeur, sous_chemin, profondeur + 1
             )
         return _DictFige(copie)
     if isinstance(valeur, list | tuple):
         return tuple(
-            _figer(v, f"{chemin}[{i}]", profondeur + 1) for i, v in enumerate(valeur)
+            _figer(v, (*chemin, i), profondeur + 1) for i, v in enumerate(valeur)
         )
     raise TypeError(
-        f"{chemin} : valeur non sérialisable en JSON ({type(valeur).__name__})"
+        f"{_lisible(chemin)} : valeur non sérialisable en JSON "
+        f"({type(valeur).__name__})"
     )
 
 
@@ -301,6 +342,7 @@ def _verifier_texte(valeur: object, champ: str) -> None:
         raise TypeError(f"{champ} doit être une chaîne : {valeur!r}")
     if not valeur.strip():
         raise ValueError(f"{champ} doit être une chaîne non vide")
+    _texte_utf8(valeur, (champ,))
 
 
 def _verifier_jours(valeur: object, champ: str) -> None:
@@ -315,21 +357,23 @@ def _verifier_jours(valeur: object, champ: str) -> None:
 def _champs_du_dict(
     cls: type[Any], donnees: object, extras: frozenset[str] = frozenset()
 ) -> dict[str, Any]:
-    """Champs de ``cls`` lus dans ``donnees`` : clé inconnue ou manquante refusée."""
+    """Champs de ``cls`` lus dans ``donnees`` : clé inconnue ou manquante refusée.
+
+    Toutes les clés qu'écrit ``to_dict()`` sont exigées, celles des champs à
+    valeur par défaut comprises : un rapport tronqué ou retouché ne doit pas
+    perdre en silence un ``compromise_indicator`` ou des références. Seules les
+    clés de ``extras`` (dérivées et revérifiées) sont facultatives.
+    """
     nom = cls.__name__
     if not isinstance(donnees, Mapping):
         raise TypeError(f"{nom} : dictionnaire attendu, reçu {type(donnees).__name__}")
-    champs = {f.name: f for f in fields(cls)}
+    champs = [f.name for f in fields(cls)]
     inconnues = [c for c in donnees if c not in champs and c not in extras]
     if inconnues:
         raise ValueError(
             f"{nom} : clé(s) inconnue(s) : {', '.join(map(repr, inconnues))}"
         )
-    manquantes = [
-        c
-        for c, f in champs.items()
-        if c not in donnees and f.default is MISSING and f.default_factory is MISSING
-    ]
+    manquantes = [c for c in champs if c not in donnees]
     if manquantes:
         raise ValueError(f"{nom} : clé(s) manquante(s) : {', '.join(manquantes)}")
     return {c: v for c, v in donnees.items() if c in champs}
@@ -344,7 +388,9 @@ class Evidence:
     - ``observed_window_days``, ``required_window_days`` : fenêtre couverte et
       fenêtre exigée, en jours, quand la question porte sur une durée ;
     - ``confidence`` : valeur lue, extrapolée ou supposée (``Confidence``) ;
-    - ``source`` : commande ou API lue, sans identifiants ;
+    - ``source`` : commande ou API lue, sans identifiants ; caviardée comme le
+      message d'une ``ErrorInfo`` (identifiants dans une URL, /p:, -Password,
+      password=...), en filet de sécurité ;
     - ``details`` : valeurs brutes (``max_size_bytes``, ``log_mode``,
       ``oldest_event_utc``...).
 
@@ -365,12 +411,12 @@ class Evidence:
 
     def __post_init__(self) -> None:
         for champ in ("observed", "expected"):
-            object.__setattr__(self, champ, _figer(getattr(self, champ), champ))
+            object.__setattr__(self, champ, _figer(getattr(self, champ), (champ,)))
         if not isinstance(self.details, Mapping):
             raise TypeError(
                 f"details doit être un dictionnaire : {type(self.details).__name__}"
             )
-        object.__setattr__(self, "details", _figer(self.details, "details"))
+        object.__setattr__(self, "details", _figer(self.details, ("details",)))
         if self.unit is not None:
             _verifier_identifiant(self.unit, "unit")
         _verifier_jours(self.observed_window_days, "observed_window_days")
@@ -379,6 +425,10 @@ class Evidence:
             self, "confidence", _membre(Confidence, self.confidence, "confidence")
         )
         _verifier_identifiant(self.source, "source")
+        # filet de securite : une ligne de commande recopiee telle quelle peut
+        # porter le mot de passe d'audit (/p:, -Password, winrm://u:mdp@h) ;
+        # caviardage idempotent, from_dict(to_dict()) reste symetrique
+        object.__setattr__(self, "source", _assainir(self.source))
 
     def to_dict(self) -> dict[str, Any]:
         """Forme sérialisable en JSON, à clés stables ; inverse de ``from_dict``."""
@@ -413,8 +463,17 @@ class ReferenceKind(StrEnum):
 _ID_ATTACK = re.compile(r"T[0-9]{4}(?:\.[0-9]{3})?|DC[0-9]{4}")
 # Data Source, depreciee depuis ATT&CK v18
 _DATA_SOURCE_ATTACK = re.compile(r"DS[0-9]{4}")
-# https uniquement, sans identifiants (user@) : l'URL finit en lien dans le rapport
-_URL = re.compile(r"https://[a-z0-9.-]+(?::[0-9]{1,5})?(?:[/?#]\S*)?", re.IGNORECASE)
+# https uniquement, sans identifiants (user@) : l'URL finit en lien dans le rapport.
+# Hote en ASCII strict (re.ASCII : sans lui, IGNORECASE accepte le signe kelvin,
+# le s long ou le i sans point dans [a-z], homographes d'un autre domaine).
+# Chemin, requete et fragment limites aux caracteres de la RFC 3986, apostrophe
+# exclue : " < > ` { } | \ ^ ' et le non-ASCII arrivent deja encodes en %XX.
+# L'echappement au rendu HTML/PDF (#22) reste obligatoire.
+_URL = re.compile(
+    r"https://[a-z0-9.-]+(?::[0-9]{1,5})?"
+    r"(?:[/?#][a-z0-9\-._~:/?#\[\]@!$&()*+,;=%]*)?",
+    re.IGNORECASE | re.ASCII,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,8 +484,9 @@ class Reference:
     (``T1021.001``) ou un composant de données (``DC0067``), et ``version`` est
     obligatoire (``v20``). Les Data Sources ``DSxxxx``, dépréciées depuis
     ATT&CK v18 (octobre 2025), sont refusées. ``url``, facultative, commence par
-    ``https://`` et ne porte pas d'identifiants : elle devient un lien dans le
-    rapport client.
+    ``https://``, a un hôte ASCII, ne porte pas d'identifiants et se limite aux
+    caractères de la RFC 3986 (le reste s'encode en %XX) : elle devient un lien
+    dans le rapport client, dont le rendu l'échappe malgré tout (#22).
     """
 
     kind: ReferenceKind
@@ -598,7 +658,10 @@ class Gap:
 
         Indépendant de ``reason``, de la sévérité et de la preuve : le même
         constat garde la même empreinte d'un audit à l'autre. Les champs sont
-        encodés en tableau JSON, sans ambiguïté de séparateur.
+        encodés en tableau JSON, sans ambiguïté de séparateur. Un
+        ``CheckResult`` refuse deux Gaps de même empreinte : tant que
+        ``question_id`` manque (#46), deux questions sur la même ressource
+        exigent un ``question_id`` ou une ``resource`` distincte.
         """
         identite = json.dumps(
             [self.check_id, self.question_id, self.target, self.resource],
@@ -652,12 +715,14 @@ class Gap:
     def from_dict(cls, donnees: Mapping[str, Any]) -> Gap:
         """Gap relu depuis ``to_dict()``.
 
-        Clé inconnue ou manquante refusée ; ``fingerprint``, facultative, doit
-        correspondre aux champs relus (ValueError sinon).
+        Clé inconnue ou manquante refusée, valeurs par défaut comprises
+        (``compromise_indicator``, ``references``...) ; ``fingerprint``,
+        facultative car recalculée, doit correspondre aux champs relus
+        (ValueError sinon).
         """
         champs = _champs_du_dict(cls, donnees, extras=frozenset({"fingerprint"}))
         champs["evidence"] = Evidence.from_dict(champs["evidence"])
-        references = champs.get("references", ())
+        references = champs["references"]
         if not isinstance(references, list | tuple):
             raise TypeError(f"references doit être une liste : {references!r}")
         champs["references"] = tuple(Reference.from_dict(r) for r in references)
@@ -908,12 +973,22 @@ class CheckResult:
         if self.status is not Status.GAP and self.gaps:
             raise ValueError(f"statut {statut} avec {len(self.gaps)} Gap(s)")
         # chaque Gap est rattache au check et a la cible du resultat
+        empreintes: set[str] = set()
         for g in self.gaps:
             if (g.check_id, g.target) != (self.check_id, self.target):
                 raise ValueError(
                     f"Gap de {g.check_id} sur {g.target} dans le résultat de "
                     f"{self.check_id} sur {self.target}"
                 )
+            # deux Gaps de meme empreinte : un dedoublonnage (#67, #142) en
+            # perdrait un sans bruit ; on echoue des maintenant
+            if g.fingerprint in empreintes:
+                raise ValueError(
+                    f"deux Gaps de {self.check_id} sur {self.target} ont la même "
+                    f"empreinte (ressource {_apercu(g.resource)}) : renseigner "
+                    "question_id ou distinguer resource"
+                )
+            empreintes.add(g.fingerprint)
         # error et skipped exigent un motif compatible ; les autres n'en ont pas
         if self.status in _STATUTS_A_MOTIF:
             if self.reason is None:

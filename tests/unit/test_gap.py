@@ -7,6 +7,7 @@ import dataclasses
 import json
 import pickle
 import re
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from enum import IntEnum
@@ -287,12 +288,41 @@ def test_to_dict_preuve_et_references() -> None:
     assert d["fingerprint"] == _gap_complet().fingerprint
 
 
-def test_from_dict_champs_facultatifs_absents() -> None:
+def test_from_dict_empreinte_facultative() -> None:
+    # recalculee puis comparee : son absence ne fait rien perdre
+    d = _gap_complet().to_dict()
+    del d["fingerprint"]
+    assert Gap.from_dict(d) == _gap_complet()
+
+
+@pytest.mark.parametrize(
+    "cle",
+    ["question_id", "remediation_id", "references", "compromise_indicator"],
+)
+def test_from_dict_cle_par_defaut_absente_refusee(cle: str) -> None:
+    # un rapport tronque ne perd pas en silence un indice de compromission
+    d = _gap_complet().to_dict()
+    del d[cle]
+    with pytest.raises(ValueError, match=f"manquante.*{cle}"):
+        Gap.from_dict(d)
+
+
+@pytest.mark.parametrize(
+    "cle", ["unit", "observed_window_days", "required_window_days", "details"]
+)
+def test_from_dict_preuve_incomplete_refusee(cle: str) -> None:
     d = _gap().to_dict()
-    for cle in ("fingerprint", "question_id", "remediation_id", "references"):
-        del d[cle]
-    del d["evidence"]["details"]
-    assert Gap.from_dict(d) == _gap()
+    del d["evidence"][cle]
+    with pytest.raises(ValueError, match=f"Evidence.*manquante.*{cle}"):
+        Gap.from_dict(d)
+
+
+@pytest.mark.parametrize("cle", ["url", "version"])
+def test_from_dict_reference_incomplete_refusee(cle: str) -> None:
+    d = _gap_complet().to_dict()
+    del d["references"][0][cle]
+    with pytest.raises(ValueError, match=f"Reference.*manquante.*{cle}"):
+        Gap.from_dict(d)
 
 
 def test_from_dict_cle_inconnue_refusee() -> None:
@@ -372,6 +402,52 @@ def test_flottant_non_fini_refuse(valeur: float) -> None:
         _preuve(observed=valeur)
 
 
+def test_entiers_bornes_a_64_bits() -> None:
+    preuve = _preuve(observed=2**64 - 1, expected=-(2**63))
+    assert json.dumps(preuve.to_dict())
+    # au-dela de 4300 chiffres, json.dumps leverait au moment du rapport
+    for valeur in (2**64, -(2**63) - 1, 10**5000):
+        with pytest.raises(ValueError, match=r"details\['n'\] : entier hors"):
+            _preuve(details={"n": valeur})
+
+
+@pytest.mark.parametrize(
+    "champs",
+    [
+        {"details": {"f": "\udcff"}},
+        {"details": {"\udcff": 1}},
+        {"observed": ["ok", "\ud800"]},
+    ],
+)
+def test_surrogate_isole_refuse(champs: dict[str, Any]) -> None:
+    # nom de fichier non UTF-8 : le rapport, ecrit en UTF-8, ne serait plus
+    # serialisable
+    with pytest.raises(ValueError, match="surrogate"):
+        _preuve(**champs)
+
+
+@pytest.mark.parametrize("champ", ["question", "reason", "remediation"])
+def test_surrogate_isole_refuse_dans_le_texte(champ: str) -> None:
+    with pytest.raises(ValueError, match=f"{champ} : surrogate"):
+        _gap(**{champ: "journal \udcff"})
+
+
+def test_chemin_d_erreur_construit_seulement_en_cas_d_erreur() -> None:
+    # cle de 1 Mo au-dessus de 300 000 elements : le chemin d'erreur n'est plus
+    # formate pour chaque element (cout quadratique, plusieurs secondes avant)
+    cle = "A" * 1_000_000
+    debut = time.process_time()
+    preuve = _preuve(details={cle: [0] * 300_000})
+    assert time.process_time() - debut < 1
+    assert len(preuve.details[cle]) == 300_000  # type: ignore[arg-type]
+    # en cas d'erreur, la cle est tronquee dans le message
+    with pytest.raises(TypeError) as erreur:
+        _preuve(details={cle: [0, object()]})
+    assert len(str(erreur.value)) < 200
+    assert "details['AAAA" in str(erreur.value)
+    assert "...'][1]" in str(erreur.value)
+
+
 def test_datetime_converti_en_iso_utc() -> None:
     paris = timezone(timedelta(hours=2))
     preuve = _preuve(
@@ -440,6 +516,7 @@ def test_preuve_figee() -> None:
         ({"confidence": None}, TypeError),
         ({"source": ""}, ValueError),
         ({"source": "wevtutil\x1b[2J"}, ValueError),
+        ({"source": "wevtutil \udcff"}, ValueError),
         ({"unit": ""}, ValueError),
         ({"unit": 3}, TypeError),
     ],
@@ -449,6 +526,33 @@ def test_preuve_champs_invalides(
 ) -> None:
     with pytest.raises(exception):
         _preuve(**champs)
+
+
+@pytest.mark.parametrize(
+    ("source", "caviardee"),
+    [
+        (
+            "wevtutil gl Security /r:dc01 /u:CORP\\audit /p:S3cret!",
+            "wevtutil gl Security /r:dc01 /u:CORP\\audit /p:***",
+        ),
+        (
+            "Invoke-Command -ComputerName dc01 -Password S3cret",
+            "Invoke-Command -ComputerName dc01 -Password ***",
+        ),
+        (
+            # concatenation : gitleaks reconnaitrait sinon un identifiant en clair
+            "Get-WinEvent winrm://audit:" + "S3cret@dc01",
+            "Get-WinEvent winrm://audit:***@dc01",
+        ),
+    ],
+)
+def test_source_caviardee(source: str, caviardee: str) -> None:
+    # filet de securite : le mot de passe d'audit n'atteint pas le rapport client
+    preuve = _preuve(source=source)
+    assert preuve.source == caviardee
+    assert "S3cret" not in json.dumps(preuve.to_dict())
+    # caviardage idempotent : l'aller-retour reste symetrique
+    assert Evidence.from_dict(preuve.to_dict()) == preuve
 
 
 def test_preuve_minimale() -> None:
@@ -474,7 +578,7 @@ def test_confiance_en_chaine_convertie() -> None:
 VALEURS_JSON: st.SearchStrategy[JSON] = st.recursive(
     st.none()
     | st.booleans()
-    | st.integers()
+    | st.integers(min_value=-(2**63), max_value=2**64 - 1)
     | st.floats(allow_nan=False, allow_infinity=False)
     | st.text(),
     lambda enfants: (
@@ -605,11 +709,34 @@ def test_version_attack_obligatoire() -> None:
         "https://attack.mitre.org\\@exemple.invalid/",
         "https://exemple.invalid/a b",
         "https://exemple.invalid/\u202e",
+        # caracteres qui cassent une balise ou un attribut HTML (RFC 3986)
+        "https://a.example/<script>alert(1)</script>",
+        "https://a.example/<svg/onload=alert(1)>",
+        'https://a.example/"onclick="alert(1)',
+        "https://a.example/'onclick='alert(1)",
+        "https://a.example/caf\u00e9",
+        # homographes : non-ASCII que IGNORECASE ferait entrer dans [a-z]
+        "https://\u0131.example/",
+        "https://\u212aelvin.example/",
+        "https://ex\u017fample.com/",
     ],
 )
 def test_url_refusee(url: str) -> None:
     with pytest.raises(ValueError, match="url invalide"):
         Reference(ReferenceKind.OTHER, "x", url=url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://attack.mitre.org/techniques/T1021/001/",
+        "HTTPS://Learn.Microsoft.com/fr-fr/windows/?view=a&b=c%20d#sec-1",
+        "https://exemple.invalid:8443/a/(b)/@c;d=e,f*g+h!~$",
+        "https://exemple.invalid",
+    ],
+)
+def test_url_acceptee(url: str) -> None:
+    assert Reference(ReferenceKind.OTHER, "x", url=url).url == url
 
 
 def test_url_non_textuelle_refusee() -> None:
@@ -635,6 +762,23 @@ def test_check_result_porte_les_gaps_de_son_check_et_de_sa_cible() -> None:
         CheckResult.with_gaps("win.sysmon", g.target, [g])
     with pytest.raises(ValueError, match="winrm://srv-file"):
         CheckResult.with_gaps(g.check_id, "local", [g])
+
+
+def test_check_result_refuse_deux_gaps_de_meme_empreinte() -> None:
+    # sans question_id, deux questions sur la meme ressource partagent une
+    # empreinte : un dedoublonnage (#67, #142) en perdrait une sans bruit
+    rdp = _gap(question="Qui s'est connecte en RDP ?")
+    processus = _gap(question="Quels processus ont ete lances ?")
+    assert rdp.fingerprint == processus.fingerprint
+    with pytest.raises(ValueError, match=r"même empreinte.*question_id"):
+        CheckResult.with_gaps(rdp.check_id, rdp.target, [rdp, processus])
+    # question_id ou ressource distincte : accepte
+    distincts = [
+        dataclasses.replace(rdp, question_id="Q-RDP-001"),
+        dataclasses.replace(processus, question_id="Q-PROC-001"),
+        dataclasses.replace(processus, resource="Microsoft-Windows-Sysmon"),
+    ]
+    assert len(CheckResult.with_gaps(rdp.check_id, rdp.target, distincts).gaps) == 3
 
 
 # --- documentation -------------------------------------------------------------
