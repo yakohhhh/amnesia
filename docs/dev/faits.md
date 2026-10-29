@@ -188,7 +188,14 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from amnesia.checks import Check, Gap
-from amnesia.checks.base import CheckResult, Reason, Status
+from amnesia.checks.base import (
+    CheckResult,
+    Confidence,
+    Evidence,
+    Reason,
+    Severity,
+    Status,
+)
 from amnesia.checks.context import Context
 from amnesia.facts import FactSet, FixtureCollector, resolve
 from amnesia.target import Target
@@ -211,9 +218,20 @@ class RetentionSecurity(Check):
         if isinstance(taille, int) and taille >= TAILLE_MIN:
             return CheckResult.passed(self.id, ctx.target.id)
         gap = Gap(
+            check_id=self.id,
+            target=ctx.target.id,
+            resource=self.requires_facts[0],
             question="Qui s'est connecté sur cet hôte il y a trois semaines ?",
             reason=f"Journal limité à {taille} octets : écrasé en quelques jours.",
-            severity="high",
+            severity=Severity.HIGH,
+            evidence=Evidence(
+                observed=taille,
+                expected=TAILLE_MIN,
+                unit="bytes",
+                confidence=Confidence.MEASURED,
+                source=self.requires_facts[0],
+            ),
+            remediation="Porter la taille maximale du journal à 1 Gio au moins.",
         )
         return CheckResult.with_gaps(self.id, ctx.target.id, [gap])
 

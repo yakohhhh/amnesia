@@ -22,6 +22,7 @@ Limite : un sous-processus lance par un test n'est pas filtre.
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 import socket
 import sys
@@ -36,7 +37,7 @@ import pytest_socket
 
 from amnesia import cli
 from amnesia.checks import Check, Gap
-from amnesia.checks.base import CheckResult
+from amnesia.checks.base import CheckResult, Confidence, Evidence, Severity
 from amnesia.checks.context import Context
 from amnesia.facts import FactSet
 from amnesia.target import Target
@@ -188,7 +189,11 @@ def _repertoire_courant_isole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 class CheckFactice(Check):
-    """Check sans effet de bord : rend les Gaps fournis et note ses cibles."""
+    """Check sans effet de bord : rend les Gaps fournis et note ses cibles.
+
+    Les Gaps sont rattaches a ce check et a la cible recue, comme l'exige
+    CheckResult : le moteur (#21) peut les executer sur n'importe quelle cible.
+    """
 
     def __init__(self, id: str, title: str, gaps: list[Gap] | None = None) -> None:
         self.id = id
@@ -198,8 +203,12 @@ class CheckFactice(Check):
 
     def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
         self.cibles.append(ctx.target)
-        if self.gaps:
-            return CheckResult.with_gaps(self.id, ctx.target.id, self.gaps)
+        gaps = [
+            dataclasses.replace(g, check_id=self.id, target=ctx.target.id)
+            for g in self.gaps
+        ]
+        if gaps:
+            return CheckResult.with_gaps(self.id, ctx.target.id, gaps)
         return CheckResult.passed(self.id, ctx.target.id)
 
 
@@ -211,7 +220,24 @@ def registre_factice(monkeypatch: pytest.MonkeyPatch) -> list[CheckFactice]:
         CheckFactice(
             "test.avec_gap",
             "Check factice avec un angle mort",
-            [Gap("Qui s'est connecte ?", "journal factice ecrase", "high")],
+            [
+                Gap(
+                    check_id="test.avec_gap",
+                    target="local",
+                    resource="Security",
+                    question="Qui s'est connecte ?",
+                    reason="journal factice ecrase",
+                    severity=Severity.HIGH,
+                    evidence=Evidence(
+                        observed=4,
+                        expected=90,
+                        unit="days",
+                        confidence=Confidence.MEASURED,
+                        source="journal factice",
+                    ),
+                    remediation="agrandir le journal factice",
+                )
+            ],
         ),
     ]
     monkeypatch.setattr(cli, "default_checks", lambda: list(checks))

@@ -16,7 +16,16 @@ import pytest
 import amnesia
 from amnesia import AuditResult, run_audit
 from amnesia.checks import REGISTRY, Check, Gap
-from amnesia.checks.base import CheckResult, CheckSkipped, NotApplicable, Reason, Status
+from amnesia.checks.base import (
+    CheckResult,
+    CheckSkipped,
+    Confidence,
+    Evidence,
+    NotApplicable,
+    Reason,
+    Severity,
+    Status,
+)
 from amnesia.checks.context import Context
 from amnesia.facts import Fact, FactSet, UnavailableReason
 from amnesia.runner import DEFAULT_TIMEOUT, OPERATEUR_INCONNU, AuditSummary
@@ -74,10 +83,31 @@ def conforme(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
     return CheckResult.passed(check.id, ctx.target.id)
 
 
+def un_gap(
+    check_id: str, cible: str, severite: str, ressource: str = "Security"
+) -> Gap:
+    return Gap(
+        check_id=check_id,
+        target=cible,
+        resource=ressource,
+        question="Qui s'est connecté ?",
+        reason="journal écrasé",
+        severity=Severity.parse(severite),
+        evidence=Evidence(
+            observed=4,
+            expected=90,
+            unit="days",
+            confidence=Confidence.MEASURED,
+            source="test",
+        ),
+        remediation="agrandir le journal",
+    )
+
+
 def gap(severite: str) -> Callable[[Factice, FactSet, Context], CheckResult]:
     def comportement(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
         return CheckResult.with_gaps(
-            check.id, ctx.target.id, [Gap("Qui ?", "journal écrasé", severite)]
+            check.id, ctx.target.id, [un_gap(check.id, ctx.target.id, severite)]
         )
 
     return comportement
@@ -288,7 +318,10 @@ def test_ordre_deterministe() -> None:
 
 def test_severite_maximale_d_un_resultat() -> None:
     def plusieurs(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
-        gaps = [Gap("a", "b", "low"), Gap("c", "d", "critical")]
+        gaps = [
+            un_gap(check.id, ctx.target.id, "low", "System"),
+            un_gap(check.id, ctx.target.id, "critical", "Security"),
+        ]
         return CheckResult.with_gaps(check.id, ctx.target.id, gaps)
 
     audit = auditer([Factice("test.a_high", gap("high")), Factice("test.z", plusieurs)])
@@ -589,7 +622,7 @@ def test_timeout_par_defaut() -> None:
 def test_audit_result_trie_a_la_construction() -> None:
     resultats = (
         CheckResult.passed("test.a", CIBLE.id),
-        CheckResult.with_gaps("test.b", CIBLE.id, [Gap("q", "r", "high")]),
+        CheckResult.with_gaps("test.b", CIBLE.id, [un_gap("test.b", CIBLE.id, "high")]),
     )
     audit = AuditResult(
         started_at="2026-10-21T09:30:00+00:00",

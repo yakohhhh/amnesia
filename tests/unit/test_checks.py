@@ -42,6 +42,7 @@ def test_evaluate_non_implemente() -> None:
         Check().evaluate(FactSet(), Context(Target.parse("localhost")))
 
 
-def test_gap_severite_par_defaut() -> None:
-    gap = Gap(question="Qui s'est connecte ?", reason="journal ecrase")
-    assert gap.severity == "medium"
+def test_gap_sans_severite_refuse() -> None:
+    # plus de severite par defaut (#16) : chaque check la choisit explicitement
+    with pytest.raises(TypeError, match="severity"):
+        Gap(question="Qui s'est connecte ?", reason="journal ecrase")  # type: ignore[call-arg]

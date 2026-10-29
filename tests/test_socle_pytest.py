@@ -249,7 +249,10 @@ def test_fixtures_communes(
     contexte = Context(cible, clock=horloge_figee)
     assert sans_gap.evaluate(FactSet(), contexte).status is Status.PASS
     resultat = avec_gap.evaluate(FactSet(), contexte)
+    assert resultat.status is Status.GAP
     assert [g.severity for g in resultat.gaps] == ["high"]
+    # Gaps rattaches au check et a la cible recue
+    assert all((g.check_id, g.target) == (avec_gap.id, cible.id) for g in resultat.gaps)
     assert avec_gap.cibles == [cible]
     assert horloge_figee() == horloge_figee()
     assert horloge_figee().utcoffset() == timedelta(0)

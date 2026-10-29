@@ -72,7 +72,10 @@ Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 
 `uv.lock` applique un délai de carence de 7 jours (`exclude-newer` dans
 `pyproject.toml`) : une version publiée trop récemment n'est jamais installée, le
-temps qu'une éventuelle release compromise soit détectée.
+temps qu'une éventuelle release compromise soit détectée. Dependabot propose
+chaque semaine les mises à jour des actions et des outils, et le job CI
+`pip-audit` bloque toute vulnérabilité connue dans `uv.lock` :
+[`docs/dev/dependances.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/dependances.md).
 
 Hooks avant commit (ruff, gitleaks, actionlint, refus des données client et des
 fichiers de secrets) :

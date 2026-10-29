@@ -18,18 +18,39 @@ from amnesia.checks import base
 from amnesia.checks.base import (
     CheckResult,
     CheckSkipped,
+    Confidence,
     ErrorInfo,
+    Evidence,
     Gap,
     NotApplicable,
     Reason,
+    Severity,
     Status,
 )
 
-GAP_RDP = Gap(
-    question="Qui s'est connecte en RDP sur SRV-FILE il y a trois semaines ?",
-    reason="journal Security de 20 Mo, ecrase il y a 4 jours",
-    severity="high",
-)
+
+def _gap_rdp(check_id: str = "win.sysmon", target: str = "dc01") -> Gap:
+    """Gap rattache au check et a la cible du resultat qui le porte."""
+    return Gap(
+        check_id=check_id,
+        target=target,
+        resource="Security",
+        question="Qui s'est connecte en RDP sur SRV-FILE il y a trois semaines ?",
+        reason="journal Security de 20 Mo, ecrase il y a 4 jours",
+        severity=Severity.HIGH,
+        evidence=Evidence(
+            observed=4,
+            expected=90,
+            unit="days",
+            confidence=Confidence.MEASURED,
+            source="Get-WinEvent -LogName Security -Oldest -MaxEvents 1",
+        ),
+        remediation="Porter le journal Security a 4 Go au moins.",
+    )
+
+
+GAP_RDP = _gap_rdp()
+GAP_RDP_JOURNAL = _gap_rdp("win.security_log_size")
 ERREUR = ErrorInfo(type="PermissionError", message="Acces refuse")
 
 MOTIFS_SKIPPED = {
@@ -194,19 +215,13 @@ CAS_PAR_STATUT: list[tuple[Status, Callable[[], CheckResult], dict[str, Any]]] =
     (
         Status.GAP,
         lambda: CheckResult.with_gaps(
-            "win.security_log_size", "dc01", (g for g in [GAP_RDP])
+            "win.security_log_size", "dc01", (g for g in [GAP_RDP_JOURNAL])
         ),
         {
             "status": "gap",
             "reason": None,
             "message": "",
-            "gaps": [
-                {
-                    "question": GAP_RDP.question,
-                    "reason": GAP_RDP.reason,
-                    "severity": "high",
-                }
-            ],
+            "gaps": [GAP_RDP_JOURNAL.to_dict()],
             "error": None,
             "duration_s": None,
         },

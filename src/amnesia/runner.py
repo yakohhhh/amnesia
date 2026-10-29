@@ -70,10 +70,10 @@ from .checks.base import (
     CheckSkipped,
     NotApplicable,
     Reason,
+    Severity,
     Status,
 )
 from .checks.context import Context
-from .checks.registry import SEVERITES
 from .facts import CachingCollector, Collector, resolve
 from .log import check_logger
 from .target import Target
@@ -85,8 +85,8 @@ DEFAULT_TIMEOUT = 120.0
 
 OPERATEUR_INCONNU = "inconnu"
 
-# rang des resultats sans Gap : apres toutes les severites, connues ou non
-_RANG_SANS_GAP = len(SEVERITES) + 1
+# rang des resultats sans Gap : sous info (rang 0), donc en fin de liste
+_RANG_SANS_GAP = -1
 
 
 def _maintenant() -> datetime:
@@ -119,18 +119,14 @@ def _verifier_timeout(timeout: float) -> None:
 
 
 def _rang(resultat: CheckResult) -> int:
-    """Rang de la sévérité maximale des Gaps du résultat (0 : critical)."""
-    rangs = [
-        SEVERITES.index(g.severity) if g.severity in SEVERITES else len(SEVERITES)
-        for g in resultat.gaps
-    ]
-    return min(rangs, default=_RANG_SANS_GAP)
+    """Rang de la sévérité maximale des Gaps du résultat (4 : critical)."""
+    return max((g.severity.rank for g in resultat.gaps), default=_RANG_SANS_GAP)
 
 
 def _cle_de_tri(resultat: CheckResult) -> tuple[int, str]:
     # severite maximale decroissante, puis check_id : ordre independant de
     # l'ordre d'execution
-    return _rang(resultat), resultat.check_id
+    return -_rang(resultat), resultat.check_id
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -138,7 +134,7 @@ class AuditSummary:
     """Comptes d'un audit : résultats par statut, Gaps par sévérité.
 
     ``by_status`` porte tous les statuts, ``by_severity`` toutes les sévérités
-    connues (``critical`` à ``info``), à zéro s'il le faut. ``excluded`` et
+    (de ``critical`` à ``info``), à zéro s'il le faut. ``excluded`` et
     ``not_evaluated`` reprennent les propriétés de ``CheckResult``.
     """
 
@@ -153,12 +149,12 @@ class AuditSummary:
     def from_results(cls, results: Iterable[CheckResult]) -> AuditSummary:
         resultats = list(results)
         par_statut = {s.value: 0 for s in Status}
-        par_severite = dict.fromkeys(SEVERITES, 0)
+        # de critical a info
+        par_severite = {s.value: 0 for s in sorted(Severity, reverse=True)}
         for r in resultats:
             par_statut[r.status.value] += 1
             for gap in r.gaps:
-                cle = str(gap.severity)
-                par_severite[cle] = par_severite.get(cle, 0) + 1
+                par_severite[gap.severity.value] += 1
         return cls(
             total=len(resultats),
             by_status=MappingProxyType(par_statut),

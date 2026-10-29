@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # chaque lundi sur main : une vulnerabilite publiee depuis le dernier push fait
+  # echouer le job pip-audit sans attendre une modification du lock
+  schedule:
+    - cron: "17 5 * * 1"
 
 # aucun droit par defaut : chaque job declare le strict necessaire
 permissions: {}
@@ -170,10 +174,16 @@ jobs:
           echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color
+      # .github/ : les workflows et .github/dependabot.yml (cooldown, execution
+      # de code externe)
       - name: zizmor (version figee dans uv.lock, audits en ligne)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv run --only-group ci zizmor --format=github .github/workflows/
+        run: uv run --only-group ci zizmor --format=github .github/
+      - name: configuration Dependabot conforme au schema (embarque, hors ligne)
+        run: >-
+          uv run --only-group ci check-jsonschema
+          --builtin-schema vendor.dependabot .github/dependabot.yml
 
   gitleaks:
     name: gitleaks
@@ -265,12 +275,53 @@ jobs:
       - name: regles gitleaks verifiees avec ce binaire
         run: GITLEAKS_BIN="$RUNNER_TEMP/gitleaks" uv run pytest -q tests/test_gitleaks.py
 
+  # Vulnerabilites connues (base de PyPI, alimentee par OSV) de toutes les
+  # dependances figees dans uv.lock, groupes compris ; bloquant. Procedure et
+  # exceptions : docs/dev/dependances.md.
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          checksum: ${{ env.UV_SHA256_LINUX_X64 }}
+          enable-cache: true
+      # Export PEP 751 (pylock.toml) plutot que requirements.txt : avec -r,
+      # pip-audit evalue les marqueurs et saute les paquets d'une autre plateforme
+      # (sys_platform == 'win32') ; avec --locked, il audite chaque paquet du lock.
+      # --all-extras : un SDK declare en extra (amnesia-dfr[aws]) reste audite.
+      # --no-emit-project : le projet lui-meme n'est pas sur PyPI.
+      # --quiet : sans lui, uv affiche aussi tout l'export dans le journal.
+      - name: export de uv.lock (PEP 751)
+        run: >-
+          uv export --quiet --locked --all-groups --all-extras --no-emit-project
+          --format pylock.toml --output-file "$RUNNER_TEMP/audit/pylock.toml"
+      - name: pip-audit
+        run: |
+          # Exceptions : une par ligne, chacune avec l'identifiant, la raison et la
+          # date de revue (tests/test_dependances.py le verifie), par exemple :
+          #   --ignore-vuln=GHSA-xxxx-xxxx-xxxx  # raison ; revue le AAAA-MM-JJ
+          # Aucune autre option sur la commande : argparse accepte les formes
+          # abregees (--ig=...), le test compare donc la commande exacte.
+          exceptions=(
+          )
+          uv run --only-group audit pip-audit --strict --locked --aliases=on \
+            --progress-spinner=off "${exceptions[@]}" "$RUNNER_TEMP/audit"
+
   # Seul check a rendre obligatoire (#13) : son nom ne change pas quand la
   # matrice evolue, et il echoue si un seul job echoue ou est annule.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [lint, typecheck, test, nox-windows, build, workflow-lint, gitleaks]
+    needs:
+      [lint, typecheck, test, nox-windows, build, workflow-lint, gitleaks, pip-audit]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
