@@ -27,10 +27,12 @@ _ID = re.compile(
 _INTERDITS = set(";|&$`'\"<>")
 
 
-def test_winrm_fqdn_normalise():
+def test_winrm_fqdn_normalise() -> None:
     cible = Target.parse("winrm://SRV-FILE.corp.local.:5986")
-    assert cible.kind == Kind.WINDOWS_HOST == "windows_host"
-    assert cible.transport == Transport.WINRM == "winrm"
+    assert cible.kind is Kind.WINDOWS_HOST
+    assert cible.transport is Transport.WINRM
+    # valeurs serialisees des StrEnum
+    assert (str(cible.kind), str(cible.transport)) == ("windows_host", "winrm")
     assert cible.address == "srv-file.corp.local"
     assert cible.port == 5986
     assert cible.path is None
@@ -72,7 +74,9 @@ def test_winrm_fqdn_normalise():
         (f"winrm://{NOM_253}.", Transport.WINRM, NOM_253, None, f"winrm://{NOM_253}"),
     ],
 )
-def test_cibles_acceptees(brut, transport, address, port, id_):
+def test_cibles_acceptees(
+    brut: str, transport: Transport, address: str | None, port: int | None, id_: str
+) -> None:
     cible = Target.parse(brut)
     assert cible.kind == Kind.WINDOWS_HOST
     assert cible.transport == transport
@@ -83,7 +87,9 @@ def test_cibles_acceptees(brut, transport, address, port, id_):
 
 
 @pytest.mark.parametrize("nature", ["dossier", "fichier"])
-def test_bundle_existant_accepte(tmp_path, monkeypatch, nature):
+def test_bundle_existant_accepte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, nature: str
+) -> None:
     monkeypatch.chdir(tmp_path)
     bundle = Path("collecte")
     if nature == "dossier":
@@ -154,7 +160,7 @@ def test_bundle_existant_accepte(tmp_path, monkeypatch, nature):
         ("x" * 5000, "trop longue"),
     ],
 )
-def test_cibles_refusees(brut, motif):
+def test_cibles_refusees(brut: str, motif: str) -> None:
     with pytest.raises(TargetError, match=re.escape(motif)):
         Target.parse(brut)
 
@@ -168,7 +174,7 @@ def test_cibles_refusees(brut, motif):
         ("fe80::1", "winrm://[fe80::1]"),
     ],
 )
-def test_nom_nu_suggere_winrm(brut, suggestion):
+def test_nom_nu_suggere_winrm(brut: str, suggestion: str) -> None:
     with pytest.raises(TargetError, match=re.escape(f"utiliser {suggestion}")):
         Target.parse(brut)
 
@@ -178,7 +184,7 @@ def test_nom_nu_suggere_winrm(brut, suggestion):
     ["winrm://audit:{}@dc01", "audit:{}@dc01", "bundle:smb://audit:{}@nas/x"],
 )
 @pytest.mark.parametrize("suffixe", ["", "!"])
-def test_identifiants_jamais_repris_dans_le_message(gabarit, suffixe):
+def test_identifiants_jamais_repris_dans_le_message(gabarit: str, suffixe: str) -> None:
     # assemble a l'execution : un faux identifiant ne doit pas figurer tel quel
     # dans le depot, sinon gitleaks le signalerait (a juste titre)
     mot_de_passe = "Kq7" + "vX2" + "pL9" + suffixe
@@ -187,7 +193,7 @@ def test_identifiants_jamais_repris_dans_le_message(gabarit, suffixe):
     assert mot_de_passe.rstrip("!") not in str(exc.value)
 
 
-def test_message_echappe_la_saisie():
+def test_message_echappe_la_saisie() -> None:
     # un schema inconnu est repris, mais echappe et tronque
     with pytest.raises(TargetError, match="schema inconnu") as exc:
         Target.parse("z" * 200 + ":x")
@@ -195,7 +201,7 @@ def test_message_echappe_la_saisie():
     assert "z" * 65 not in str(exc.value)
 
 
-def test_target_figee():
+def test_target_figee() -> None:
     cible = Target.parse("winrm://dc01")
     with pytest.raises(AttributeError):
         cible.address = "dc02"  # type: ignore[misc]
@@ -218,7 +224,7 @@ _SAISIES = st.one_of(
 
 
 @given(_SAISIES)
-def test_parse_renvoie_une_cible_valide_ou_leve_target_error(brut):
+def test_parse_renvoie_une_cible_valide_ou_leve_target_error(brut: str) -> None:
     try:
         cible = Target.parse(brut)
     except TargetError:

@@ -4,12 +4,59 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "amnesia-dfr"
-version = "0.0.1"
-description = "Audit de forensic readiness: ce que ton SI aura oublie le jour de l'incident"
+# source unique de la version : __version__ dans src/amnesia/__init__.py
+dynamic = ["version"]
+description = "Audit de forensic readiness : ce que ton SI aura oublié le jour de l'incident"
+# plancher justifie dans docs/PAQUET.md ; matrice CI, nox et classifiers le suivent
 requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Ayman Mazroui" }]
+keywords = [
+    "forensic readiness",
+    "DFIR",
+    "incident response",
+    "audit",
+    "logging",
+    "Windows",
+    "Active Directory",
+    "Sysmon",
+    "SIEM",
+    "Microsoft 365",
+    "CloudTrail",
+]
+# Aucun classifier « License :: » (PEP 639, #30). Une entree par version de la
+# matrice CI : tests/test_paquet.py verifie la concordance. « Typing :: Typed » :
+# PEP 561, le paquet publie ses annotations (marqueur amnesia/py.typed).
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Natural Language :: French",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Security",
+    "Topic :: System :: Logging",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
+
+[project.urls]
+# Depot prive : ces liens renvoient une 404 aux visiteurs tant que la visibilite
+# n'est pas tranchee (#11, #13). CHANGELOG.md arrive avec #31.
+Homepage = "https://github.com/yakohhhh/amnesia"
+Repository = "https://github.com/yakohhhh/amnesia"
+Issues = "https://github.com/yakohhhh/amnesia/issues"
+Changelog = "https://github.com/yakohhhh/amnesia/blob/main/CHANGELOG.md"
 
 [project.scripts]
 amnesia = "amnesia.cli:main"
@@ -18,21 +65,68 @@ amnesia = "amnesia.cli:main"
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [
     "hypothesis==6.170.2",
+    "mypy==2.4.0",
     "nox==2026.8.17",
     "pre-commit==4.7.0",
     "pre-commit-hooks==6.0.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
+    "pytest-socket==0.8.1",
     "pyyaml==6.0.3",
     "ruff==0.17.1",
+    # backend de build, meme version que build-constraint-dependencies : les
+    # tests construisent le wheel hors ligne (tests/test_paquet.py)
+    "setuptools==84.0.0",
+    "types-pyyaml==6.0.12.20260906",
 ]
 # outils d'audit de la CI, hors groupe dev (installes a la demande)
 ci = [
     "zizmor==1.30.1",
 ]
+# controle du paquet construit (session nox build)
+build = [
+    "check-wheel-contents==0.6.3",
+    "twine==7.0.0",
+    # [all] : classifiers verifies hors ligne avec trove-classifiers
+    "validate-pyproject[all]==0.26",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+# lu statiquement (AST) : le paquet n'est pas importe pendant le build
+version = { attr = "amnesia.__version__" }
+
+[tool.setuptools.package-data]
+# donnees embarquees dans le wheel : marqueur PEP 561 (les auteurs de checks tiers
+# heritent des types de Check et Gap), schemas (#22), catalogue (#46) et gabarits
+# de rapport (#77) ; tests/test_paquet.py verifie leur presence
+amnesia = ["py.typed", "schemas/*.json", "catalog/*.toml", "templates/**/*"]
+
+[tool.pytest.ini_options]
+# Marqueurs (windows, admin, lab, cloud, network) et options --run-* :
+# tests/conftest.py, qui les declare et les applique.
+testpaths = ["tests"]
+# --import-mode=importlib : fichiers de test homonymes permis (unit/, integration/)
+# -p no:socket : hooks de pytest-socket desactives, le conftest coupe le reseau
+# lui-meme avec ses fonctions (voir sa docstring)
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib -p no:socket"
+xfail_strict = true
+filterwarnings = [
+    "error",
+    # pytest-socket double SocketBlockedError d'un UserWarning, que "error"
+    # leverait a la place de l'exception attendue
+    "ignore:A test tried to use socket:UserWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["amnesia"]
+
+[tool.coverage.report]
+# applique par pytest-cov des que --cov est passe (job CI test, session nox tests)
+fail_under = 80
 
 [tool.ruff]
 # target-version n'est pas fixe : ruff la deduit de project.requires-python.
@@ -58,6 +152,7 @@ select = [
     "PLE",  # erreurs pylint, dont PLE2502/PLE251x : caracteres bidi et invisibles
             # (Trojan Source, CVE-2021-42574), actives par defaut dans ruff
     "PGH004",  # noqa sans code interdit : il eteindrait aussi S et DTZ
+    "TID251",  # API interdites (banned-api ci-dessous)
 ]
 # apostrophe typographique et tiret demi-cadratin des textes francais
 allowed-confusables = ["’", "–"]
@@ -68,11 +163,27 @@ allowed-confusables = ["’", "–"]
 # assert est l'idiome de pytest
 "tests/**" = ["S101"]
 
+# set_stream_logger pose sur botocore un handler sans plafond ni expurgation :
+# les requetes signees (Authorization, X-Amz-Security-Token) sortiraient en clair
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"boto3.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
+"botocore.session.Session.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
+
 [tool.ruff.lint.isort]
 known-first-party = ["amnesia"]
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.mypy]
+# Sans argument, « uv run mypy » verifie src et tests. Aucun
+# ignore_missing_imports global : un SDK sans types (WinRM, Graph, boto3) recoit
+# un override [[tool.mypy.overrides]] limite a ses modules, dans le ticket qui
+# l'introduit.
+strict = true
+python_version = "3.11"  # plancher de requires-python
+files = ["src", "tests"]
+warn_unreachable = true
 
 [tool.uv]
 # Delai de carence : aucune distribution publiee depuis moins de 7 jours, pour
