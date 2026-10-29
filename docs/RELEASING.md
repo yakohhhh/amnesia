@@ -98,8 +98,9 @@ la logique change incrémente sa `version` (#17) et figure dans « Modifié ».
 Les MSP et les cabinets comparent des rapports dans le temps (#142) et
 automatisent amnesia : les éléments ci-dessous forment son API publique. Les
 règles s'appliquent à partir de la première publication (0.1.0). Avant, ces
-éléments peuvent changer sans alias ni dépréciation : #17 renomme ainsi
-`win.security_log_size` sans alias, puisqu'aucun id n'a été publié.
+éléments peuvent changer sans alias ni dépréciation : #17 a ainsi renommé
+`win.security_log_size` en `win.event_log_retention` sans alias, puisqu'aucun id
+n'avait été publié.
 
 | Surface | Où on la trouve | Règle de stabilité | Dépréciation et retrait |
 |---|---|---|---|

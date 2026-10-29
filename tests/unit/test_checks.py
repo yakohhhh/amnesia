@@ -4,10 +4,10 @@ import re
 
 import pytest
 
-from amnesia.checks import Check, Gap, default_checks, windows
+from amnesia.checks import Check, Gap, default_checks
 from amnesia.target import Target
 
-FORMAT_ID = re.compile(r"[a-z]+\.[a-z0-9_]+")
+FORMAT_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
 
 
 def test_registre_non_vide_et_compose_de_checks() -> None:
@@ -33,12 +33,6 @@ def test_registre_renvoie_une_copie() -> None:
     # un appelant qui modifie la liste ne doit pas alterer le registre
     default_checks().clear()
     assert default_checks()
-
-
-def test_checks_windows_enregistres() -> None:
-    assert {c.id for c in windows.CHECKS} <= {c.id for c in default_checks()}
-    for check in windows.CHECKS:
-        assert check.id.startswith("win.")
 
 
 def test_run_non_implemente() -> None:

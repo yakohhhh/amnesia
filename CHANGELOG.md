@@ -17,6 +17,9 @@ la première version sera la 0.1.0 (milestone M0).
   seule version, affichée par `amnesia --version` (#181).
 - Commandes `amnesia list-checks` et `amnesia audit` (squelette) : cinq checks
   Windows enregistrés, dont l'évaluation reste à écrire.
+- Registre des checks : métadonnées validées à l'import (domaine, version,
+  cibles), ids `domaine.nom` uniques ; `amnesia list-checks` affiche id,
+  domaine, état et titre sans instancier de check (#187).
 - Cible `--target` validée strictement (`local`, `winrm://<hôte>[:port]` ou
   `bundle:<chemin>`) : une cible invalide est une erreur d'usage (code 2), sans
   écho de la saisie (#179).
