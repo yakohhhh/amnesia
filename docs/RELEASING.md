@@ -360,6 +360,29 @@ la PR de release de cette branche. L'entrée du CHANGELOG est aussi reportée da
 `main`, rangée par numéro de version : la 0.1.1 publiée après la 0.2.0 se place
 sous la 0.2.0.
 
+Un correctif de sécurité est préparé dans la fourche privée temporaire de son avis
+([`SECURITY.md`](../SECURITY.md)). GitHub n'y exécute ni la CI ni aucune
+intégration, et le bouton « Merge pull requests » de l'avis merge dans la branche
+cible sans appliquer sa protection : ni `ci-ok`, ni gitleaks, ni rejeu des hooks.
+Ce bouton n'est jamais utilisé. Tout commit poussé dans le dépôt public y devient
+lisible, même sans merge (`refs/pull/<n>/head`) : avant le moindre push, le
+mainteneur, sur la tête de la fourche,
+
+- relit ligne à ligne chaque commit d'un contributeur extérieur, souvent écrit
+  sans les hooks du dépôt : aucune donnée client, aucun secret, des fixtures
+  conformes aux [règles des fixtures](../tests/fixtures/README.md) ;
+- rejoue les contrôles de [`ci.yml`](../.github/workflows/ci.yml) :
+  `uv sync --locked`, `uv run ruff check .`, `uv run ruff format --check .`,
+  `uv run mypy`, `uv run pytest -q --cov`,
+  `uv run pre-commit run --all-files --hook-stage manual`,
+  `uv run python scripts/verifier_chemins.py` et
+  `gitleaks git --redact --config .gitleaks.toml --ignore-gitleaks-allow` sur
+  les commits de la fourche.
+
+Le correctif arrive ensuite dans `main` (ou `maint/X.Y.x`) par une PR ordinaire,
+ouverte au moment de la publication : `ci-ok` et la protection de la branche
+s'appliquent. L'avis est publié avec la version corrective.
+
 ### Interdits
 
 - Déplacer, supprimer ou réutiliser un tag publié ; `git push --tags` ;

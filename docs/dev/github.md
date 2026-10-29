@@ -40,6 +40,41 @@ Pour ajouter un label ou une milestone : modifier le fichier YAML dans une PR,
 puis lancer la synchronisation une fois la PR mergée. Renommer une milestone dans
 le fichier en crée une nouvelle : la renommer d'abord sur GitHub.
 
+## Passage en public
+
+Le dépôt est public depuis le 29/10/2026. En GitHub Free, plusieurs réglages de
+sécurité n'existent que sur un dépôt public : ils sont activés au passage par le
+propriétaire, et la liste est à revérifier si la visibilité change. La décision et
+les commandes appliquées relèvent de #13.
+
+- [x] **Signalement privé de vulnérabilités** (*Private Vulnerability Reporting*) :
+  c'est le seul canal de signalement de [`SECURITY.md`](../../SECURITY.md) (#28). Désactivé, il retire le bouton
+  « Report a vulnerability » et ne laisse plus que l'issue publique. Vérification,
+  en lecture seule :
+
+  ```sh
+  gh api repos/yakohhhh/amnesia/private-vulnerability-reporting --jq .enabled   # true
+  ```
+
+- [ ] **Canal testé** : un signalement de test envoyé depuis un autre compte GitHub
+  est bien notifié au propriétaire, puis fermé sans publication (#28).
+- [ ] **Commits sans adresse personnelle** : l'adresse d'auteur et de committer de
+  chaque commit poussé est publique, y compris dans les commits d'une PR
+  (`refs/pull/<n>/head`), qu'un merge squash ne réécrit pas. Le propriétaire
+  active sur GitHub « Keep my email addresses private » et « Block command line
+  pushes that expose my email », puis commite avec son adresse
+  `users.noreply.github.com`. Les commits déjà poussés gardent leur adresse :
+  l'historique publié n'est pas réécrit. Vérification avant chaque push :
+  `git log --format='%ae%n%ce' origin/main..HEAD | sort -u` ne montre que
+  l'adresse `users.noreply.github.com`.
+- [x] Secret scanning et protection des pushes.
+- [x] Alertes et mises à jour de sécurité Dependabot.
+- [x] Protection de `main` : PR obligatoire, check `ci-ok` requis, ni push forcé ni
+  suppression (#13).
+
+Vérification groupée, en lecture seule :
+`gh api repos/yakohhhh/amnesia --jq '.visibility, .security_and_analysis'`.
+
 ## Pourquoi le bootstrap s'est arrêté après l'issue #1
 
 L'ancien `scripts/create-github-repo.sh` (retiré) devait créer le dépôt, les
