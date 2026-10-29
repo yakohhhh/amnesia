@@ -25,7 +25,9 @@ répondre.
 ## État
 
 Squelette fonctionnel : moteur de checks + CLI. Les checks listent déjà leur
-intention ; leur `run()` est à implémenter — voir
+intention et les faits qu'ils lisent ; leur `evaluate()` est à implémenter — voir
+[`docs/dev/faits.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/faits.md)
+et
 [`docs/ROADMAP.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/ROADMAP.md).
 
 ## Démarrer

@@ -36,6 +36,9 @@ import pytest_socket
 
 from amnesia import cli
 from amnesia.checks import Check, Gap
+from amnesia.checks.base import CheckResult
+from amnesia.checks.context import Context
+from amnesia.facts import FactSet
 from amnesia.target import Target
 
 pytest_plugins = ["pytester"]
@@ -185,7 +188,7 @@ def _repertoire_courant_isole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 class CheckFactice(Check):
-    """Check sans effet de bord : renvoie les Gaps fournis et note ses cibles."""
+    """Check sans effet de bord : rend les Gaps fournis et note ses cibles."""
 
     def __init__(self, id: str, title: str, gaps: list[Gap] | None = None) -> None:
         self.id = id
@@ -193,9 +196,11 @@ class CheckFactice(Check):
         self.gaps = list(gaps or [])
         self.cibles: list[Target] = []
 
-    def run(self, target: Target) -> list[Gap]:
-        self.cibles.append(target)
-        return list(self.gaps)
+    def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
+        self.cibles.append(ctx.target)
+        if self.gaps:
+            return CheckResult.with_gaps(self.id, ctx.target.id, self.gaps)
+        return CheckResult.passed(self.id, ctx.target.id)
 
 
 @pytest.fixture

@@ -63,7 +63,7 @@ def test_sortie_redirigee_page_de_code(tmp_path: Path, encodage: str) -> None:
     # « → » vient de la CLI, « ’ » du nom du rapport ; absents de cp850, et
     # « → » absent de cp1252 : sans repli, UnicodeEncodeError. La cible est
     # validee en ASCII (#18) : le texte non ASCII passe par --out.
-    # Cible .invalid (RFC 6761), jamais localhost : une fois les run()
+    # Cible .invalid (RFC 6761), jamais localhost : une fois les collecteurs
     # implémentés, ce test auditerait sinon la machine qui l'execute.
     args = (
         "audit",
