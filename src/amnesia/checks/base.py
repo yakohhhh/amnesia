@@ -89,7 +89,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..facts import FactSet
+    from ..target import Kind
     from .context import Context
+    from .registry import Domain
 
 
 @dataclass
@@ -108,12 +110,26 @@ class Check:
     (``requires_facts``), un collecteur les rassemble (``amnesia.facts``) et le
     moteur (#21) n'appelle ``evaluate()`` que si ``resolve()`` les trouve tous
     observés. Documentation : ``docs/dev/faits.md``.
+
+    Métadonnées déclarées en attributs de classe, validées et figées en
+    ``CheckMeta`` par ``@register`` (``amnesia.checks.registry``) :
+
+    - obligatoires : ``id`` (``domaine.nom``), ``title``, ``description``,
+      ``domain``, ``target_kinds``, ``version`` (incrémentée quand la logique
+      change) et ``default_severity`` ;
+    - vides par défaut : ``requires_facts`` (#20) et ``question_ids`` (#46).
     """
 
-    id: str = "base"
-    title: str = "base"
+    id: str
+    title: str
+    description: str
+    domain: Domain
+    target_kinds: tuple[Kind, ...]
+    version: int
+    default_severity: str
     # cles des faits lus par evaluate() (windows.auditpol.backup...), sans doublon
     requires_facts: tuple[str, ...] = ()
+    question_ids: tuple[str, ...] = ()
 
     def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
         """Évalue les faits requis, sans aucune I/O ; rend pass ou gap.

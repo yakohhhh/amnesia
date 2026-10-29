@@ -52,7 +52,8 @@ classifiers = [
 
 [project.urls]
 # Depot prive : ces liens renvoient une 404 aux visiteurs tant que la visibilite
-# n'est pas tranchee (#11, #13). CHANGELOG.md arrive avec #31.
+# n'est pas tranchee (#11, #13). Changelog : CHANGELOG.md, tenu selon
+# docs/RELEASING.md (tests/test_versionnage.py verifie le lien).
 Homepage = "https://github.com/yakohhhh/amnesia"
 Repository = "https://github.com/yakohhhh/amnesia"
 Issues = "https://github.com/yakohhhh/amnesia/issues"
@@ -76,12 +77,19 @@ dev = [
     "ruff==0.17.1",
     # backend de build, meme version que build-constraint-dependencies : les
     # tests construisent le wheel hors ligne (tests/test_paquet.py)
-    "setuptools==84.0.0",
+    "setuptools==84.2.1",
     "types-pyyaml==6.0.12.20260906",
 ]
 # outils d'audit de la CI, hors groupe dev (installes a la demande)
 ci = [
+    # schemas embarques (--builtin-schema) : .github/dependabot.yml valide hors ligne
+    "check-jsonschema==0.38.2",
     "zizmor==1.30.1",
+]
+# audit des vulnerabilites connues de uv.lock (job CI pip-audit) : groupe a part,
+# ses dependances (requests, cyclonedx...) n'entrent ni dans dev ni dans ci
+audit = [
+    "pip-audit==2.10.1",
 ]
 # controle du paquet construit (session nox build)
 build = [
@@ -191,4 +199,4 @@ warn_unreachable = true
 exclude-newer = "7 days"
 # Backend de build fige pour uv (dev et CI), enregistre dans uv.lock et verifie
 # par --locked. build-system.requires garde une plage pour les autres outils.
-build-constraint-dependencies = ["setuptools==84.0.0"]
+build-constraint-dependencies = ["setuptools==84.2.1"]

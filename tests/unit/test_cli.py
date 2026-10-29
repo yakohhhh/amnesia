@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from amnesia import __version__
-from amnesia.checks import Check, default_checks
+from amnesia import __version__, cli
+from amnesia.checks import Check, Domain, Registry, default_checks
+from amnesia.checks.base import CheckResult
+from amnesia.checks.context import Context
 from amnesia.cli import build_parser, main
-from amnesia.target import Target
+from amnesia.facts import FactSet
+from amnesia.target import Kind, Target
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -22,9 +25,56 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
 def test_list_checks(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["list-checks"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == len(default_checks())
+    assert len(lines) == len(default_checks()) == 5
     for check, line in zip(default_checks(), lines, strict=True):
-        assert line.startswith(check.id)
+        # id, domaine, etat et titre ; les 5 checks actuels sont des stubs
+        identifiant, domaine, *_ = line.split()
+        assert (identifiant, domaine) == (check.id, "windows")
+        assert " à implémenter " in line
+        assert line.endswith(f"  {check.title}")
+
+
+def test_list_checks_etat_et_colonnes(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Implemente(Check):
+        id = "ad.implemente_long"
+        title = "Check implémenté"
+        description = "Surcharge evaluate()."
+        domain = Domain.AD
+        target_kinds = (Kind.WINDOWS_HOST,)
+        version = 1
+        default_severity = "low"
+
+        def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
+            return CheckResult.passed(self.id, ctx.target.id)
+
+    class Stub(Check):
+        id = "win.stub"
+        title = "Check à écrire"
+        description = "Ne surcharge pas evaluate()."
+        domain = Domain.WINDOWS
+        target_kinds = (Kind.WINDOWS_HOST,)
+        version = 1
+        default_severity = "low"
+
+    registre = Registry()
+    registre.register(Implemente)
+    registre.register(Stub)
+    monkeypatch.setattr(cli, "REGISTRY", registre)
+    assert main(["list-checks"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "ad.implemente_long  ad       implémenté     Check implémenté",
+        "win.stub            windows  à implémenter  Check à écrire",
+    ]
+
+
+def test_list_checks_registre_vide(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cli, "REGISTRY", Registry())
+    assert main(["list-checks"]) == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_commande_amnesia_pointe_sur_main() -> None:

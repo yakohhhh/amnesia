@@ -72,7 +72,10 @@ Après une modification des dépendances : `uv lock`, et commiter `uv.lock`.
 
 `uv.lock` applique un délai de carence de 7 jours (`exclude-newer` dans
 `pyproject.toml`) : une version publiée trop récemment n'est jamais installée, le
-temps qu'une éventuelle release compromise soit détectée.
+temps qu'une éventuelle release compromise soit détectée. Dependabot propose
+chaque semaine les mises à jour des actions et des outils, et le job CI
+`pip-audit` bloque toute vulnérabilité connue dans `uv.lock` :
+[`docs/dev/dependances.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/dependances.md).
 
 Hooks avant commit (ruff, gitleaks, actionlint, refus des données client et des
 fichiers de secrets) :
@@ -88,6 +91,16 @@ Un rapport amnesia est la carte des angles morts d'un client. Les sorties
 par git. Les hooks refusent aussi de les commiter, même avec `git add -f` et quelle
 que soit la casse. Ces hooks sont une protection locale (`git commit --no-verify` les contourne) : la
 CI rejoue les mêmes contrôles côté serveur, sur tout l'historique (job `gitleaks`).
+
+## Versions et changements
+
+Les changements notables de chaque version sont consignés dans
+[`CHANGELOG.md`](https://github.com/yakohhhh/amnesia/blob/main/CHANGELOG.md).
+[`docs/RELEASING.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/RELEASING.md)
+fixe le versionnage (SemVer, versions par milestone), les surfaces stables sur
+lesquelles s'appuyer pour automatiser amnesia (ids de checks, `question_id`,
+schéma du rapport JSON, codes de sortie, options de la CLI), leurs règles de
+dépréciation et la procédure de release.
 
 ## Pourquoi Python
 

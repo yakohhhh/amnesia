@@ -38,8 +38,8 @@ DC01 = Target.parse("winrm://dc01")
 
 IDS_EXISTANTS = {
     "win.audit_policy",
+    "win.event_log_retention",
     "win.powershell_logging",
-    "win.security_log_size",
     "win.sysmon",
     "win.time_sync",
 }
