@@ -251,8 +251,9 @@ def test_fixtures_communes(
     resultat = avec_gap.evaluate(FactSet(), contexte)
     assert resultat.status is Status.GAP
     assert [g.severity for g in resultat.gaps] == ["high"]
-    # Gaps rattaches au check et a la cible recue
-    assert all((g.check_id, g.target) == (avec_gap.id, cible.id) for g in resultat.gaps)
+    # Gaps rattaches au check et a la cible recue, comme le fera le moteur (#21)
+    gaps = resultat.gaps
+    assert all((g.check_id, g.target) == (avec_gap.id, cible.id) for g in gaps)
     assert avec_gap.cibles == [cible]
     assert horloge_figee() == horloge_figee()
     assert horloge_figee().utcoffset() == timedelta(0)

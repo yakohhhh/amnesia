@@ -29,14 +29,15 @@ class RetentionSecurity(Check):
 
     def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
         # fonction pure : uniquement les faits et le contexte, aucune I/O
-        config = facts.value(self.requires_facts[0])
+        nom = self.requires_facts[0]
+        config = facts.value(nom)
         taille = config.get("max_size_bytes") if isinstance(config, Mapping) else None
         if isinstance(taille, int) and taille >= TAILLE_MIN:
             return CheckResult.passed(self.id, ctx.target.id)
         gap = Gap(
             check_id=self.id,
             target=ctx.target.id,
-            resource=self.requires_facts[0],
+            resource=nom.split(":", 1)[1],  # journal : Security
             question="Qui s'est connecté sur cet hôte il y a trois semaines ?",
             reason=f"Journal limité à {taille} octets : écrasé en quelques jours.",
             severity=Severity.HIGH,
@@ -45,9 +46,9 @@ class RetentionSecurity(Check):
                 expected=TAILLE_MIN,
                 unit="bytes",
                 confidence=Confidence.MEASURED,
-                source=self.requires_facts[0],
+                source=facts[nom].source,
             ),
-            remediation="Porter la taille maximale du journal à 1 Gio au moins.",
+            remediation="Porter le journal à 1 Gio au moins par GPO.",
         )
         return CheckResult.with_gaps(self.id, ctx.target.id, [gap])
 
