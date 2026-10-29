@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yakohhhh/amnesia/blob/main/src/amnesia/schemas/report-v1.schema.json",
+  "title": "Rapport d'audit amnesia, format v1",
+  "description": "Contrat machine d'un audit de forensic readiness. Un consommateur ignore les champs qu'il ne connaît pas : une version MINEURE peut en ajouter. Documentation : docs/format-rapport.md.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tool",
+    "run",
+    "targets",
+    "results",
+    "gaps",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Version SemVer du format ; ce schéma couvre toutes les versions 1.x.y.",
+      "type": "string",
+      "pattern": "^1\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "tool": {
+      "description": "Outil qui a produit le rapport.",
+      "type": "object",
+      "required": ["name", "version", "catalog_version"],
+      "properties": {
+        "name": { "const": "amnesia" },
+        "version": {
+          "description": "Version d'amnesia (amnesia.__version__).",
+          "type": "string",
+          "minLength": 1
+        },
+        "catalog_version": {
+          "description": "Version du catalogue de questions ; null tant qu'il n'existe pas.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "run": {
+      "description": "Exécution de l'audit.",
+      "type": "object",
+      "required": [
+        "id",
+        "started_at",
+        "finished_at",
+        "duration_s",
+        "complete",
+        "interrupted",
+        "profile",
+        "argv"
+      ],
+      "properties": {
+        "id": {
+          "description": "Identifiant de l'exécution (UUID version 4).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "duration_s": { "$ref": "#/$defs/duration" },
+        "complete": {
+          "description": "Vrai si chaque check a été évalué ou exclu par l'utilisateur, sans interruption.",
+          "type": "boolean"
+        },
+        "interrupted": {
+          "description": "Vrai si l'audit a été interrompu : résultats partiels.",
+          "type": "boolean"
+        },
+        "profile": {
+          "description": "Profil d'audit ; null tant que les profils n'existent pas.",
+          "type": ["string", "null"]
+        },
+        "argv": {
+          "description": "Arguments de la ligne de commande, sans le programme ; valeurs sensibles remplacées par ***.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "targets": {
+      "description": "Cibles auditées.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/target" }
+    },
+    "results": {
+      "description": "Un résultat par check et par cible, quel que soit son statut ; triés par check_id puis cible.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "gaps": {
+      "description": "Angles morts, triés par sévérité décroissante, puis domaine, check_id et cible.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/gap" }
+    },
+    "summary": { "$ref": "#/$defs/summary" }
+  },
+  "$defs": {
+    "timestamp": {
+      "description": "Horodatage RFC 3339 en UTC, suffixe Z.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "duration": {
+      "description": "Durée en secondes.",
+      "type": "number",
+      "minimum": 0
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "text": { "type": "string", "minLength": 1 },
+    "target": {
+      "type": "object",
+      "required": ["id", "kind", "transport"],
+      "properties": {
+        "id": {
+          "description": "Forme normalisée de la cible (local, winrm://hôte[:port], bundle:chemin).",
+          "$ref": "#/$defs/text"
+        },
+        "kind": { "enum": ["windows_host", "m365_tenant", "aws_account", "siem"] },
+        "transport": { "enum": ["local", "winrm", "bundle", "api"] }
+      }
+    },
+    "status": { "enum": ["pass", "gap", "error", "skipped", "not_applicable"] },
+    "reason": {
+      "enum": [
+        null,
+        "user_excluded",
+        "missing_privilege",
+        "not_implemented",
+        "not_collected",
+        "access_denied",
+        "timeout",
+        "unreachable",
+        "internal_error"
+      ]
+    },
+    "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+    "result": {
+      "type": "object",
+      "required": [
+        "check_id",
+        "check_version",
+        "target",
+        "status",
+        "reason",
+        "message",
+        "error",
+        "duration_s"
+      ],
+      "properties": {
+        "check_id": { "$ref": "#/$defs/text" },
+        "check_version": {
+          "description": "Version du check ; null si elle est inconnue.",
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "target": { "$ref": "#/$defs/text" },
+        "status": { "$ref": "#/$defs/status" },
+        "reason": {
+          "description": "Motif d'un statut skipped ou error ; null pour les autres statuts.",
+          "$ref": "#/$defs/reason"
+        },
+        "message": { "type": "string" },
+        "error": {
+          "description": "Exception d'un statut error ; null pour les autres statuts.",
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/error" }]
+        },
+        "duration_s": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/duration" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "enum": ["error", "skipped"] } } },
+          "then": { "properties": { "reason": { "type": "string" } } },
+          "else": { "properties": { "reason": { "const": null } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "error" } } },
+          "then": { "properties": { "error": { "type": "object" } } },
+          "else": { "properties": { "error": { "const": null } } }
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "required": ["type", "message", "traceback"],
+      "properties": {
+        "type": { "$ref": "#/$defs/text" },
+        "message": { "type": "string" },
+        "traceback": {
+          "description": "Frames de l'exception, seulement en mode debug.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "required": [
+        "fingerprint",
+        "check_id",
+        "target",
+        "resource",
+        "question_id",
+        "question",
+        "reason",
+        "severity",
+        "evidence",
+        "remediation",
+        "remediation_id",
+        "references",
+        "compromise_indicator"
+      ],
+      "properties": {
+        "fingerprint": {
+          "description": "SHA-256 de check_id, question_id, target et resource.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "check_id": { "$ref": "#/$defs/text" },
+        "target": { "$ref": "#/$defs/text" },
+        "resource": { "$ref": "#/$defs/text" },
+        "question_id": { "type": ["string", "null"], "minLength": 1 },
+        "question": { "$ref": "#/$defs/text" },
+        "reason": { "$ref": "#/$defs/text" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "remediation": { "$ref": "#/$defs/text" },
+        "remediation_id": { "type": ["string", "null"], "minLength": 1 },
+        "references": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reference" }
+        },
+        "compromise_indicator": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "observed",
+        "expected",
+        "unit",
+        "observed_window_days",
+        "required_window_days",
+        "confidence",
+        "source",
+        "details"
+      ],
+      "properties": {
+        "observed": { "description": "Valeur JSON observée." },
+        "expected": { "description": "Valeur JSON attendue." },
+        "unit": { "type": ["string", "null"], "minLength": 1 },
+        "observed_window_days": { "type": ["number", "null"], "minimum": 0 },
+        "required_window_days": { "type": ["number", "null"], "minimum": 0 },
+        "confidence": { "enum": ["measured", "estimated", "assumed"] },
+        "source": { "$ref": "#/$defs/text" },
+        "details": { "type": "object" }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "required": ["kind", "id", "version", "url"],
+      "properties": {
+        "kind": { "enum": ["attack", "anssi", "microsoft", "cis", "other"] },
+        "id": { "$ref": "#/$defs/text" },
+        "version": { "type": ["string", "null"], "minLength": 1 },
+        "url": { "type": ["string", "null"], "pattern": "^https://" }
+      }
+    },
+    "summary": {
+      "description": "Comptes dérivés de results et de gaps.",
+      "type": "object",
+      "required": [
+        "total",
+        "by_status",
+        "by_severity",
+        "gaps",
+        "excluded",
+        "not_evaluated"
+      ],
+      "properties": {
+        "total": { "$ref": "#/$defs/count" },
+        "by_status": {
+          "description": "Nombre de résultats par statut, tous les statuts présents.",
+          "type": "object",
+          "required": ["pass", "gap", "error", "skipped", "not_applicable"],
+          "properties": {
+            "pass": { "$ref": "#/$defs/count" },
+            "gap": { "$ref": "#/$defs/count" },
+            "error": { "$ref": "#/$defs/count" },
+            "skipped": { "$ref": "#/$defs/count" },
+            "not_applicable": { "$ref": "#/$defs/count" }
+          }
+        },
+        "by_severity": {
+          "description": "Nombre de Gaps par sévérité, de critical à info.",
+          "type": "object",
+          "required": ["critical", "high", "medium", "low", "info"],
+          "properties": {
+            "critical": { "$ref": "#/$defs/count" },
+            "high": { "$ref": "#/$defs/count" },
+            "medium": { "$ref": "#/$defs/count" },
+            "low": { "$ref": "#/$defs/count" },
+            "info": { "$ref": "#/$defs/count" }
+          }
+        },
+        "gaps": { "$ref": "#/$defs/count" },
+        "excluded": {
+          "description": "Résultats skipped / user_excluded.",
+          "$ref": "#/$defs/count"
+        },
+        "not_evaluated": {
+          "description": "Résultats error, ou skipped pour un autre motif que user_excluded.",
+          "$ref": "#/$defs/count"
+        }
+      }
+    }
+  }
+}

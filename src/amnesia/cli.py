@@ -12,6 +12,7 @@ from pathlib import Path
 from . import __version__
 from .checks import REGISTRY, CheckMeta, default_checks
 from .log import FORMATS, setup_logging
+from .report import schema_text
 from .target import FORMES, Target, TargetError
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "list-checks", parents=[journal], help="Liste les checks disponibles"
     )
+    sub.add_parser(
+        "schema",
+        parents=[journal],
+        help="Affiche le JSON Schema du rapport (docs/format-rapport.md)",
+    )
     return p
 
 
@@ -162,6 +168,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "list-checks":
         _lister_checks(REGISTRY.metas())
+        return 0
+
+    if args.cmd == "schema":
+        # texte embarque tel quel : il finit deja par un saut de ligne
+        print(schema_text(), end="")
         return 0
 
     if args.cmd == "audit":

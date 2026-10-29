@@ -66,6 +66,9 @@ amnesia = "amnesia.cli:main"
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [
     "hypothesis==6.170.2",
+    # validation du rapport contre son JSON Schema (#22) : tests seulement, le
+    # paquet installe n'en depend pas
+    "jsonschema==4.26.0",
     "mypy==2.4.0",
     "nox==2026.8.17",
     "pre-commit==4.7.0",
@@ -78,6 +81,7 @@ dev = [
     # backend de build, meme version que build-constraint-dependencies : les
     # tests construisent le wheel hors ligne (tests/test_paquet.py)
     "setuptools==84.2.1",
+    "types-jsonschema==4.26.0.20261006",
     "types-pyyaml==6.0.12.20260906",
 ]
 # outils d'audit de la CI, hors groupe dev (installes a la demande)
