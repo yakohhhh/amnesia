@@ -124,6 +124,38 @@ facturer comme prestation dès la v0.
 > la commande reste `amnesia`. Il n'est pas encore publié (#33) : installe-le
 > depuis les sources, jamais par son nom depuis PyPI.
 
+## Confidentialité
+
+Un rapport amnesia est la carte des angles morts d'un client : rien n'en sort
+sans que tu le décides. amnesia est **hors ligne par défaut** :
+
+- il ne contacte que les cibles et les API que tu désignes (`--target`, un
+  connecteur cloud explicitement demandé) ; aucune donnée ne part vers l'éditeur,
+  un CDN ou un service tiers ;
+- pas de télémétrie, pas de vérification de mise à jour, pas de rapport de
+  plantage ni d'envoi de rapport : une erreur interne est journalisée sur
+  stderr, et c'est tout ;
+- il fonctionne entièrement sans accès Internet, hors connecteurs cloud
+  explicitement demandés ; `list-checks`, `render`, `schema` et `audit --target
+  local` n'ouvrent aucune connexion ;
+- ses rendus (texte, Markdown) ne chargent aucune ressource externe : ni image,
+  ni feuille de style, ni script, ni police ; les liens de référence restent du
+  texte ;
+- tout sous-processus lancé par un collecteur reçoit
+  `POWERSHELL_TELEMETRY_OPTOUT=1` et `POWERSHELL_UPDATECHECK=Off` dans son
+  environnement : PowerShell 7 envoie sinon une télémétrie au démarrage puis
+  pendant la session, et vérifie ses mises à jour ; la variable n'a d'effet que
+  posée avant le lancement du processus.
+
+Ces engagements sont tenus par le code, pas seulement par ce texte : seuls les
+collecteurs (`src/amnesia/facts/collectors.py`, liste explicite dans
+`pyproject.toml`) peuvent ouvrir une connexion, la règle ruff `TID251` interdit
+`socket`, `urllib.request`, `http.client`, `requests` et `httpx` partout
+ailleurs, et la suite de tests tourne avec le réseau coupé, sous-processus
+compris. Le futur contrôle de licence (#154) restera vérifiable hors ligne. Une
+dépendance qui enfreindrait cette règle est une vulnérabilité à signaler
+([`SECURITY.md`](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md)).
+
 ## Scope & légal
 
 Lecture seule, sur un périmètre que tu es autorisé à auditer. `amnesia` lit des

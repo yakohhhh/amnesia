@@ -57,4 +57,14 @@ la première version sera la 0.1.0 (milestone M0).
   ANSI, contrôles, bidi) et échappées en Markdown ; un rapport d'une autre
   version majeure de format est refusé (code 4) (#23).
 
+### Sécurité
+
+- Hors ligne par défaut : aucune télémétrie, vérification de mise à jour ni
+  rapport de plantage ; amnesia ne contacte que les cibles désignées, depuis les
+  seuls collecteurs (règle ruff `TID251` partout ailleurs, liste explicite dans
+  `pyproject.toml`), et ses rendus ne chargent aucune ressource externe. Tout
+  sous-processus d'un collecteur reçoit `POWERSHELL_TELEMETRY_OPTOUT=1` et
+  `POWERSHELL_UPDATECHECK=Off` (`amnesia.facts.subprocess_env()`). Engagement
+  écrit : README, section « Confidentialité » (#26).
+
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main

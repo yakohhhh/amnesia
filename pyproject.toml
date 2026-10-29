@@ -172,12 +172,29 @@ allowed-confusables = ["’", "–"]
 [tool.ruff.lint.per-file-ignores]
 # la CLI ecrit sur la sortie standard par conception
 "src/amnesia/cli.py" = ["T201"]
-# assert est l'idiome de pytest
-"tests/**" = ["S101"]
+# Frontiere reseau (#26) : seuls les collecteurs qui declarent un transport
+# reseau (#20) peuvent ouvrir une connexion. Liste explicite, verifiee par
+# tests/test_reseau.py ; un futur collecteur WinRM (#63) ou cloud (#95) s'y ajoute.
+"src/amnesia/facts/collectors.py" = ["TID251"]
+"src/amnesia/facts/collectors/**" = ["TID251"]
+# assert est l'idiome de pytest ; les tests coupent et sondent eux-memes le
+# reseau (tests/conftest.py, tests sentinelles de #26)
+"tests/**" = ["S101", "TID251"]
 
-# set_stream_logger pose sur botocore un handler sans plafond ni expurgation :
-# les requetes signees (Authorization, X-Amz-Security-Token) sortiraient en clair
+# API interdites (TID251). Reseau (#26) : hors des collecteurs ci-dessus, aucune
+# connexion sortante, donc aucune telemetrie ni verification de mise a jour
+# possible par accident. set_stream_logger pose sur botocore un handler sans
+# plafond ni expurgation : les requetes signees (Authorization,
+# X-Amz-Security-Token) sortiraient en clair.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
+"socket.socket".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"socket.create_connection".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"asyncio.open_connection".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"http.client".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"urllib.request".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"urllib3".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"requests".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"httpx".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
 "boto3.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
 "botocore.session.Session.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
 

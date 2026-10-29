@@ -23,6 +23,7 @@ Limite : un sous-processus lance par un test n'est pas filtre.
 from __future__ import annotations
 
 import dataclasses
+import re
 import shutil
 import socket
 import sys
@@ -248,3 +249,58 @@ def registre_factice(monkeypatch: pytest.MonkeyPatch) -> list[CheckFactice]:
 def horloge_figee() -> Callable[[], datetime]:
     """Horloge a injecter : renvoie toujours INSTANT_FIGE (UTC)."""
     return lambda: INSTANT_FIGE
+
+
+# --- rendus sans ressource externe (#26, reutilise par le HTML de #77) --------
+
+# cible absolue : un schema (https:, file:, ftp:...) ou une URL relative au
+# protocole (//cdn.example) ; une cible relative ou data: ne charge rien a distance
+_CIBLE_DISTANTE = r"(?:[a-z][a-z0-9+.\-]*:)?//"
+_RESSOURCES_EXTERNES = (
+    # image Markdown en ligne : ![alt](https://...) ou ![alt](<https://...>)
+    re.compile(r"!\[[^\]]*\]\(\s*<?\s*" + _CIBLE_DISTANTE, re.I),
+    # elements HTML qui chargent une ressource des l'affichage (image, script,
+    # feuille de style, police, cadre, media, SVG <use>/<image>)
+    re.compile(
+        r"<(?:img|script|link|iframe|frame|embed|object|source|track|video|audio"
+        r"|use|image|input)\b[^>]*?\b(?:src|href|data|poster|srcset|xlink:href)"
+        r"\s*=\s*[\"']?\s*" + _CIBLE_DISTANTE,
+        re.I | re.S,
+    ),
+    # CSS : url(https://...) (fond, police @font-face) et @import
+    re.compile(r"url\(\s*[\"']?\s*" + _CIBLE_DISTANTE, re.I),
+    re.compile(r"@import\b", re.I),
+    # redirection automatique
+    re.compile(r"<meta\b[^>]*http-equiv\s*=\s*[\"']?refresh", re.I | re.S),
+)
+# image Markdown par reference : ![alt][ref] puis [ref]: https://...
+_IMAGE_PAR_REFERENCE = re.compile(r"!\[[^\]]*\]\s*\[([^\]]*)\]")
+_DEFINITION = re.compile(r"^[ \t]*\[([^\]]+)\]:[ \t]*<?(\S+?)>?[ \t]*(?:$|[ \t])", re.M)
+_DISTANTE = re.compile(_CIBLE_DISTANTE, re.I)
+
+
+def assert_no_external_resources(content: str) -> None:
+    """Echoue si ``content`` (Markdown, HTML ou texte) charge une ressource
+    externe a l'affichage : image, script, feuille de style, police, cadre,
+    media, redirection. Les liens de reference restent du texte et passent.
+    """
+    trouves = [
+        f"{content.count(chr(10), 0, t.start()) + 1}: {t.group(0)[:60]!r}"
+        for motif in _RESSOURCES_EXTERNES
+        for t in motif.finditer(content)
+    ]
+    definitions = {e.lower(): c for e, c in _DEFINITION.findall(content)}
+    for t in _IMAGE_PAR_REFERENCE.finditer(content):
+        cible = definitions.get(t.group(1).lower(), "")
+        if _DISTANTE.match(cible):
+            ligne = content.count("\n", 0, t.start()) + 1
+            trouves.append(f"{ligne}: {t.group(0)[:60]!r} -> {cible[:60]!r}")
+    assert not trouves, "ressource(s) externe(s) dans le rendu : " + ", ".join(
+        sorted(trouves)
+    )
+
+
+@pytest.fixture(name="assert_no_external_resources")
+def _assert_no_external_resources() -> Callable[[str], None]:
+    """Le helper ci-dessus, sous forme de fixture : importable par tout test."""
+    return assert_no_external_resources
