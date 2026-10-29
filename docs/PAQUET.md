@@ -82,9 +82,8 @@ une collision est signalée.
 
 - **Description** accentuée, **keywords**, **classifiers** (aucun `License ::`,
   PEP 639 : #30 ; `Typing :: Typed` arrive avec #9) et **`[project.urls]`**.
-- Le dépôt est privé : les URL renvoient une 404 aux visiteurs tant que la
-  visibilité n'est pas tranchée (#11, #13). Le lien Changelog vise
-  `CHANGELOG.md` (#31).
+- Le dépôt est public depuis le 29 octobre 2026 (#13) : les URL sont
+  accessibles à tous. Le lien Changelog vise `CHANGELOG.md` (#31).
 - Le `README.md` est la long_description publiée : liens absolus uniquement, un
   lien relatif pointerait vers pypi.org (test automatisé).
 
