@@ -170,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[stub] audit de {args.target.id} → {args.out}")
         print(
             f"[stub] {len(checks)} checks enregistrés. "
-            "Implémente leur run() : src/amnesia/checks/"
+            "Implémente leur evaluate() : src/amnesia/checks/"
         )
         for c in checks:
             print(f"  - {c.id}: {c.title}")

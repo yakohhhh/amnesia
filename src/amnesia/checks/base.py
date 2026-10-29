@@ -45,7 +45,7 @@ missing_privilege
     Ex. : lire le journal Security exige SeSecurityPrivilege, absent du jeton.
 not_implemented
     Le check n'est pas encore écrit.
-    Ex. : win.time_sync, dont run() lève encore NotImplementedError.
+    Ex. : win.time_sync, dont evaluate() lève encore NotImplementedError.
 not_collected
     Le fait nécessaire est absent des données disponibles.
     Ex. : bundle hors ligne collecté sans la configuration Sysmon.
@@ -92,7 +92,9 @@ from traceback import extract_tb
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 if TYPE_CHECKING:
-    from ..target import Kind, Target
+    from ..facts import FactSet
+    from ..target import Kind
+    from .context import Context
     from .registry import Domain
 
 
@@ -429,7 +431,7 @@ class Evidence:
         # filet de securite : une ligne de commande recopiee telle quelle peut
         # porter le mot de passe d'audit (/p:, -Password, winrm://u:mdp@h) ;
         # caviardage idempotent, from_dict(to_dict()) reste symetrique
-        object.__setattr__(self, "source", _assainir(self.source))
+        object.__setattr__(self, "source", assainir(self.source))
 
     def to_dict(self) -> dict[str, Any]:
         """Forme sérialisable en JSON, à clés stables ; inverse de ``from_dict``."""
@@ -738,7 +740,12 @@ class Gap:
 
 
 class Check:
-    """Un contrôle de forensic readiness. Les sous-classes implémentent run().
+    """Un contrôle de forensic readiness. Les sous-classes implémentent evaluate().
+
+    Un check ne joint jamais la cible : il déclare les faits qu'il lit
+    (``requires_facts``), un collecteur les rassemble (``amnesia.facts``) et le
+    moteur (#21) n'appelle ``evaluate()`` que si ``resolve()`` les trouve tous
+    observés. Documentation : ``docs/dev/faits.md``.
 
     Métadonnées déclarées en attributs de classe, validées et figées en
     ``CheckMeta`` par ``@register`` (``amnesia.checks.registry``) :
@@ -756,10 +763,17 @@ class Check:
     target_kinds: tuple[Kind, ...]
     version: int
     default_severity: str
+    # cles des faits lus par evaluate() (windows.auditpol.backup...), sans doublon
     requires_facts: tuple[str, ...] = ()
     question_ids: tuple[str, ...] = ()
 
-    def run(self, target: Target) -> list[Gap]:  # pragma: no cover - stub
+    def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
+        """Évalue les faits requis, sans aucune I/O ; rend pass ou gap.
+
+        Fonction pure : ni processus, ni réseau, ni fichier, ni horloge système
+        (``ctx.clock``). Les faits requis sont tous observés, mais leur valeur
+        peut être ``None`` (clé ou option absente), qui peut produire un Gap.
+        """
         raise NotImplementedError("check non implémenté — voir docs/ROADMAP.md")
 
 
@@ -847,7 +861,12 @@ _CAVIARDAGES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def _assainir(texte: str) -> str:
+def assainir(texte: str) -> str:
+    """Texte caviardé (secrets) et imprimable, prêt pour un message de résultat.
+
+    Même traitement que le message d'``ErrorInfo`` : à appliquer à tout texte
+    venu de la cible ou d'un collecteur (source d'un fait...) avant le rapport.
+    """
     for motif, remplacement in _CAVIARDAGES:
         texte = motif.sub(remplacement, texte)
     # sequences ANSI, retours chariot, bidi : rendus visibles (\x1b, \r, \u202e)
@@ -876,7 +895,7 @@ def _message_de(exc: BaseException) -> str:
             texte = f"commande {_executable(exc.cmd)!r} : délai de {exc.timeout} s"
         else:
             texte = str(exc)
-        return _assainir(texte)
+        return assainir(texte)
     except Exception:
         # __str__ defaillant : le resultat error doit exister quand meme
         return "<message illisible>"
@@ -896,7 +915,7 @@ def _trace_de(exc: BaseException) -> str:
             lignes.append(f'  File "{fichier}", line {f.lineno}, in {f.name}')
             if f.line:
                 lignes.append(f"    {f.line}")
-        return "".join(_assainir(ligne) + "\n" for ligne in lignes)
+        return "".join(assainir(ligne) + "\n" for ligne in lignes)
     except Exception:
         return "<trace illisible>"
 

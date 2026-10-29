@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yakohhhh/amnesia/blob/main/src/amnesia/schemas/facts-1.schema.json",
+  "title": "Faits collectés par amnesia (amnesia.facts/1)",
+  "description": "Enveloppe versionnée des faits bruts d'une cible, lus par les checks. Documentation : docs/dev/faits.md.",
+  "type": "object",
+  "required": ["schema", "facts"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "description": "Version du format ; toute autre valeur est refusée.",
+      "const": "amnesia.facts/1"
+    },
+    "facts": {
+      "description": "Faits indexés par clé : domaine.nom[:qualificatif].",
+      "type": "object",
+      "propertyNames": {
+        "maxLength": 256,
+        "pattern": "^(?:windows|ad|m365|aws|siem)(?:\\.[a-z0-9_]+)+(?::[A-Za-z0-9_./-]+(?: [A-Za-z0-9_./-]+)*)?$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/fact" }
+    }
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "required": ["status", "value", "source", "collected_at"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "ok : observé ; unavailable : non observé, avec un motif.",
+          "enum": ["ok", "unavailable"]
+        },
+        "value": {
+          "description": "Valeur JSON observée ; null pour une clé ou une option absente."
+        },
+        "unavailable_reason": {
+          "enum": [
+            null,
+            "access_denied",
+            "timeout",
+            "unreachable",
+            "unsupported",
+            "not_collected"
+          ]
+        },
+        "source": {
+          "description": "Commande ou API à l'origine du fait.",
+          "type": "string",
+          "minLength": 1
+        },
+        "collected_at": {
+          "description": "Horodatage de collecte, ISO 8601 en UTC.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "if": {
+        "properties": { "status": { "const": "unavailable" } }
+      },
+      "then": {
+        "required": ["unavailable_reason"],
+        "properties": {
+          "value": { "type": "null" },
+          "unavailable_reason": { "type": "string" }
+        }
+      },
+      "else": {
+        "properties": { "unavailable_reason": { "type": "null" } }
+      }
+    }
+  }
+}

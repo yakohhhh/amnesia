@@ -19,7 +19,9 @@ import pytest
 import yaml
 from pytest_socket import SocketBlockedError
 
-from amnesia.checks.base import CheckResult
+from amnesia.checks.base import Status
+from amnesia.checks.context import Context
+from amnesia.facts import FactSet
 from amnesia.target import Target
 
 if TYPE_CHECKING:
@@ -244,12 +246,14 @@ def test_fixtures_communes(
 ) -> None:
     (sans_gap, avec_gap) = registre_factice
     cible = Target.parse("winrm://dc01")
-    assert sans_gap.run(cible) == []
-    gaps = avec_gap.run(cible)
-    assert [g.severity for g in gaps] == ["high"]
+    contexte = Context(cible, clock=horloge_figee)
+    assert sans_gap.evaluate(FactSet(), contexte).status is Status.PASS
+    resultat = avec_gap.evaluate(FactSet(), contexte)
+    assert resultat.status is Status.GAP
+    assert [g.severity for g in resultat.gaps] == ["high"]
     # Gaps rattaches au check et a la cible recue, comme le fera le moteur (#21)
+    gaps = resultat.gaps
     assert all((g.check_id, g.target) == (avec_gap.id, cible.id) for g in gaps)
-    assert CheckResult.with_gaps(avec_gap.id, cible.id, gaps).status == "gap"
     assert avec_gap.cibles == [cible]
     assert horloge_figee() == horloge_figee()
     assert horloge_figee().utcoffset() == timedelta(0)

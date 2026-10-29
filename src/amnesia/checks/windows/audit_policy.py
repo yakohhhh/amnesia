@@ -20,3 +20,4 @@ class WindowsAuditPolicy(Check):
     target_kinds = (Kind.WINDOWS_HOST,)
     version = 1
     default_severity = "high"
+    requires_facts = ("windows.auditpol.backup",)

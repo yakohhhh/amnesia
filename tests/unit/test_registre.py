@@ -24,7 +24,6 @@ from amnesia.checks import (
     CheckRegistrationError,
     Domain,
     DuplicateCheckError,
-    Gap,
     InvalidCheckError,
     Registry,
     Severity,
@@ -32,9 +31,12 @@ from amnesia.checks import (
     register,
     registry,
 )
+from amnesia.checks.base import CheckResult
+from amnesia.checks.context import Context
 from amnesia.checks.windows.event_log_retention import EventLogRetention
 from amnesia.checks.windows.sysmon import SysmonPresent
-from amnesia.target import Kind, Target
+from amnesia.facts import FactSet, validate_fact_name
+from amnesia.target import Kind
 
 FORMAT_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
 IDS_ACTUELS = {
@@ -313,18 +315,18 @@ def test_meta_figee_et_complete() -> None:
         meta.id = "win.autre"  # type: ignore[misc]
 
 
-def test_implemented_derive_de_la_surcharge_de_run() -> None:
+def test_implemented_derive_de_la_surcharge_d_evaluate() -> None:
     class Implemente(Check):
         id = "win.implemente"
         title = "Check implémenté"
-        description = "Surcharge run()."
+        description = "Surcharge evaluate()."
         domain = Domain.WINDOWS
         target_kinds = (Kind.WINDOWS_HOST,)
         version = 1
         default_severity = "low"
 
-        def run(self, target: Target) -> list[Gap]:
-            return []
+        def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
+            return CheckResult.passed(self.id, ctx.target.id)
 
     registre = Registry()
     registre.register(Implemente)
@@ -369,7 +371,10 @@ def test_checks_actuels() -> None:
         assert meta.target_kinds == (Kind.WINDOWS_HOST,)
         assert meta.version == 1
         assert meta.default_severity in registry.SEVERITES
-        assert meta.requires_facts == ()
+        # faits requis declares avec la couche de collecte (#20)
+        assert meta.requires_facts, meta.id
+        for nom in meta.requires_facts:
+            assert validate_fact_name(nom).startswith("windows."), nom
         assert meta.description.strip()
         assert not meta.implemented, meta.id
 

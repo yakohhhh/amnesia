@@ -20,3 +20,4 @@ class TimeSync(Check):
     target_kinds = (Kind.WINDOWS_HOST,)
     version = 1
     default_severity = "medium"
+    requires_facts = ("windows.w32time.config", "windows.w32time.status")
