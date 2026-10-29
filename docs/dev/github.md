@@ -71,9 +71,46 @@ les commandes appliquées relèvent de #13.
 - [x] Alertes et mises à jour de sécurité Dependabot.
 - [x] Protection de `main` : PR obligatoire, check `ci-ok` requis, ni push forcé ni
   suppression (#13).
+- [ ] **Formulaires d'issues obligatoires** (#29) : un formulaire « Bug » envoyé
+  sans la case d'anonymisation cochée est refusé par GitHub (`required: true`,
+  appliqué seulement sur un dépôt public).
+- [ ] **Pas d'issue vierge** (#29) : pour un compte en lecture ou triage, « New
+  issue » propose « Nouveau check », « Bug » et « Fonctionnalité », le lien
+  « Signaler une vulnérabilité », et aucune issue vierge ; pour un rôle Write ou
+  au-delà, l'option vierge n'apparaît que libellée « Maintainers only ».
+- [ ] **Modèle de PR** (#29) : une nouvelle PR ouverte depuis l'interface web
+  affiche la checklist du modèle.
 
 Vérification groupée, en lecture seule :
 `gh api repos/yakohhhh/amnesia --jq '.visibility, .security_and_analysis'`.
+
+## Formulaires d'issues et modèle de PR
+
+Le parcours du contributeur est décrit dans
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md). Côté GitHub :
+
+- `.github/ISSUE_TEMPLATE/` : trois formulaires, « Nouveau check »
+  (`nouveau-check.yml`), « Bug » (`bug.yml`) et « Fonctionnalité »
+  (`fonctionnalite.yml`), et `config.yml`, qui désactive l'issue vierge
+  (`blank_issues_enabled: false`) et ajoute un lien de contact vers
+  [`SECURITY.md`](../../SECURITY.md) (#28). Les rôles Write et au-delà voient
+  encore l'option vierge, que GitHub libelle « Maintainers only ».
+- Chaque formulaire pose un label `type:*`, qui doit exister dans
+  `.github/labels.yml`.
+- `required: true` (champs et cases) n'est appliqué par GitHub que sur un dépôt
+  public : c'est le cas depuis le 29/10/2026. Si le dépôt redevenait privé, ces
+  obligations ne seraient plus que des indications.
+- `.github/pull_request_template.md` pré-remplit toute PR ouverte depuis
+  l'interface web. `gh pr create --body-file` le remplace : y recopier la
+  checklist.
+- Formulaires et modèle ne s'appliquent qu'une fois sur `main`. Leur effet sur
+  GitHub se vérifie avec les cases #29 de la checklist « Passage en public ».
+
+Garde-fous : `check-jsonschema` valide les formulaires (schéma
+`vendor.github-issue-forms`) et `config.yml` (`vendor.github-issue-config`) en
+pre-commit (hooks `formulaires-issues` et `config-issues`) et en CI (job
+`workflow-lint`) ; `tests/test_contribution.py` vérifie les champs obligatoires,
+les labels, les renvois et le modèle de PR.
 
 ## Pourquoi le bootstrap s'est arrêté après l'issue #1
 
@@ -109,42 +146,3 @@ correction :
 
 Les issues du backlog ont depuis été créées hors de ce script ; la création
 d'issues en masse n'est pas reprise dans `sync_github.py`.
-
-## Formulaires d'issues et modèle de PR
-
-Le parcours du contributeur est décrit dans
-[`CONTRIBUTING.md`](../../CONTRIBUTING.md). Côté GitHub :
-
-- `.github/ISSUE_TEMPLATE/` : trois formulaires, « Nouveau check »
-  (`nouveau-check.yml`), « Bug » (`bug.yml`) et « Fonctionnalité »
-  (`fonctionnalite.yml`), et `config.yml`, qui désactive l'issue vierge
-  (`blank_issues_enabled: false`) et ajoute un lien de contact vers
-  [`SECURITY.md`](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md) (#28).
-  Les rôles Write et au-delà voient encore l'option vierge, que GitHub libelle
-  « Maintainers only ».
-- Chaque formulaire pose un label `type:*`, qui doit exister dans
-  `.github/labels.yml`.
-- `required: true` (champs et cases) n'est appliqué par GitHub que sur un dépôt
-  public : c'est le cas depuis le 29/10/2026. Si le dépôt redevenait privé, ces
-  obligations ne seraient plus que des indications.
-- `.github/pull_request_template.md` pré-remplit toute PR ouverte depuis
-  l'interface web. `gh pr create --body-file` le remplace : y recopier la
-  checklist.
-- Formulaires et modèle ne s'appliquent qu'une fois sur `main`.
-
-Garde-fous : `check-jsonschema` valide les formulaires (schéma
-`vendor.github-issue-forms`) et `config.yml` (`vendor.github-issue-config`) en
-pre-commit (hooks `formulaires-issues` et `config-issues`) et en CI (job
-`workflow-lint`) ; `tests/test_contribution.py` vérifie les champs obligatoires,
-les labels, les renvois et le modèle de PR.
-
-Vérifications au passage en public (#13), à faire sur GitHub après le merge :
-
-- [ ] Un formulaire « Bug » envoyé sans la case d'anonymisation cochée est refusé
-  par GitHub.
-- [ ] Pour un compte en lecture ou triage, « New issue » propose « Nouveau
-  check », « Bug » et « Fonctionnalité », le lien « Signaler une vulnérabilité »,
-  et aucune issue vierge ; pour un rôle Write ou au-delà, l'option vierge
-  n'apparaît que libellée « Maintainers only ».
-- [ ] Une nouvelle PR ouverte depuis l'interface web affiche la checklist du
-  modèle.

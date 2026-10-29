@@ -70,6 +70,7 @@ def test_lien_de_contact_vers_la_politique_de_securite() -> None:
     liens = _yaml(MODELES / "config.yml")["contact_links"]
     assert [lien["url"] for lien in liens] == [f"{DEPOT}/blob/main/SECURITY.md"]
     assert "vulnérabilité" in liens[0]["name"]
+    assert (RACINE / "SECURITY.md").is_file()
 
 
 @pytest.mark.parametrize(
@@ -291,8 +292,9 @@ def test_liens_du_guide_valides() -> None:
 
 def test_renvois_securite_licence_et_guide_des_checks() -> None:
     texte = _texte(CONTRIBUTING)
-    # lien absolu : SECURITY.md arrive par #28 et s'affiche aussi hors du depot
+    # lien absolu, comme dans SECURITY.md (#28) : valable hors du depot
     assert f"]({DEPOT}/blob/main/SECURITY.md)" in texte
+    assert (RACINE / "SECURITY.md").is_file()
     licence = texte.partition("## Licence des contributions")[2]
     # politique non tranchee ici : renvoi vers la decision de licence et #30
     for renvoi in ("DCO", "CLA", "#11", "#30"):
@@ -371,10 +373,24 @@ def _cases(texte: str) -> list[str]:
     return cases
 
 
+def _section(texte: str, titre: str) -> str:
+    for morceau in re.split(r"^## ", texte, flags=re.MULTILINE)[1:]:
+        entete, _, corps = morceau.partition("\n")
+        if entete.strip() == titre:
+            return corps
+    raise AssertionError(f"section {titre!r} absente")
+
+
 def test_verifications_de_passage_en_public_listees() -> None:
-    cases = _cases(_texte(RACINE / "docs" / "dev" / "github.md"))
-    assert any(
-        "« Bug »" in case and "case d'anonymisation" in case and "refusé" in case
-        for case in cases
+    # checklist de passage en public (#13) : ce que seul GitHub peut montrer
+    section = _section(
+        _texte(RACINE / "docs" / "dev" / "github.md"), "Passage en public"
     )
-    assert any("Maintainers only" in case for case in cases)
+    cases = [case for case in _cases(section) if "(#29)" in case]
+    assert len(cases) == 3, cases
+    bug, vierge, modele = cases
+    for element in ("« Bug »", "case d'anonymisation", "refusé", "`required: true`"):
+        assert element in bug, element
+    for element in ("lecture ou triage", "aucune issue vierge", "Maintainers only"):
+        assert element in vierge, element
+    assert "checklist du modèle" in modele
