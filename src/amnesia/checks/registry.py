@@ -18,7 +18,10 @@ L'id est un contrat public (rapports, sélection #74, exceptions #143, diff
 - préfixe imposé par le domaine : ``win.``, ``ad.``, ``m365.``, ``aws.``,
   ``siem.`` ;
 - unicité : un second check déclarant un id déjà pris lève
-  ``DuplicateCheckError``, qui nomme les deux classes et leurs modules.
+  ``DuplicateCheckError``, qui nomme les deux classes et leurs modules. Seule
+  exception : une classe de même module et même nom qualifié remplace
+  l'ancienne, car c'est la même déclaration réimportée (nouvel essai après un
+  import en échec, ``importlib.reload``).
 
 Chargement
 ----------
@@ -27,6 +30,12 @@ importe, au premier besoin, chaque paquet de domaine (``checks/windows/``,
 ``checks/ad/``...) et tous ses modules, un module par check. Un module de check
 n'importe aucun SDK à son niveau (boto3, Graph, WinRM...) : les SDK relèvent des
 collecteurs (#20, #44), et ``list-checks`` doit fonctionner sans les extras.
+
+Chaque registre recueille les checks des modules qu'il charge : pendant
+l'import, ``@register`` enregistre dans le registre qui charge, et un module
+déjà importé est relu (classes décorées qu'il définit). Un module de check qui
+ne déclare aucun check lève ``CheckRegistrationError`` : un ``@register`` oublié
+ferait sinon disparaître un contrôle du rapport sans le moindre bruit.
 
 Exemple :
 
@@ -53,7 +62,9 @@ import importlib
 import logging
 import pkgutil
 import re
+import weakref
 from collections.abc import Iterable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, NoReturn, TypeVar
@@ -246,13 +257,14 @@ class Registry:
         """Valide puis enregistre une classe ; utilisable en décorateur.
 
         Rien n'est enregistré si la validation échoue. Réenregistrer la même
-        classe est sans effet.
+        classe est sans effet ; une classe de même module et même nom qualifié
+        remplace l'ancienne (même déclaration réimportée).
         """
         meta = CheckMeta.from_class(check)
         deja = self._classes.get(meta.id)
         if deja is check:
             return check
-        if deja is not None:
+        if deja is not None and _nom(deja) != _nom(check):
             raise DuplicateCheckError(
                 f"id {meta.id!r} déclaré deux fois : classe {deja.__qualname__} "
                 f"du module {deja.__module__}, et classe {check.__qualname__} "
@@ -271,9 +283,35 @@ class Registry:
             # ordre trie : enregistrement reproductible d'une machine a l'autre
             modules = sorted(m.name for m in pkgutil.iter_modules(paquet.__path__))
             for module in modules:
-                importlib.import_module(f"{nom}.{module}")
+                self._charger_module(f"{nom}.{module}")
         self._charge = True
         logger.debug("registre : %d check(s) chargé(s)", len(self._classes))
+
+    def _charger_module(self, nom: str) -> None:
+        """Importe un module de check et enregistre ici les checks qu'il déclare."""
+        # pendant l'import, @register ecrit dans ce registre et non dans REGISTRY
+        jeton = _REGISTRE_EN_CHARGEMENT.set(self)
+        try:
+            module = importlib.import_module(nom)
+        finally:
+            _REGISTRE_EN_CHARGEMENT.reset(jeton)
+        # module deja importe (par un autre registre ou un import direct) : le
+        # decorateur ne repasse pas, on relit les classes qu'il a marquees ;
+        # une classe seulement importee par le module n'en fait pas partie
+        declarees = [
+            objet
+            for objet in vars(module).values()
+            if isinstance(objet, type)
+            and issubclass(objet, Check)
+            and objet in _DECLAREES
+            and objet.__module__ == nom
+        ]
+        if not declarees:
+            raise CheckRegistrationError(
+                f"module {nom} : aucun check déclaré (décorateur @register oublié ?)"
+            )
+        for check in declarees:
+            self.register(check)
 
     def classes(self) -> list[type[Check]]:
         """Classes enregistrées, triées par id."""
@@ -292,7 +330,22 @@ class Registry:
 
 REGISTRY = Registry(PAQUETS)
 
+# registre qui importe un module de check (Registry.load), sinon None
+_REGISTRE_EN_CHARGEMENT: ContextVar[Registry | None] = ContextVar(
+    "_REGISTRE_EN_CHARGEMENT", default=None
+)
+
+# classes passees par @register : Registry.load les retrouve dans un module deja
+# importe ; references faibles, pour ne pas retenir une classe abandonnee
+_DECLAREES: weakref.WeakSet[type[Check]] = weakref.WeakSet()
+
 
 def register(check: _C) -> _C:
-    """Décorateur : enregistre la classe dans le registre par défaut."""
-    return REGISTRY.register(check)
+    """Décorateur : enregistre la classe dans le registre qui charge son module.
+
+    Hors chargement (import direct du module), c'est le registre par défaut.
+    """
+    registre = _REGISTRE_EN_CHARGEMENT.get()
+    (REGISTRY if registre is None else registre).register(check)
+    _DECLAREES.add(check)
+    return check

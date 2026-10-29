@@ -9,6 +9,7 @@ import importlib
 import pkgutil
 import re
 import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,7 @@ from amnesia.checks import (
     REGISTRY,
     Check,
     CheckMeta,
+    CheckRegistrationError,
     Domain,
     DuplicateCheckError,
     Gap,
@@ -42,6 +44,46 @@ IDS_ACTUELS = {
     "win.time_sync",
 }
 _ABSENT = object()
+_PAQUET_ESSAI = "paquet_essai_registre"
+_ENTETE = (
+    "from amnesia.checks import Check, Domain, register\n"
+    "from amnesia.target import Kind\n\n"
+)
+
+
+def _source_check(classe: str, check_id: str, *, decore: bool = True) -> str:
+    """Source d'une classe de check valide, pour un module d'essai."""
+    decorateur = "@register\n" if decore else ""
+    return (
+        f"{decorateur}class {classe}(Check):\n"
+        f"    id = {check_id!r}\n"
+        f"    title = 'Check {classe}'\n"
+        "    description = 'Check declare par un module d essai.'\n"
+        "    domain = Domain.WINDOWS\n"
+        "    target_kinds = (Kind.WINDOWS_HOST,)\n"
+        "    version = 1\n"
+        "    default_severity = 'low'\n"
+    )
+
+
+@pytest.fixture
+def paquet_essai(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Callable[[dict[str, str]], str]]:
+    """Cree un paquet de checks hors du depot et rend son nom importable."""
+
+    def creer(modules: dict[str, str]) -> str:
+        dossier = tmp_path / "sources" / _PAQUET_ESSAI
+        dossier.mkdir(parents=True)
+        (dossier / "__init__.py").write_text("", encoding="utf-8")
+        for module, source in modules.items():
+            (dossier / f"{module}.py").write_text(_ENTETE + source, encoding="utf-8")
+        monkeypatch.syspath_prepend(str(tmp_path / "sources"))
+        return _PAQUET_ESSAI
+
+    yield creer
+    for nom in [n for n in sys.modules if n.split(".")[0] == _PAQUET_ESSAI]:
+        del sys.modules[nom]
 
 
 def _classe(
@@ -96,6 +138,31 @@ def test_reenregistrer_la_meme_classe_est_sans_effet() -> None:
     assert registre.register(classe) is classe
     assert registre.register(classe) is classe
     assert len(registre.metas()) == 1
+
+
+def test_meme_declaration_reimportee_remplace_l_ancienne() -> None:
+    # meme module et meme nom qualifie : la declaration a ete reimportee
+    registre = Registry()
+    ancienne = registre.register(_classe("Essai", module="tiers.essai"))
+    nouvelle = registre.register(_classe("Essai", module="tiers.essai"))
+    assert ancienne is not nouvelle
+    assert registre.classes() == [nouvelle]
+    autre_module = _classe("Essai", module="tiers.autre")
+    with pytest.raises(DuplicateCheckError, match=r"tiers\.essai.*tiers\.autre"):
+        registre.register(autre_module)
+
+
+def test_echec_repete_nomme_toujours_les_deux_classes(
+    paquet_essai: Callable[[dict[str, str]], str],
+) -> None:
+    nom = paquet_essai({"a": _source_check("A", "win.a") + _source_check("B", "win.a")})
+    registre = Registry([nom])
+    # le module en echec est retire de sys.modules : le 2e appel le reimporte
+    for _ in range(2):
+        with pytest.raises(DuplicateCheckError) as exc:
+            registre.metas()
+        assert "classe A " in str(exc.value)
+        assert "classe B " in str(exc.value)
 
 
 def test_classe_heritee_sans_nouvel_id_est_un_doublon() -> None:
@@ -349,8 +416,54 @@ def test_paquets_par_defaut_couvrent_chaque_domaine() -> None:
 def test_paquet_ad_charge_meme_sans_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delitem(sys.modules, "amnesia.checks.ad", raising=False)
     registre = Registry(["amnesia.checks.ad"])
-    assert registre.metas() == []
+    du_domaine_ad = [m for m in REGISTRY.metas() if m.domain is Domain.AD]
+    assert registre.metas() == du_domaine_ad
     assert "amnesia.checks.ad" in sys.modules
+
+
+def test_registre_dedie_recueille_les_checks_de_ses_paquets() -> None:
+    registre = Registry(["amnesia.checks.windows"])
+    assert {m.id for m in registre.metas()} == IDS_ACTUELS
+    assert registre.classes() == REGISTRY.classes()
+
+
+def test_registre_dedie_ne_touche_pas_le_registre_par_defaut(
+    paquet_essai: Callable[[dict[str, str]], str],
+) -> None:
+    avant = REGISTRY.metas()
+    nom = paquet_essai({"a": _source_check("A", "win.a")})
+    registre = Registry([nom])
+    assert [(m.id, m.module) for m in registre.metas()] == [("win.a", f"{nom}.a")]
+    assert REGISTRY.metas() == avant
+    # module deja importe : un second registre le relit
+    assert [m.id for m in Registry([nom]).metas()] == ["win.a"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        _source_check("Oubli", "win.oubli", decore=False),
+        "from amnesia.checks.windows.sysmon import SysmonPresent\n",
+        "",
+    ],
+    ids=["register-oublie", "check-seulement-importe", "module-vide"],
+)
+def test_module_sans_check_declare_signale(
+    paquet_essai: Callable[[dict[str, str]], str], source: str
+) -> None:
+    nom = paquet_essai({"a": _source_check("A", "win.a"), "oubli": source})
+    registre = Registry([nom])
+    with pytest.raises(CheckRegistrationError, match=r"oubli : aucun check.*@register"):
+        registre.metas()
+
+
+def test_chaque_module_windows_declare_un_check() -> None:
+    windows = importlib.import_module("amnesia.checks.windows")
+    modules = {
+        f"amnesia.checks.windows.{m.name}"
+        for m in pkgutil.iter_modules(windows.__path__)
+    }
+    assert modules == {m.module for m in REGISTRY.metas()}
 
 
 def test_chargement_unique(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -364,8 +477,8 @@ def test_chargement_unique(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(importlib, "import_module", espion)
     registre = Registry(["amnesia.checks.windows"])
     registre.load()
-    registre.metas()
-    registre.create_all()
+    assert {m.id for m in registre.metas()} == IDS_ACTUELS
+    assert {type(c).id for c in registre.create_all()} == IDS_ACTUELS
     attendus = sorted(f"amnesia.checks.windows.{i.split('.')[1]}" for i in IDS_ACTUELS)
     assert importes == ["amnesia.checks.windows", *attendus]
 
