@@ -225,7 +225,12 @@ _CAVIARDAGES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def _assainir(texte: str) -> str:
+def assainir(texte: str) -> str:
+    """Texte caviardé (secrets) et imprimable, prêt pour un message de résultat.
+
+    Même traitement que le message d'``ErrorInfo`` : à appliquer à tout texte
+    venu de la cible ou d'un collecteur (source d'un fait...) avant le rapport.
+    """
     for motif, remplacement in _CAVIARDAGES:
         texte = motif.sub(remplacement, texte)
     # sequences ANSI, retours chariot, bidi : rendus visibles (\x1b, \r, \u202e)
@@ -254,7 +259,7 @@ def _message_de(exc: BaseException) -> str:
             texte = f"commande {_executable(exc.cmd)!r} : délai de {exc.timeout} s"
         else:
             texte = str(exc)
-        return _assainir(texte)
+        return assainir(texte)
     except Exception:
         # __str__ defaillant : le resultat error doit exister quand meme
         return "<message illisible>"
@@ -274,7 +279,7 @@ def _trace_de(exc: BaseException) -> str:
             lignes.append(f'  File "{fichier}", line {f.lineno}, in {f.name}')
             if f.line:
                 lignes.append(f"    {f.line}")
-        return "".join(_assainir(ligne) + "\n" for ligne in lignes)
+        return "".join(assainir(ligne) + "\n" for ligne in lignes)
     except Exception:
         return "<trace illisible>"
 

@@ -131,8 +131,10 @@ def _figer(valeur: object, chemin: str, profondeur: int = 0) -> JSONValue:
         copie: dict[str, JSONValue] = {}
         for cle, v in valeur.items():
             if not isinstance(cle, str):
-                raise FactsFormatError(f"{chemin} : clé non textuelle {cle!r}")
-            copie[cle] = _figer(v, f"{chemin}.{cle}", profondeur + 1)
+                raise FactsFormatError(f"{chemin} : clé non textuelle {cle!a}")
+            # cle lue d'un fichier : echappee et tronquee, comme dans
+            # _sans_doublon, pour qu'aucun message n'agisse sur un terminal
+            copie[cle] = _figer(v, f"{chemin}.{ascii(cle)[:80]}", profondeur + 1)
         return MappingProxyType(copie)
     raise FactsFormatError(f"{chemin} : type non JSON {type(valeur).__name__}")
 
@@ -196,7 +198,14 @@ class Fact:
         if decalage is None:
             raise FactsFormatError(f"{self.name} : collected_at sans fuseau horaire")
         if decalage != timedelta(0) or self.collected_at.tzinfo is not UTC:
-            object.__setattr__(self, "collected_at", self.collected_at.astimezone(UTC))
+            try:
+                instant = self.collected_at.astimezone(UTC)
+            except OverflowError:
+                # 0001-01-01T00:00:00+01:00 : avant datetime.min une fois en UTC
+                raise FactsFormatError(
+                    f"{self.name} : collected_at hors limites"
+                ) from None
+            object.__setattr__(self, "collected_at", instant)
         object.__setattr__(self, "value", _figer(self.value, f"{self.name}.value"))
 
     @property
@@ -367,8 +376,17 @@ def _constante_refusee(nom: str) -> Any:
 
 
 def load_facts(path: Path) -> FactSet:
-    """Lit un fichier de faits JSON (UTF-8) ; lève FactsFormatError."""
-    texte = path.read_text(encoding="utf-8")
+    """Lit un fichier de faits JSON (UTF-8) ; lève FactsFormatError.
+
+    Un BOM UTF-8 en tête (Windows PowerShell 5.1, ``Out-File -Encoding utf8``)
+    est accepté. Tout contenu invalide lève FactsFormatError, jamais une autre
+    exception : le fichier peut venir d'un client (import de bundle, #52).
+    """
+    try:
+        # utf-8-sig : UTF-8, avec ou sans BOM
+        texte = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raise FactsFormatError(f"{path.name} : fichier non UTF-8") from None
     try:
         donnees = json.loads(
             texte,
@@ -381,6 +399,12 @@ def load_facts(path: Path) -> FactSet:
         ) from None
     except FactsFormatError as exc:
         raise FactsFormatError(f"{path.name} : {exc}") from None
+    except RecursionError:
+        # imbrication qui epuise la pile de json, avant meme _PROFONDEUR_MAX
+        raise FactsFormatError(f"{path.name} : JSON trop imbriqué") from None
+    except ValueError:
+        # entier au-dela de sys.get_int_max_str_digits() (4300 chiffres)
+        raise FactsFormatError(f"{path.name} : nombre JSON hors limites") from None
     try:
         return FactSet.from_dict(donnees)
     except FactsFormatError as exc:
