@@ -43,19 +43,30 @@ def _verbosite(argv: list[str]) -> tuple[int, bool]:
     return args.verbose, args.quiet
 
 
+# le registre factice porte un Gap high : « audit » sort en code 1 (#24),
+# « list-checks » en 0
+CODE_AUDIT_FACTICE = 1
+
+
+@pytest.mark.usefixtures("registre_factice")
 @pytest.mark.parametrize(
-    "argv",
-    [["-v", "audit"], ["audit", "-v"], ["--verbose", "list-checks"]],
+    ("argv", "code"),
+    [
+        (["-v", "audit"], CODE_AUDIT_FACTICE),
+        (["audit", "-v"], CODE_AUDIT_FACTICE),
+        (["--verbose", "list-checks"], 0),
+    ],
 )
-def test_v_accepte_avant_et_apres_la_sous_commande(argv: list[str]) -> None:
+def test_v_accepte_avant_et_apres_la_sous_commande(argv: list[str], code: int) -> None:
     assert _verbosite(argv) == (1, False)
-    assert main(argv) == 0
+    assert main(argv) == code
     assert logging.getLogger(log.LOGGER).level == logging.INFO
 
 
+@pytest.mark.usefixtures("registre_factice")
 @pytest.mark.parametrize("argv", [["-vv", "audit"], ["audit", "-vv"]])
 def test_vv_donne_debug_pour_amnesia(argv: list[str]) -> None:
-    assert main(argv) == 0
+    assert main(argv) == CODE_AUDIT_FACTICE
     assert logging.getLogger(log.LOGGER).level == logging.DEBUG
     assert logging.getLogger().level >= logging.WARNING
 
@@ -78,15 +89,16 @@ def test_q_et_v_incompatibles(
     assert "incompatible" in capsys.readouterr().err
 
 
+@pytest.mark.usefixtures("registre_factice")
 @pytest.mark.parametrize("argv", [["-q", "audit"], ["audit", "-q"]])
 def test_q_silencieux_sans_erreur(
     argv: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(argv) == 0
+    assert main(argv) == CODE_AUDIT_FACTICE
     logging.getLogger("amnesia.check.win.sysmon").warning("avertissement masque")
     sortie = capsys.readouterr()
     assert sortie.err == ""
-    assert "[stub]" in sortie.out
+    assert "angle mort" in sortie.out
 
 
 def test_q_laisse_passer_les_erreurs(capsys: pytest.CaptureFixture[str]) -> None:
@@ -95,21 +107,23 @@ def test_q_laisse_passer_les_erreurs(capsys: pytest.CaptureFixture[str]) -> None
     assert "echec du check" in capsys.readouterr().err
 
 
+@pytest.mark.usefixtures("registre_factice")
 def test_diagnostics_v_sur_stderr_jamais_sur_stdout(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["-v", "audit"]) == 0
+    assert main(["-v", "audit"]) == CODE_AUDIT_FACTICE
     logging.getLogger("amnesia.check.win.sysmon").info("diagnostic du check")
     sortie = capsys.readouterr()
     assert "INFO amnesia.cli" in sortie.err
     assert "diagnostic du check" in sortie.err
     assert "INFO" not in sortie.out
     assert "diagnostic" not in sortie.out
-    assert "[stub]" in sortie.out
+    assert "angle mort" in sortie.out
 
 
+@pytest.mark.usefixtures("registre_factice")
 def test_sans_option_pas_de_diagnostic_info(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["audit"]) == 0
+    assert main(["audit"]) == CODE_AUDIT_FACTICE
     assert capsys.readouterr().err == ""
 
 
@@ -304,15 +318,17 @@ def test_traceback_seulement_en_debug_et_expurge(
     assert "hunter2" not in err
 
 
+@pytest.mark.usefixtures("registre_factice")
 def test_json_dans_fichier(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     journal = tmp_path / "x.jsonl"
     argv = ["--log-format", "json", "--log-file", str(journal), "-v", "audit"]
-    assert main(argv) == 0
+    assert main(argv) == CODE_AUDIT_FACTICE
     logging.getLogger("amnesia.check.win.sysmon").info(
         "ligne\nsuivante", extra={"target": "dc01", "duration_ms": 12}
     )
     lignes = journal.read_text("utf-8").splitlines()
-    assert len(lignes) == 2
+    # la commande, le moteur (debut, fin de chaque check...) puis la ligne du test
+    assert len(lignes) >= 2
     entrees = [json.loads(ligne) for ligne in lignes]
     for entree in entrees:
         assert {

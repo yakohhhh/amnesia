@@ -1,4 +1,8 @@
-"""Interface en ligne de commande d'amnesia."""
+"""Interface en ligne de commande d'amnesia.
+
+Codes de sortie : ``amnesia.exitcodes`` ; ``main()`` ne renvoie que ceux-là
+(argparse sort lui-même en 2 sur une erreur d'usage).
+"""
 
 from __future__ import annotations
 
@@ -8,10 +12,25 @@ import io
 import logging
 import os
 import sys
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .checks import REGISTRY, CheckMeta, default_checks
+from .checks.base import ErrorInfo
+from .exitcodes import (
+    DEFAULT_FAIL_ON,
+    FAIL_ON,
+    FATAL,
+    INTERRUPTED,
+    OK,
+    USAGE,
+    exit_code,
+    table_text,
+)
+from .facts import Collector, Fact, FactSet, LocalCollector, UnavailableReason
 from .log import FORMATS, setup_logging
 from .render import (
     GROUP_BY,
@@ -23,13 +42,23 @@ from .render import (
     load_report,
     render_report,
 )
-from .report import schema_bytes, schema_text
-from .target import FORMES, Target, TargetError
+from .report import build_report, dumps_report, schema_bytes, schema_text
+from .runner import run_audit
+from .target import FORMES, Target, TargetError, Transport
 
 logger = logging.getLogger(__name__)
 
-# rapport d'entree illisible ou refuse ; table des codes de sortie : #24
-CODE_RAPPORT_ILLISIBLE = 4
+# rapport d'entree illisible ou refuse (amnesia render) : code fatal
+CODE_RAPPORT_ILLISIBLE = FATAL
+
+# --out - : le JSON va sur stdout, le rendu texte sur stderr
+SORTIE_STANDARD = "-"
+
+DEFAULT_OUT = "amnesia-report.json"
+"""Rapport par défaut, relatif au répertoire courant (emplacement définitif : #25)."""
+
+FORMATS_SORTIE = ("text", "json")
+"""Ce que ``amnesia audit`` écrit sur stdout : rendu texte ou le rapport JSON."""
 
 
 def _options_journal(defauts: bool) -> argparse.ArgumentParser:
@@ -104,22 +133,27 @@ def _proteger_sorties() -> None:
             flux.reconfigure(errors="backslashreplace" if utf8 else "replace")
 
 
-def _ecrire_schema() -> None:
-    """Écrit le JSON Schema embarqué sur stdout, octet pour octet, en UTF-8.
+def _ecrire_utf8(octets: bytes, texte: str) -> None:
+    """Écrit un document JSON sur stdout, octet pour octet, en UTF-8.
 
     JSON s'échange en UTF-8 (RFC 8259) : sous Windows avant Python 3.15, une
     sortie redirigée en mode texte serait encodée en cp1252 et ses fins de ligne
     en CRLF. Les octets passent donc par ``sys.stdout.buffer`` ; sans tampon
-    (flux remplacé, pythonw), repli sur ``print()``.
+    (flux remplacé, pythonw), repli sur ``print()`` de ``texte``.
     """
     tampon = getattr(sys.stdout, "buffer", None)
     if tampon is None:
-        # texte embarque tel quel : il finit deja par un saut de ligne
-        print(schema_text(), end="")
+        # texte tel quel : il finit deja par un saut de ligne
+        print(texte, end="")
         return
     sys.stdout.flush()
-    tampon.write(schema_bytes())
+    tampon.write(octets)
     tampon.flush()
+
+
+def _ecrire_schema() -> None:
+    """Écrit le JSON Schema embarqué sur stdout, en UTF-8."""
+    _ecrire_utf8(schema_bytes(), schema_text())
 
 
 def _cible(valeur: str) -> Target:
@@ -149,7 +183,12 @@ def _lister_checks(metas: list[CheckMeta]) -> None:
 
 
 def _rendre(args: argparse.Namespace) -> int:
-    """Commande render : rapport JSON vers stdout, en texte ou en Markdown."""
+    """Commande render : rapport JSON vers stdout, en texte ou en Markdown.
+
+    Sans ``--fail-on``, un rendu réussi vaut 0 : la commande affiche. Avec, elle
+    applique la table de ``amnesia audit`` au rapport (1, 3), pour une CI qui
+    travaille sur un JSON archivé.
+    """
     # repli ASCII (-> pour →) d'apres l'encodage reel de stdout (cp1252...)
     encodage = getattr(sys.stdout, "encoding", None) or "utf-8"
     couleur = args.format == "text" and color_enabled(
@@ -162,12 +201,114 @@ def _rendre(args: argparse.Namespace) -> int:
         encoding=encodage,
     )
     try:
-        texte = render_report(load_report(args.report), args.format, options)
+        rapport = load_report(args.report)
+        texte = render_report(rapport, args.format, options)
     except ReportError as exc:
         logger.error("rapport %s refusé : %s", args.report, exc)
         return CODE_RAPPORT_ILLISIBLE
     sys.stdout.write(texte)
-    return 0
+    if args.fail_on is None:
+        return OK
+    # render_report() a valide le rapport : gaps[].severity et run.complete
+    return exit_code(rapport, args.fail_on)
+
+
+class _CollecteurAbsent:
+    """Collecteur des transports dont la collecte n'existe pas encore.
+
+    WinRM (#63) et bundle (#52) : chaque fait demandé est rendu
+    ``unavailable`` / ``not_collected``, et les checks qui en dépendent sont
+    ``skipped`` (audit incomplet, code 3). Aucune connexion n'est tentée.
+    """
+
+    def __init__(self, transport: Transport) -> None:
+        self.source = f"collecteur {transport.value} non implémenté"
+
+    def collect(
+        self, target: Target, names: Iterable[str], *, timeout: float
+    ) -> FactSet:
+        instant = datetime.now(UTC)
+        return FactSet(
+            Fact.unavailable(
+                nom,
+                UnavailableReason.NOT_COLLECTED,
+                source=self.source,
+                collected_at=instant,
+            )
+            for nom in names
+        )
+
+
+def _collecteur(target: Target) -> Collector:
+    if target.transport is Transport.LOCAL:
+        return LocalCollector()
+    return _CollecteurAbsent(target.transport)
+
+
+def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> bool:
+    """Écrit le rapport dans ``chemin`` ; faux (et journal) si c'est impossible.
+
+    Sans ``overwrite``, un fichier existant n'est jamais écrasé (mode ``x``,
+    qui refuse aussi un lien symbolique, même cassé). Permissions, écriture
+    atomique et emplacement par défaut : #25.
+    """
+    try:
+        with chemin.open("wb" if overwrite else "xb") as fichier:
+            fichier.write(octets)
+    except OSError as exc:
+        logger.error(
+            "rapport %s : écriture impossible : %s", chemin, exc.strerror or exc
+        )
+        return False
+    logger.info("rapport écrit : %s", chemin)
+    return True
+
+
+def _rendu_texte(rapport: dict[str, Any], flux: Any, *, no_color: bool) -> str:
+    encodage = getattr(flux, "encoding", None) or "utf-8"
+    options = RenderOptions(
+        color=color_enabled(flux, os.environ, no_color=no_color), encoding=encodage
+    )
+    return render_report(rapport, "text", options)
+
+
+def _auditer(
+    args: argparse.Namespace, argv: Sequence[str], parser: argparse.ArgumentParser
+) -> int:
+    """Commande audit : checks du registre → rapport JSON → rendu texte.
+
+    ``--out PATH`` : le JSON va dans le fichier et stdout reçoit ``--format``
+    (rendu texte, ou le JSON). ``--out -`` : le JSON va sur stdout et le rendu
+    texte sur stderr (rien d'autre avec ``--format json``).
+    """
+    vers_stdout = args.out == SORTIE_STANDARD
+    chemin = None if vers_stdout else Path(args.out)
+    # avant l'audit : perdre un audit entier pour un fichier deja la serait pire
+    if chemin is not None and not args.overwrite and chemin.exists():
+        parser.error(f"--out {chemin} : existe déjà (--overwrite pour l'écraser)")
+    # instances neuves : aucun etat ne passe d'un audit a l'autre
+    checks = default_checks()
+    audit = run_audit(checks, args.target, _collecteur(args.target), debug=args.debug)
+    rapport = build_report(audit, argv=argv)
+    texte_json = dumps_report(rapport)
+    octets = texte_json.encode("utf-8")
+    if chemin is None:
+        _ecrire_utf8(octets, texte_json)
+        flux_texte = sys.stderr
+    else:
+        if not _ecrire_rapport(chemin, octets, overwrite=args.overwrite):
+            return FATAL
+        flux_texte = sys.stdout
+        if args.format == "json":
+            _ecrire_utf8(octets, texte_json)
+    if args.format == "text":
+        flux_texte.write(_rendu_texte(rapport, flux_texte, no_color=args.no_color))
+        if chemin is not None:
+            flux_texte.write(f"Rapport JSON : {chemin}\n")
+        flux_texte.flush()
+    if audit.interrupted:
+        return INTERRUPTED
+    return exit_code(rapport, args.fail_on)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -184,12 +325,54 @@ def build_parser() -> argparse.ArgumentParser:
     journal = _options_journal(defauts=False)
 
     a = sub.add_parser(
-        "audit", parents=[journal], help="Lance les checks et liste les angles morts"
+        "audit",
+        parents=[journal],
+        help="Lance les checks et liste les angles morts",
+        description=(
+            "Lance les checks sur la cible, écrit le rapport JSON (--out) et "
+            "affiche les questions d'enquête sans réponse."
+        ),
+        epilog=table_text(),
+        # l'epilogue est une table : ses sauts de ligne sont conserves
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     a.add_argument(
         "--target", default="localhost", type=_cible, help=f"cible : {FORMES}"
     )
-    a.add_argument("--out", default="amnesia-report.json", help="rapport de sortie")
+    a.add_argument(
+        "--out",
+        default=DEFAULT_OUT,
+        metavar="PATH|-",
+        help=(
+            f"rapport JSON (défaut : {DEFAULT_OUT}) ; « - » : JSON sur stdout, "
+            "rendu texte sur stderr"
+        ),
+    )
+    a.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="écrase un rapport existant (refusé sinon)",
+    )
+    a.add_argument(
+        "--format",
+        choices=FORMATS_SORTIE,
+        default="text",
+        help="sortie sur stdout : text (défaut, rendu lisible) ou json (le rapport)",
+    )
+    a.add_argument(
+        "--no-color",
+        action="store_true",
+        help="sans couleurs ANSI (aussi avec NO_COLOR ou hors terminal)",
+    )
+    a.add_argument(
+        "--fail-on",
+        choices=FAIL_ON,
+        default=DEFAULT_FAIL_ON,
+        help=(
+            f"code 1 dès un angle mort de cette sévérité ou plus (défaut : "
+            f"{DEFAULT_FAIL_ON}) ; never ne neutralise que le code 1"
+        ),
+    )
 
     sub.add_parser(
         "list-checks", parents=[journal], help="Liste les checks disponibles"
@@ -228,6 +411,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="sans couleurs ANSI (aussi avec NO_COLOR ou hors terminal)",
     )
+    r.add_argument(
+        "--fail-on",
+        choices=FAIL_ON,
+        default=None,
+        help="applique les codes de sortie de « amnesia audit » au rapport (1, 3)",
+    )
 
     sub.add_parser(
         "schema",
@@ -237,10 +426,34 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _executer(
+    args: argparse.Namespace, argv: Sequence[str], parser: argparse.ArgumentParser
+) -> int:
+    if args.cmd == "list-checks":
+        _lister_checks(REGISTRY.metas())
+        return OK
+
+    if args.cmd == "render":
+        return _rendre(args)
+
+    if args.cmd == "schema":
+        _ecrire_schema()
+        return OK
+
+    if args.cmd == "audit":
+        return _auditer(args, argv, parser)
+
+    # sans sous-commande : aide sur stderr, stdout reste vide (JSON avec --out -)
+    parser.print_help(sys.stderr)
+    return USAGE
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Point d'entrée de la commande ``amnesia`` ; rend un code de ``exitcodes``."""
     _proteger_sorties()
     parser = build_parser()
-    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(arguments)
     # verifie apres coup : -q et -v peuvent etre de part et d'autre de la sous-commande
     if args.quiet and (args.verbose or args.debug):
         parser.error("-q est incompatible avec -v et --debug")
@@ -255,28 +468,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"--log-file {args.log_file} : {exc.strerror or exc}")
     logger.info("amnesia %s : commande %s", __version__, args.cmd)
 
-    if args.cmd == "list-checks":
-        _lister_checks(REGISTRY.metas())
-        return 0
-
-    if args.cmd == "render":
-        return _rendre(args)
-
-    if args.cmd == "schema":
-        _ecrire_schema()
-        return 0
-
-    if args.cmd == "audit":
-        # instances neuves : aucun etat ne passe d'un audit a l'autre
-        checks = default_checks()
-        print(f"[stub] audit de {args.target.id} → {args.out}")
-        print(
-            f"[stub] {len(checks)} checks enregistrés. "
-            "Implémente leur evaluate() : src/amnesia/checks/"
-        )
-        for c in checks:
-            print(f"  - {c.id}: {c.title}")
-        return 0
-
-    build_parser().print_help()
-    return 2
+    try:
+        return _executer(args, arguments, parser)
+    except KeyboardInterrupt:
+        # hors des checks (run_audit rend un audit partiel) : ecriture, rendu
+        logger.warning("interrompu")
+        return INTERRUPTED
+    except Exception as exc:
+        # jamais de traceback brut (code 1 de Python = angle mort) ; message
+        # caviarde comme un resultat error, trace seulement avec --debug
+        info = ErrorInfo.from_exception(exc)
+        logger.error("erreur fatale : %s : %s", info.type, info.message)
+        if args.debug:
+            logger.debug("trace de l'erreur fatale", exc_info=exc)
+        return FATAL

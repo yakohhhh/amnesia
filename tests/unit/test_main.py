@@ -25,4 +25,6 @@ def test_module_main(
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("amnesia", run_name="__main__", alter_sys=True)
     assert exc.value.code == 2
-    assert capsys.readouterr().out.startswith("usage: amnesia")
+    sortie = capsys.readouterr()
+    assert sortie.out == ""
+    assert sortie.err.startswith("usage: amnesia")

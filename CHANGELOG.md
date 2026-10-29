@@ -56,5 +56,16 @@ la première version sera la 0.1.0 (milestone M0).
   selon l'encodage de sortie. Les valeurs du rapport sont neutralisées (séquences
   ANSI, contrôles, bidi) et échappées en Markdown ; un rapport d'une autre
   version majeure de format est refusé (code 4) (#23).
+- `amnesia audit` lance réellement les checks : rapport JSON écrit dans `--out`
+  (jamais écrasé sans `--overwrite` ; `--out -` : JSON sur stdout, rendu texte
+  sur stderr), rendu texte ou JSON sur stdout (`--format`, `--no-color`,
+  `NO_COLOR`). Codes de sortie stables (`amnesia.exitcodes`, table dans
+  `amnesia audit --help` et le README) : 0 audit complet sans angle mort au
+  seuil, 1 angle mort de sévérité >= `--fail-on` (`low` par défaut, `never` ne
+  neutralise que ce code), 2 usage, 3 audit incomplet (check en erreur ou non
+  exécuté : « pas pu vérifier » n'est pas « conforme »), 4 erreur fatale, 130
+  interruption avec rapport partiel. `amnesia render --fail-on` applique la
+  même table à un rapport archivé. Sans sous-commande, l'aide part sur stderr
+  (#24).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main
