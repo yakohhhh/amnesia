@@ -38,5 +38,11 @@ la première version sera la 0.1.0 (milestone M0).
   défaut), un check en échec ou bloqué n'arrête pas les autres, résultats triés
   par sévérité avec comptes par statut et par sévérité ; un Ctrl+C rend un
   audit partiel marqué interrompu (#195).
+- Rapport JSON versionné (`schema_version` 1.0.0) et son JSON Schema
+  draft 2020-12, embarqué dans le paquet et affiché par `amnesia schema` :
+  un résultat par check et par cible, Gaps triés par sévérité, comptes par
+  statut et par sévérité, sérialisation déterministe, valeurs de `--password`,
+  `--token`, `--secret` et `--client-secret` masquées dans `run.argv`. Format et
+  compatibilité : `docs/format-rapport.md` (#22).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main
