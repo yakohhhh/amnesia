@@ -2,11 +2,14 @@
 
 Toute valeur du rapport passe par ``escape_markdown()`` : ni lien, ni image,
 ni HTML brut, ni entité, et aucune cellule de tableau cassée. Pas de couleur.
+Le repli ASCII d'une valeur précède son échappement : une lettre ramenée à
+l'ASCII par l'encodage de sortie (cp1252...) ne reforme pas un lien.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 from .base import (
@@ -32,12 +35,13 @@ from .base import (
 )
 
 
-def _gap(gap: GapView) -> list[str]:
+def _gap(gap: GapView, encodage: str) -> list[str]:
+    raison = lowercase_first(escape_markdown(gap.reason, encodage))
     lignes = [
-        f"- **{escape_markdown(gap.question)}**",
-        f"  - → Impossible : {lowercase_first(escape_markdown(gap.reason))}",
+        f"- **{escape_markdown(gap.question, encodage)}**",
+        f"  - → Impossible : {raison}",
         f"  - Sévérité : {NIVEAUX[gap.severity.value]} ({gap.severity.value})",
-        f"  - Cible : {escape_markdown(gap.target)}",
+        f"  - Cible : {escape_markdown(gap.target, encodage)}",
     ]
     quantite = quantification(gap)
     if quantite is not None:
@@ -45,7 +49,7 @@ def _gap(gap: GapView) -> list[str]:
     return lignes
 
 
-def _section_non_verifie(rapport: ReportView) -> list[str]:
+def _section_non_verifie(rapport: ReportView, encodage: str) -> list[str]:
     nombre = rapport.unverified_count
     lignes = ["", f"## Non vérifié : {plural(nombre, 'check')}", ""]
     if nombre == 0:
@@ -60,11 +64,11 @@ def _section_non_verifie(rapport: ReportView) -> list[str]:
     for nv in rapport.unverified:
         statut, motif, message = unverified_detail(nv)
         cellules = (
-            escape_markdown(nv.check_id),
-            escape_markdown(nv.target),
+            escape_markdown(nv.check_id, encodage),
+            escape_markdown(nv.target, encodage),
             statut,
             motif,
-            "" if message is None else escape_markdown(message),
+            "" if message is None else escape_markdown(message, encodage),
         )
         lignes.append("| " + " | ".join(cellules) + " |")
     if len(rapport.unverified) < nombre:
@@ -82,14 +86,16 @@ class MarkdownRenderer:
     def render(self, report: Mapping[str, Any], options: RenderOptions) -> str:
         """Texte du rendu, encodable dans ``options.encoding``."""
         rapport = read_report(report)
-        cibles = ", ".join(escape_markdown(c) for c in rapport.targets)
+        # repli ASCII de chaque valeur avant son echappement (voir le module)
+        echappe = partial(escape_markdown, encoding=options.encoding)
+        cibles = ", ".join(echappe(c) for c in rapport.targets)
         lignes = [
             f"# {TITLE}",
             "",
-            f"- Rapport : {escape_markdown(rapport.run_id)} (amnesia "
-            f"{escape_markdown(rapport.tool_version)}, format "
+            f"- Rapport : {echappe(rapport.run_id)} (amnesia "
+            f"{echappe(rapport.tool_version)}, format "
             f"{rapport.schema_version})",
-            f"- Audit du : {escape_markdown(rapport.started_at)}",
+            f"- Audit du : {echappe(rapport.started_at)}",
             f"- Cibles : {cibles}",
         ]
         avertissement = status_line(rapport)
@@ -101,12 +107,12 @@ class MarkdownRenderer:
         if not groupes:
             lignes += ["", empty_line(rapport, options.min_severity, masques)]
         for valeur, gaps in groupes:
-            titre = group_title(options.group_by, valeur, len(gaps), escape_markdown)
+            titre = group_title(options.group_by, valeur, len(gaps), echappe)
             lignes += ["", f"## {titre}", ""]
             for gap in gaps:
-                lignes += _gap(gap)
+                lignes += _gap(gap, options.encoding)
 
-        lignes += _section_non_verifie(rapport)
+        lignes += _section_non_verifie(rapport, options.encoding)
         lignes += [
             "",
             "## Résumé",

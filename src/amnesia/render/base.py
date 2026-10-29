@@ -454,7 +454,7 @@ _SCHEMA = re.compile(r"(?<=[A-Za-z]):")
 _WWW = re.compile(r"(?i)(?<![A-Za-z0-9])(www)\.")
 
 
-def escape_markdown(text: str) -> str:
+def escape_markdown(text: str, encoding: str | None = None) -> str:
     """Texte venu du rapport, neutralisé puis échappé pour Markdown (GFM).
 
     Aucun lien, image, HTML brut, entité, code ou emphase ne peut s'y former, et
@@ -462,8 +462,17 @@ def escape_markdown(text: str) -> str:
     précédés d'une barre oblique inverse, et les liens automatiques de GFM
     (``https://``, ``mailto:``, ``www.``, adresses électroniques) sont rompus.
     Le texte tient sur une ligne (``neutralize()``).
+
+    Avec ``encoding``, le repli ASCII (``fallback()``) est appliqué avant
+    l'échappement, qui voit donc les caractères finals : une lettre pleine
+    chasse (U+FF48 pour ``h``) ou accentuée (``ẁẁẁ.``) ramenée à l'ASCII ne
+    reforme pas, après coup, un lien automatique (``https:``, ``www.``). Le
+    résultat est alors encodable dans ``encoding``.
     """
-    texte = _MARKDOWN.sub(lambda m: "\\" + m.group(), neutralize(text).strip())
+    texte = neutralize(text)
+    if encoding is not None:
+        texte = fallback(texte, encoding)
+    texte = _MARKDOWN.sub(lambda m: "\\" + m.group(), texte.strip())
     texte = _SCHEMA.sub(r"\\:", texte)
     return _WWW.sub(r"\1\\.", texte)
 
@@ -513,8 +522,9 @@ def fallback(text: str, encoding: str) -> str:
                 if not unicodedata.combining(c)
             )
             # lettres et chiffres seulement : la forme de compatibilite d'un
-            # caractere pleine chasse (U+FF1C) serait un « < » qui echappe a
-            # l'echappement Markdown, deja applique
+            # caractere pleine chasse (U+FF1C) serait un « < » ; les valeurs du
+            # rapport sont repliees avant l'echappement (escape_markdown), mais
+            # le repli final du document ne doit rien produire a echapper
             repli = base if base.isalnum() and _encodable(base, encoding) else ""
         if not repli or not _encodable(repli, encoding):
             repli = caractere.encode("ascii", "backslashreplace").decode("ascii")

@@ -551,6 +551,49 @@ def test_markdown_pleine_chasse_en_cp1252() -> None:
     assert "\\uff1cimg" in sortie
 
 
+def test_escape_markdown_repli_avant_echappement() -> None:
+    # pleine chasse et accents absents de l'encodage : replies, puis echappes
+    assert escape_markdown("\uff48\uff54\uff54\uff50\uff53://x", "cp1252") == (
+        "https\\://x"
+    )
+    assert escape_markdown("http\u015b://x", "ascii") == "https\\://x"
+    assert escape_markdown("\u1e81\u1e81\u1e81.x", "cp850") == "www\\.x"
+    assert escape_markdown("\uff1cb", "cp1252") == "\\\\uff1cb"
+    # sans encodage, ou si tout est representable : aucun repli
+    assert escape_markdown("http\u015b://x") == "http\u015b://x"
+    assert escape_markdown("http\u015b://x", "utf-8") == "http\u015b://x"
+
+
+# lettres pleine chasse ou accentuees que le repli ASCII ramene a un schema
+# ou a « www » : apres repli, un lien automatique GFM si l'echappement precede
+LIENS_REPLIES = [
+    ("\uff48\uff54\uff54\uff50\uff53://evil.example/x", "https\\:"),
+    ("http\u015b://evil.example/x", "https\\:"),
+    ("\uff4d\uff41\uff49\uff4c\uff54\uff4f:a", "mailto\\:"),
+    ("\uff57\uff57\uff57.evil.example", "www\\."),
+    ("\u1e81\u1e81\u1e81.evil.example", "www\\."),
+]
+
+
+@pytest.mark.parametrize("encodage", ["cp1252", "cp850", "ascii"])
+@pytest.mark.parametrize(("hostile", "echappe"), LIENS_REPLIES)
+@pytest.mark.parametrize("group_by", GROUP_BY)
+def test_markdown_lettres_repliees_sans_lien(
+    encodage: str, hostile: str, echappe: str, group_by: str
+) -> None:
+    donnees = avec_gaps(gap("high", f"Voir {hostile}", target=hostile))
+    sysmon = next(r for r in donnees["results"] if r["check_id"] == "win.sysmon")
+    sysmon["message"] = hostile
+    sysmon["target"] = hostile
+    donnees["run"]["targets"] = [hostile]
+    sortie = markdown(donnees, encoding=encodage, group_by=group_by)
+    sortie.encode(encodage)
+    minuscules = sortie.lower()
+    for lien in ("https:", "mailto:", "www."):
+        assert lien not in minuscules
+    assert echappe in sortie
+
+
 @pytest.mark.parametrize("encodage", ["cp1252", "cp850", "ascii"])
 def test_rendu_encodable(encodage: str) -> None:
     for rendre in TOUS_LES_RENDUS:
