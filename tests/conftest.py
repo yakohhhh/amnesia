@@ -36,6 +36,7 @@ import pytest_socket
 
 from amnesia import cli
 from amnesia.checks import Check, Gap
+from amnesia.checks.base import Confidence, Evidence, Severity
 from amnesia.target import Target
 
 pytest_plugins = ["pytester"]
@@ -206,7 +207,24 @@ def registre_factice(monkeypatch: pytest.MonkeyPatch) -> list[CheckFactice]:
         CheckFactice(
             "test.avec_gap",
             "Check factice avec un angle mort",
-            [Gap("Qui s'est connecte ?", "journal factice ecrase", "high")],
+            [
+                Gap(
+                    check_id="test.avec_gap",
+                    target="local",
+                    resource="Security",
+                    question="Qui s'est connecte ?",
+                    reason="journal factice ecrase",
+                    severity=Severity.HIGH,
+                    evidence=Evidence(
+                        observed=4,
+                        expected=90,
+                        unit="days",
+                        confidence=Confidence.MEASURED,
+                        source="journal factice",
+                    ),
+                    remediation="agrandir le journal factice",
+                )
+            ],
         ),
     ]
     monkeypatch.setattr(cli, "default_checks", lambda: list(checks))
