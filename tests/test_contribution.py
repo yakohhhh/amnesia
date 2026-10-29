@@ -55,15 +55,36 @@ def _labels_declares() -> set[str]:
 # Formulaires d'issues
 
 
+def _modeles(repertoire: Path) -> set[str]:
+    """Fichiers que GitHub lit comme modeles d'issues (.DS_Store, .swp, ~ ignores)."""
+    return {
+        p.name
+        for p in repertoire.iterdir()
+        if p.is_file() and p.suffix in {".yml", ".yaml", ".md"}
+    }
+
+
 def test_trois_formulaires_et_aucune_issue_vierge() -> None:
-    fichiers = {p.name for p in MODELES.iterdir()}
-    assert fichiers == {*FORMULAIRES, "config.yml"}
+    assert _modeles(MODELES) == {*FORMULAIRES, "config.yml"}
     for fichier, (nom, _) in FORMULAIRES.items():
         formulaire = _yaml(MODELES / fichier)
         assert formulaire["name"] == nom, fichier
         assert formulaire["description"].strip(), fichier
     # False et non une valeur equivalente : GitHub attend un booleen
     assert _yaml(MODELES / "config.yml")["blank_issues_enabled"] is False
+
+
+def test_fichiers_parasites_ignores_mais_modele_en_trop_detecte(
+    tmp_path: Path,
+) -> None:
+    # un clone de travail sous macOS ou un editeur ouvert ne casse pas la suite
+    for nom in ("bug.yml", ".DS_Store", ".bug.yml.swp", "bug.yml~"):
+        (tmp_path / nom).write_text("", encoding="utf-8")
+    (tmp_path / "sous").mkdir()
+    assert _modeles(tmp_path) == {"bug.yml"}
+    for nom in ("autre.yaml", "lisez-moi.md"):
+        (tmp_path / nom).write_text("", encoding="utf-8")
+    assert _modeles(tmp_path) == {"bug.yml", "autre.yaml", "lisez-moi.md"}
 
 
 def test_lien_de_contact_vers_la_politique_de_securite() -> None:
@@ -93,11 +114,41 @@ def test_domaines_du_formulaire_alignes_sur_le_registre() -> None:
     assert options == [*(d.value for d in Domain), "autre"]
 
 
-def test_case_d_anonymisation_obligatoire_du_bug() -> None:
+def test_cases_d_anonymisation_obligatoires_du_bug() -> None:
     options = _champ("bug.yml", "anonymisation")["attributes"]["options"]
-    assert len(options) == 1
-    assert options[0]["required"] is True
-    assert "noms d'hôtes, domaines, IP et identifiants de tenant" in options[0]["label"]
+    assert [option["required"] for option in options] == [True, True]
+    reproduction, remplacement = (option["label"] for option in options)
+    assert "cible de test ou des données fictives" in reproduction
+    assert "sans coller de sortie produite chez un client" in reproduction
+    # amnesia affiche les chemins de la cible et du rapport : nom du client
+    for donnee in (
+        "noms de client ou de mission",
+        "chemins",
+        "noms d'hôtes",
+        "comptes",
+        "SID",
+        "GUID",
+        "identifiants de tenant",
+        "secrets",
+    ):
+        assert donnee in remplacement, donnee
+
+
+def test_bug_sans_sortie_produite_chez_un_client() -> None:
+    # regle « Support et signalements » de SECURITY.md (#28)
+    assert "**Support et signalements.**" in _texte(RACINE / "SECURITY.md")
+    intro = _yaml(MODELES / "bug.yml")["body"][0]["attributes"]["value"]
+    assert f"]({DEPOT}/blob/main/SECURITY.md), « Support et signalements »" in intro
+    assert "ne colle jamais de journal ni de sortie produits chez un client" in intro
+    for chemin in ("`bundle:`", "`--out`", "`--log-file`", "`C:\\Users\\…`"):
+        assert chemin in intro, chemin
+    commande = _champ("bug.yml", "commande")["attributes"]
+    assert "bundle:./exemple" in commande["placeholder"]
+    assert "chemins" in commande["description"]
+    assert (
+        "jamais une sortie produite chez un client"
+        in (_champ("bug.yml", "sortie")["attributes"]["description"])
+    )
 
 
 @pytest.mark.parametrize("champ_id", ["version", "os", "python", "cible", "sortie"])
@@ -212,7 +263,8 @@ def test_modele_de_pr_unique_avec_checklist() -> None:
 
 
 def _blocs_de_code(texte: str) -> list[str]:
-    return re.findall(r"^```\w*\n(.*?)^```$", texte, flags=re.MULTILINE | re.DOTALL)
+    # blocs indentes compris (blocs de code dans une liste)
+    return re.findall(r"^ *```\w*\n(.*?)^ *```$", texte, flags=re.MULTILINE | re.DOTALL)
 
 
 def _commandes(texte: str) -> list[str]:
@@ -266,10 +318,36 @@ def test_commandes_de_la_ci_citees_a_l_identique() -> None:
 def test_version_d_uv_alignee_sur_la_ci() -> None:
     version = _yaml(CI)["env"]["UV_VERSION"]
     texte = _texte(CONTRIBUTING)
-    citees = re.findall(r"astral\.sh/uv/([\d.]+)/install", texte)
+    citees = re.findall(r"astral-sh/uv/releases/download/([\d.]+)/", texte)
     assert citees
     assert set(citees) == {version}
     assert f"la CI utilise la {version}" in " ".join(texte.split())
+
+
+def test_binaire_d_uv_verifie_avant_extraction() -> None:
+    # uv applique les empreintes de uv.lock : son binaire est verifie comme en CI
+    env = _yaml(CI)["env"]
+    commandes = _commandes(_texte(CONTRIBUTING))
+    linux = "uv-x86_64-unknown-linux-gnu.tar.gz"
+    verification = (
+        f'echo "{env["UV_SHA256_LINUX_X64"]}  {linux}" | sha256sum --check --strict'
+    )
+    assert commandes.index(verification) < commandes.index(f"tar -xzf {linux}")
+    windows = "uv-x86_64-pc-windows-msvc.zip"
+    hachage = [c for c in commandes if c.startswith(f"if ((Get-FileHash {windows}")]
+    assert len(hachage) == 1
+    assert f'-ne "{env["UV_SHA256_WINDOWS_X64"]}") {{ throw ' in hachage[0]
+    assert commandes.index(hachage[0]) < commandes.index(
+        f"Expand-Archive {windows} -DestinationPath $HOME\\.local\\bin"
+    )
+    macos = "uv-aarch64-apple-darwin.tar.gz"
+    assert commandes.index(f"shasum -a 256 -c {macos}.sha256") < commandes.index(
+        f"tar -xzf {macos}"
+    )
+    # aucun script distant envoye directement a un shell
+    for commande in commandes:
+        assert not re.search(r"\|\s*(sh|bash|zsh|iex)\b", commande), commande
+    assert "ExecutionPolicy" not in _texte(CONTRIBUTING)
 
 
 def _ancre(titre: str) -> str:
@@ -319,6 +397,31 @@ def test_renvois_securite_licence_et_guide_des_checks() -> None:
 )
 def test_conventions_documentees(convention: str) -> None:
     assert convention in _texte(CONTRIBUTING)
+
+
+def test_parcours_depuis_un_fork() -> None:
+    # contributeur externe sans droit d'ecriture : fork, upstream, push -u
+    texte = _texte(CONTRIBUTING)
+    commandes = _commandes(texte)
+    parcours = [
+        "git clone https://github.com/<compte>/amnesia.git",
+        "cd amnesia",
+        f"git remote add upstream {DEPOT}.git",
+        "git fetch upstream",
+        "git switch -c docs/29-exemple upstream/main",
+        "git push -u origin docs/29-exemple",
+    ]
+    debut = commandes.index(parcours[0])
+    assert commandes[debut : debut + len(parcours)] == parcours
+    # mise a jour depuis le main d'origine, jamais celui du fork
+    mise_a_jour = ["git fetch upstream", "git merge upstream/main", "git push"]
+    debut = commandes.index(mise_a_jour[1]) - 1
+    assert commandes[debut : debut + len(mise_a_jour)] == mise_a_jour
+    plat = " ".join(texte.split())
+    assert "**Sans droit d'écriture sur le dépôt**" in plat
+    assert "forker `yakohhhh/amnesia`" in plat
+    assert "la PR va du fork vers `yakohhhh/amnesia:main`" in plat
+    assert "](#une-issue-une-branche-une-pr)" in texte
 
 
 def test_convention_de_nommage_des_branches() -> None:
@@ -389,7 +492,12 @@ def test_verifications_de_passage_en_public_listees() -> None:
     cases = [case for case in _cases(section) if "(#29)" in case]
     assert len(cases) == 3, cases
     bug, vierge, modele = cases
-    for element in ("« Bug »", "case d'anonymisation", "refusé", "`required: true`"):
+    for element in (
+        "« Bug »",
+        "deux cases d'anonymisation",
+        "refusé",
+        "`required: true`",
+    ):
         assert element in bug, element
     for element in ("lecture ou triage", "aucune issue vierge", "Maintainers only"):
         assert element in vierge, element

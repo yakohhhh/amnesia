@@ -19,7 +19,9 @@ Le dépôt est public, et un rapport amnesia est la carte des angles morts d'un
 client. Rien de ce qui vient d'un audit réel n'entre dans le dépôt, les issues ou
 les PR :
 
-- ni nom d'hôte, domaine, adresse IP, compte, GUID ou identifiant de tenant ;
+- ni nom de client ou de mission, nom d'hôte, domaine, adresse IP, compte, SID,
+  GUID ou identifiant de tenant, y compris dans un chemin (amnesia affiche ceux
+  de la cible et du rapport) ;
 - ni rapport, collecte, export brut, journal ou capture d'écran d'un client ;
 - ni secret (mot de passe, jeton, clé, certificat), même expiré.
 
@@ -57,8 +59,10 @@ il y a trois semaines ? »). Le formulaire « Nouveau check » demande donc la
 question, la source de télémétrie (journal, Event IDs, API), la méthode de
 collecte en lecture seule et les privilèges minimaux, puis le seuil et la
 sévérité (grille de [`docs/severite.md`](docs/severite.md)). Le formulaire
-« Bug » exige de cocher que noms d'hôtes, domaines, IP et identifiants de tenant
-ont été retirés.
+« Bug » exige de cocher que le bug a été reproduit sur une cible de test ou des
+données fictives, sans coller de sortie produite chez un client, et que noms de
+client ou de mission, chemins, noms d'hôtes, domaines, IP, comptes, SID, GUID,
+identifiants de tenant et secrets ont été remplacés par des valeurs fictives.
 
 Pour écrire le code d'un check : section « Écrire un check » de
 [`docs/dev/faits.md`](docs/dev/faits.md), en attendant le guide complet (#81).
@@ -77,15 +81,44 @@ Rien d'autre : uv télécharge l'interpréteur Python fixé par `.python-version
 télécharge aussi la chaîne Go qui compile les hooks gitleaks et actionlint.
 L'installation demande donc un accès à PyPI, à GitHub et à go.dev.
 
-Installer uv, par exemple avec l'installeur officiel de la version de la CI
-(autres méthodes : [documentation d'uv](https://docs.astral.sh/uv/getting-started/installation/)) :
+uv vérifie les empreintes de `uv.lock` : son propre binaire doit donc être
+vérifié avant d'être lancé. Installer l'archive de la release 0.13.0 publiée sur
+GitHub, contrôlée avant toute extraction avec les empreintes figées dans
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`UV_SHA256_LINUX_X64`,
+`UV_SHA256_WINDOWS_X64`) :
 
 ```sh
-# Linux, macOS
-curl -LsSf https://astral.sh/uv/0.13.0/install.sh | sh
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/0.13.0/install.ps1 | iex"
+# Linux x86_64 (~/.local/bin doit etre dans le PATH)
+curl -LsSfO https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-unknown-linux-gnu.tar.gz
+echo "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154  uv-x86_64-unknown-linux-gnu.tar.gz" | sha256sum --check --strict
+tar -xzf uv-x86_64-unknown-linux-gnu.tar.gz
+mkdir -p ~/.local/bin
+install -m 755 -t ~/.local/bin uv-x86_64-unknown-linux-gnu/uv uv-x86_64-unknown-linux-gnu/uvx
 ```
+
+```powershell
+# Windows x86_64 (PowerShell ; ajouter $HOME\.local\bin au PATH)
+Invoke-WebRequest https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-pc-windows-msvc.zip -OutFile uv-x86_64-pc-windows-msvc.zip
+if ((Get-FileHash uv-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash -ne "088962f9e7b7bd9ea740c04c650b2a21c8928c345bd99ac24350dc924dba656c") { throw "empreinte d'uv incorrecte" }
+Expand-Archive uv-x86_64-pc-windows-msvc.zip -DestinationPath $HOME\.local\bin
+```
+
+Sous macOS, aucune empreinte n'est figée par la CI : comparer l'archive
+(`uv-aarch64-apple-darwin.tar.gz`, ou `uv-x86_64-apple-darwin.tar.gz` sur
+processeur Intel) au fichier `.sha256` publié avec la même release :
+
+```sh
+curl -LsSfO https://github.com/astral-sh/uv/releases/download/0.13.0/uv-aarch64-apple-darwin.tar.gz
+curl -LsSfO https://github.com/astral-sh/uv/releases/download/0.13.0/uv-aarch64-apple-darwin.tar.gz.sha256
+shasum -a 256 -c uv-aarch64-apple-darwin.tar.gz.sha256
+tar -xzf uv-aarch64-apple-darwin.tar.gz
+mkdir -p ~/.local/bin
+cp uv-aarch64-apple-darwin/uv uv-aarch64-apple-darwin/uvx ~/.local/bin/
+```
+
+Les autres méthodes ([documentation d'uv](https://docs.astral.sh/uv/getting-started/installation/)),
+dont l'installeur officiel, ne vérifient aucune empreinte figée : ne jamais
+envoyer un script distant directement à un shell (`curl … | sh`, `irm … | iex`).
 
 ### De `git clone` à une suite verte
 
@@ -96,6 +129,10 @@ uv sync --locked                          # Python 3.11, projet et groupe dev de
 uv run pre-commit install                 # hooks lancés à chaque commit
 uv run nox -s lint typecheck tests-3.11   # ruff, mypy --strict, pytest et couverture
 ```
+
+Pour proposer ensuite un changement sans droit d'écriture sur le dépôt, cloner
+plutôt son fork (section
+[« Une issue, une branche, une PR »](#une-issue-une-branche-une-pr)).
 
 `--locked` fait échouer `uv sync` si `uv.lock` ne correspond plus à
 `pyproject.toml`, au lieu de le régénérer en silence.
@@ -184,12 +221,40 @@ Pour les rejouer sur tout le dépôt : `uv run pre-commit run --all-files`.
   minuscules et sans accents, par exemple `docs/29-contributing` ou
   `feat/22-rapport-json`. Types : `feat`, `fix`, `docs`, `chore`, `test`,
   `security`, `ci`.
+- Le premier push crée la branche distante et la suit (`-u`) ; la PR vise
+  `main` :
+
+  ```sh
+  git push -u origin docs/29-exemple
+  ```
+
+- **Sans droit d'écriture sur le dépôt** (cas de tout contributeur externe) :
+  forker `yakohhhh/amnesia` sur GitHub, cloner son fork, déclarer le dépôt
+  d'origine comme `upstream` et faire partir la branche de `upstream/main`. Le
+  premier push crée la branche sur le fork, et la PR va du fork vers
+  `yakohhhh/amnesia:main` :
+
+  ```sh
+  git clone https://github.com/<compte>/amnesia.git
+  cd amnesia
+  git remote add upstream https://github.com/yakohhhh/amnesia.git
+  git fetch upstream
+  git switch -c docs/29-exemple upstream/main
+  git push -u origin docs/29-exemple
+  ```
+
 - Une branche poussée n'est jamais réécrite (ni rebase, ni push forcé). Pour la
-  mettre à jour, fusionner `main` :
+  mettre à jour, fusionner le `main` du dépôt d'origine : `origin/main` pour une
+  branche du dépôt, `upstream/main` pour une branche de fork (le `main` du fork
+  est souvent périmé) :
 
   ```sh
   git fetch origin
   git merge origin/main
+  git push
+  # depuis un fork
+  git fetch upstream
+  git merge upstream/main
   git push
   ```
 

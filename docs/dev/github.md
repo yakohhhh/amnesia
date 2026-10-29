@@ -72,8 +72,8 @@ les commandes appliquées relèvent de #13.
 - [x] Protection de `main` : PR obligatoire, check `ci-ok` requis, ni push forcé ni
   suppression (#13).
 - [ ] **Formulaires d'issues obligatoires** (#29) : un formulaire « Bug » envoyé
-  sans la case d'anonymisation cochée est refusé par GitHub (`required: true`,
-  appliqué seulement sur un dépôt public).
+  sans ses deux cases d'anonymisation cochées est refusé par GitHub
+  (`required: true`, appliqué seulement sur un dépôt public).
 - [ ] **Pas d'issue vierge** (#29) : pour un compte en lecture ou triage, « New
   issue » propose « Nouveau check », « Bug » et « Fonctionnalité », le lien
   « Signaler une vulnérabilité », et aucune issue vierge ; pour un rôle Write ou
