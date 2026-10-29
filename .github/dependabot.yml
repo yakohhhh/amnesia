@@ -40,8 +40,8 @@ updates:
       default-days: 7
     groups:
       # outils de developpement, de CI et de build (tous les groupes de
-      # [dependency-groups], tests/test_outillage.py le verifie) : une seule PR par
-      # semaine. Les futures dependances d'execution (SDK WinRM, Graph, boto3)
+      # [dependency-groups], tests/test_dependances.py le verifie) : une seule PR
+      # par semaine. Les futures dependances d'execution (SDK WinRM, Graph, boto3)
       # restent hors groupe, une PR chacune.
       dev-tools:
         patterns:

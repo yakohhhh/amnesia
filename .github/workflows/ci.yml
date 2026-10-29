@@ -296,16 +296,20 @@ jobs:
       # Export PEP 751 (pylock.toml) plutot que requirements.txt : avec -r,
       # pip-audit evalue les marqueurs et saute les paquets d'une autre plateforme
       # (sys_platform == 'win32') ; avec --locked, il audite chaque paquet du lock.
+      # --all-extras : un SDK declare en extra (amnesia-dfr[aws]) reste audite.
       # --no-emit-project : le projet lui-meme n'est pas sur PyPI.
+      # --quiet : sans lui, uv affiche aussi tout l'export dans le journal.
       - name: export de uv.lock (PEP 751)
         run: >-
-          uv export --locked --all-groups --no-emit-project --format pylock.toml
-          --output-file "$RUNNER_TEMP/audit/pylock.toml"
+          uv export --quiet --locked --all-groups --all-extras --no-emit-project
+          --format pylock.toml --output-file "$RUNNER_TEMP/audit/pylock.toml"
       - name: pip-audit
         run: |
           # Exceptions : une par ligne, chacune avec l'identifiant, la raison et la
           # date de revue (tests/test_dependances.py le verifie), par exemple :
           #   --ignore-vuln=GHSA-xxxx-xxxx-xxxx  # raison ; revue le AAAA-MM-JJ
+          # Aucune autre option sur la commande : argparse accepte les formes
+          # abregees (--ig=...), le test compare donc la commande exacte.
           exceptions=(
           )
           uv run --only-group audit pip-audit --strict --locked --aliases=on \

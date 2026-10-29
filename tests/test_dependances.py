@@ -17,6 +17,17 @@ RACINE = Path(__file__).resolve().parent.parent
 PYPROJECT = tomllib.loads((RACINE / "pyproject.toml").read_text(encoding="utf-8"))
 CI = RACINE / ".github" / "workflows" / "ci.yml"
 
+# commandes exactes : toute option ajoutee fait echouer les tests, y compris une
+# forme abregee que pip-audit (argparse, allow_abbrev) accepterait (--ig=...)
+EXPORT = (
+    "uv export --quiet --locked --all-groups --all-extras --no-emit-project "
+    '--format pylock.toml --output-file "$RUNNER_TEMP/audit/pylock.toml"'
+)
+AUDIT = (
+    "uv run --only-group audit pip-audit --strict --locked --aliases=on "
+    '--progress-spinner=off "${exceptions[@]}" "$RUNNER_TEMP/audit"'
+)
+
 # identifiants acceptes par --ignore-vuln : GHSA, PYSEC, CVE, OSV...
 EXCEPTION = re.compile(
     r"--ignore-vuln=(?P<id>[A-Z]+-[\w-]+)\s+#\s*(?P<raison>\S.*?)\s*;"
@@ -105,17 +116,16 @@ def test_outil_d_audit_epingle_dans_un_groupe_dedie() -> None:
 
 
 def test_pip_audit_sur_tout_le_lock() -> None:
-    export = " ".join(_etape("pip-audit", "export de uv.lock (PEP 751)")["run"].split())
-    # --locked : echec si uv.lock est perime ; tous les groupes, sans le projet
-    for option in ("--locked", "--all-groups", "--no-emit-project"):
-        assert option in export
-    # pylock.toml : marqueurs ignores, paquets Windows compris (voir ci.yml)
-    assert "--format pylock.toml" in export
-    assert '--output-file "$RUNNER_TEMP/audit/pylock.toml"' in export
-    audit = _etape("pip-audit", "pip-audit")["run"]
-    commande = " ".join(audit.replace("\\\n", " ").split())
-    assert "uv run --only-group audit pip-audit --strict --locked " in commande
-    assert commande.endswith('"${exceptions[@]}" "$RUNNER_TEMP/audit"')
+    etape = _etape("pip-audit", "export de uv.lock (PEP 751)")
+    # aucune variable d'environnement ne vient modifier la commande
+    assert set(etape) == {"name", "run"}
+    # --locked : echec si uv.lock est perime ; tous les groupes et tous les
+    # extras, sans le projet ; pylock.toml : marqueurs ignores, paquets Windows
+    # compris (voir ci.yml) ; --quiet : l'export n'est pas recopie dans le journal
+    assert " ".join(etape["run"].split()) == EXPORT
+    etape = _etape("pip-audit", "pip-audit")
+    assert set(etape) == {"name", "run"}
+    assert _commande(etape["run"]) == AUDIT
 
 
 def test_pip_audit_chaque_semaine_et_requis() -> None:
@@ -146,12 +156,24 @@ def test_configuration_dependabot_verifiee_en_ci() -> None:
     )
 
 
+TABLEAU = re.compile(r"^\s*exceptions=\(\n(.*?)^\s*\)\s*$", re.M | re.S)
+
+
 def _exceptions(script: str) -> list[str]:
     """Lignes du tableau bash « exceptions=( ... ) », commentaires seuls exclus."""
-    bloc = re.search(r"^\s*exceptions=\(\n(.*?)^\s*\)\s*$", script, re.M | re.S)
+    # un second tableau, ou un ajout au premier, echapperait a la verification
+    assert len(re.findall(r"exceptions\+?=", script)) == 1, "un seul tableau attendu"
+    bloc = TABLEAU.search(script)
     assert bloc, "tableau exceptions absent"
     lignes = [ligne.strip() for ligne in bloc[1].splitlines()]
     return [ligne for ligne in lignes if ligne and not ligne.startswith("#")]
+
+
+def _commande(script: str) -> str:
+    """Code hors du tableau d'exceptions, sans commentaires, sur une seule ligne."""
+    code = TABLEAU.sub("", script, count=1)
+    lignes = [ligne.split("#", 1)[0] for ligne in code.splitlines()]
+    return " ".join("\n".join(lignes).replace("\\\n", " ").split())
 
 
 def _exception_valide(ligne: str) -> bool:
@@ -172,11 +194,52 @@ def test_exceptions_pip_audit_commentees() -> None:
         assert _exception_valide(ligne), (
             f"identifiant, raison et date attendus : {ligne}"
         )
-    # aucune option --ignore-vuln hors du tableau (commentaires mis a part)
-    hors_tableau = re.sub(r"exceptions=\(\n.*?^\s*\)", "", script, flags=re.M | re.S)
-    for ligne in hors_tableau.splitlines():
-        code = ligne.split("#", 1)[0]
-        assert "--ignore-vuln" not in code, ligne
+    # aucune option --ignore-vuln hors du tableau, meme abregee (--ig=...) :
+    # --ignore-vuln est la seule option de pip-audit qui commence par --ig
+    assert not _ignore_hors_tableau(script), script
+
+
+def _ignore_hors_tableau(script: str) -> bool:
+    return re.search(r"(?<![\w-])--ig", _commande(script)) is not None
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "exceptions=(\n)\npip-audit --ig=GHSA-xmj3-9gf7-h52w \\\n  --locked\n",
+        "exceptions=(\n)\npip-audit --ignore-v GHSA-xmj3-9gf7-h52w --locked\n",
+        "exceptions=(\n)\npip-audit --ignore-vuln=GHSA-xmj3-9gf7-h52w  # r\n",
+    ],
+    ids=["abregee-egal", "abregee-espace", "complete-commentee"],
+)
+def test_option_ignore_hors_tableau_detectee(script: str) -> None:
+    assert _exceptions(script) == []
+    assert _ignore_hors_tableau(script)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "exceptions=(\n)\nexceptions+=(--ig=GHSA-xmj3-9gf7-h52w)\npip-audit\n",
+        "exceptions=(\n)\nexceptions=(\n  --ig=GHSA-xmj3-9gf7-h52w\n)\npip-audit\n",
+    ],
+    ids=["ajout", "second-tableau"],
+)
+def test_tableau_unique_exige(script: str) -> None:
+    with pytest.raises(AssertionError, match="un seul tableau"):
+        _exceptions(script)
+
+
+def test_commande_hors_tableau_normalisee() -> None:
+    script = (
+        "# commentaire\n"
+        "exceptions=(\n"
+        "  --ignore-vuln=GHSA-aaaa-bbbb-cccc  # raison ; revue le 2026-12-01\n"
+        ")\n"
+        "pip-audit --strict \\\n"
+        '  "${exceptions[@]}" dir  # fin\n'
+    )
+    assert _commande(script) == 'pip-audit --strict "${exceptions[@]}" dir'
 
 
 @pytest.mark.parametrize(
@@ -229,6 +292,30 @@ def test_tableau_d_exceptions_lu() -> None:
         "--ignore-vuln=GHSA-aaaa-bbbb-cccc  # raison ; revue le 2026-12-01",
         "--ignore-vuln=PYSEC-2026-1",
     ]
+
+
+def test_versions_de_uv_citees_alignees_sur_la_ci() -> None:
+    # « uvx uv@X.Y.Z lock » regenere les locks : meme uv que la CI, sans quoi une
+    # montee de UV_VERSION oublierait une commande de la documentation
+    version = _yaml(CI)["env"]["UV_VERSION"]
+    fichiers = [
+        *RACINE.glob("*.md"),
+        *(RACINE / "docs").rglob("*.md"),
+        *(f for f in (RACINE / "scripts").iterdir() if f.is_file()),
+    ]
+    citees = {
+        (fichier.relative_to(RACINE).as_posix(), trouve[1])
+        for fichier in fichiers
+        for trouve in re.finditer(
+            r"(?<![\w-])uv@(\d+(?:\.\d+)*)", fichier.read_text(encoding="utf-8")
+        )
+    }
+    assert {chemin for chemin, _ in citees} >= {
+        "docs/dev/dependances.md",
+        "docs/dev/github.md",
+        "scripts/sync_github.py",
+    }
+    assert {(c, v) for c, v in citees if v != version} == set()
 
 
 def _version_figee(depot: str) -> str:

@@ -59,7 +59,8 @@ doivent concorder :
    `ci.yml`.
 
 Mettre ensuite à jour la version citée par `uvx uv@<version> lock`
-(`docs/dev/github.md`, en-tête de `scripts/sync_github.py`) et relancer
+(`docs/dev/github.md`, ce document, en-tête de `scripts/sync_github.py` ;
+`tests/test_dependances.py` vérifie qu'aucune n'est oubliée) et relancer
 `uvx uv@<version> lock` : le lock doit rester identique ou n'être modifié que
 par le nouveau format.
 
@@ -103,8 +104,8 @@ sur le runner Linux), alors qu'avec `--locked` il audite chaque paquet du lock.
 En local (réseau requis) :
 
 ```sh
-uv export --locked --all-groups --no-emit-project --format pylock.toml \
-  --output-file /tmp/amnesia-audit/pylock.toml
+uv export --quiet --locked --all-groups --all-extras --no-emit-project \
+  --format pylock.toml --output-file /tmp/amnesia-audit/pylock.toml
 uv run --only-group audit pip-audit --strict --locked --aliases=on /tmp/amnesia-audit
 ```
 
@@ -128,7 +129,8 @@ exceptions=(
 ```
 
 `tests/test_dependances.py` refuse une exception sans identifiant, sans raison ou
-sans date. À la date de revue : retirer l'exception si une version corrigée est
+sans date, et toute autre option ajoutée à la commande `pip-audit` (argparse
+accepterait une forme abrégée comme `--ig=…` hors du tableau). À la date de revue : retirer l'exception si une version corrigée est
 disponible, sinon justifier à nouveau et repousser la date.
 
 ## Réglages du dépôt (propriétaire)
