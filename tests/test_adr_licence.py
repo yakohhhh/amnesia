@@ -91,6 +91,10 @@ def test_decision_open_core_coeur_mit(texte: str) -> None:
     assert "licence MIT" in decision
     assert "licence propriétaire" in decision
     assert "DCO" in decision
+    # le coeur inclut le collecteur et le rapport HTML, que le tableau des
+    # editions et le cas d'usage 2 y rangent
+    assert "#48" in decision
+    assert "#77" in decision
 
 
 def test_quatre_options_et_une_seule_retenue(texte: str) -> None:
@@ -151,11 +155,16 @@ def test_tableau_des_editions(texte: str) -> None:
     for ticket in COEUR:
         assert ticket in par_ticket, ticket
         assert par_ticket[ticket] == ["oui", "oui", "oui"], ticket
+    # #91 est un guide de methodologie, aucun ticket ne porte sur une formation
+    assert "formation" not in texte.lower()
 
 
 def test_choix_dco_et_consequences_relicence(texte: str) -> None:
     section = _section(texte, "CLA ou DCO")
     assert section.lstrip().startswith("**Décision : DCO**")
+    # la mise en place du DCO est portee par #30 ; #29 est ferme sans section DCO
+    assert "#30" in section
+    assert "#29" not in texte
     assert "relicence" in section
     assert "accord de chaque contributeur" in section
     assert "**À réexaminer**" in section

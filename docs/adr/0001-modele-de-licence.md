@@ -37,8 +37,9 @@ quelles fonctionnalités seront publiées sous licence libre, et lesquelles sero
 vendues.
 
 Cette décision bloque la publication sur PyPI (#33), la mise en forme des
-métadonnées de licence (#30), le mécanisme de contrôle de licence (#154) et la
-première contribution externe (#29). Le nom commercial (#12) et la recherche
+métadonnées de licence et la politique de contribution (#30, section DCO de
+[CONTRIBUTING.md](../../CONTRIBUTING.md)) et le mécanisme de contrôle de licence
+(#154). Le nom commercial (#12) et la recherche
 d'antériorité de marque sont hors périmètre : la décision ci-dessous vaut quel
 que soit le nom retenu pour le cœur ou pour les éditions commerciales.
 
@@ -47,8 +48,9 @@ que soit le nom retenu pour le cœur ou pour les éditions commerciales.
 **Modèle open core.**
 
 1. **Le cœur** (ce dépôt : moteur, collecte, checks, modèles `Gap` et `Fact`,
-   rapport JSON et rendus texte et Markdown, CLI, documentation) **reste sous
-   licence MIT**, sans changement de licence ni de titulaire.
+   rapport JSON et rendus texte, Markdown et HTML (#77), CLI, collecteur
+   PowerShell (#48), documentation) **reste sous licence MIT**, sans changement
+   de licence ni de titulaire.
 2. **Les éditions commerciales** (rapport en marque blanche, scoring et export
    PDF, fonctionnalités MSP multi-tenant, connecteurs premium, voir le
    [tableau des fonctionnalités par édition](#fonctionnalités-par-édition))
@@ -78,7 +80,7 @@ raison de son rejet ou de son choix.
 ### Option A — MIT pur (« MIT + services », statu quo)
 
 Tout est MIT ; les revenus viennent uniquement de la prestation (diagnostic
-#90, pilote #92, formation #91).
+#90, pilote #92, méthodologie #91).
 
 - **MSP et cabinets** : utilisation, modification et revente libres, sans
   contrepartie. Un concurrent peut livrer un rapport amnesia à sa marque dès la
@@ -221,7 +223,7 @@ provisoires (#169 fixe l'offre partenaire ; #12 le nom).
 | Audit multi-tenant Microsoft 365 pour MSP (GDAP) | #162 | — | — | oui |
 | Connecteurs SIEM premium (Elastic, test canari de bout en bout) | #156, #155 | — | — | oui |
 | Mécanisme de licence (fichier signé, hors ligne) | #154 | — | oui | oui |
-| Offre partenaire, formation, support, co-marquage | #169, #91, #168 | — | contrat | contrat |
+| Offre partenaire, méthodologie, support, co-marquage | #169, #91, #168 | — | contrat | contrat |
 
 Choix volontaires à retenir :
 
@@ -258,7 +260,8 @@ Choix volontaires à retenir :
 ## CLA ou DCO
 
 **Décision : DCO** (`Signed-off-by` sur chaque commit, vérifié par un check sur
-les PR ; mise en place dans #30 et #29).
+les PR ; mise en place dans #30 : section « Licence des contributions » de
+[CONTRIBUTING.md](../../CONTRIBUTING.md) et check `Signed-off-by` sur les PR).
 
 | | CLA (cession ou licence large) | DCO (retenu) |
 |---|---|---|
@@ -359,8 +362,8 @@ un client avant que l'avis soit consigné ici.**
 
 ## Références
 
-- #11 (ce ticket), #30 (application : LICENSE, pyproject, README, DCO), #13
-  (visibilité du dépôt), #33 (publication PyPI), #29 (CONTRIBUTING), #12 (nom),
+- #11 (ce ticket), #30 (application : LICENSE, pyproject, README, section DCO
+  de CONTRIBUTING), #13 (visibilité du dépôt), #33 (publication PyPI), #12 (nom),
   #83 (registre des licences tierces), #154 (mécanisme de licence), #169 (offre
   partenaire).
 - `LICENSE` : MIT, « Copyright (c) 2026 Ayman Mazroui ».
