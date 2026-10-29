@@ -3,17 +3,21 @@
 # renommer une milestone ici en creerait une nouvelle. Une milestone absente d'ici
 # n'est jamais supprimee. « state » (open ou closed) est facultatif : sans lui,
 # l'etat decide sur GitHub est laisse tel quel.
+# Une milestone versionnee commence sa description par « Version X.Y.Z — », comme
+# la table milestones -> versions de docs/RELEASING.md ; tests/test_versionnage.py
+# verifie la concordance.
 milestones:
   - title: "M0 — Scaffold"
-    description: "Mise en place"
+    description: "Version 0.1.0 — mise en place"
   - title: "M1 — MVP (Windows + AD)"
-    description: "Checks endpoints + AD + rapport des angles morts"
+    description: "Version 0.2.0 — checks endpoints + AD + rapport des angles morts"
   - title: "M2 — Cloud"
-    description: "M365/Entra, CloudTrail, forwarding SIEM"
+    description: "Version 0.3.0 — M365/Entra, CloudTrail, forwarding SIEM"
   - title: "M3 — Linux & virtualisation"
     description: >-
-      Cibles Linux et virtualisation : collecte SSH, journald/rsyslog/logrotate,
-      auditd, collecteur POSIX hors ligne, vSphere (vCenter et ESXi).
+      Version 0.4.0 — cibles Linux et virtualisation : collecte SSH,
+      journald/rsyslog/logrotate, auditd, collecteur POSIX hors ligne, vSphere
+      (vCenter et ESXi).
   - title: "Offre v0 — prestation pilote"
     description: >-
       Piste commerciale et juridique du premier diagnostic payant : positionnement,

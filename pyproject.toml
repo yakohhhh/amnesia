@@ -52,7 +52,8 @@ classifiers = [
 
 [project.urls]
 # Depot prive : ces liens renvoient une 404 aux visiteurs tant que la visibilite
-# n'est pas tranchee (#11, #13). CHANGELOG.md arrive avec #31.
+# n'est pas tranchee (#11, #13). Changelog : CHANGELOG.md, tenu selon
+# docs/RELEASING.md (tests/test_versionnage.py verifie le lien).
 Homepage = "https://github.com/yakohhhh/amnesia"
 Repository = "https://github.com/yakohhhh/amnesia"
 Issues = "https://github.com/yakohhhh/amnesia/issues"

@@ -90,6 +90,16 @@ par git. Les hooks refusent aussi de les commiter, même avec `git add -f` et qu
 que soit la casse. Ces hooks sont une protection locale (`git commit --no-verify` les contourne) : la
 CI rejoue les mêmes contrôles côté serveur, sur tout l'historique (job `gitleaks`).
 
+## Versions et changements
+
+Les changements notables de chaque version sont consignés dans
+[`CHANGELOG.md`](https://github.com/yakohhhh/amnesia/blob/main/CHANGELOG.md).
+[`docs/RELEASING.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/RELEASING.md)
+fixe le versionnage (SemVer, versions par milestone), les surfaces stables sur
+lesquelles s'appuyer pour automatiser amnesia (ids de checks, `question_id`,
+schéma du rapport JSON, codes de sortie, options de la CLI), leurs règles de
+dépréciation et la procédure de release.
+
 ## Pourquoi Python
 
 Les SDK dont le projet a besoin sont tous là et matures : Microsoft Graph,
