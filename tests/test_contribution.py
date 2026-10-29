@@ -252,6 +252,7 @@ def test_modele_de_pr_unique_avec_checklist() -> None:
         "Documentation",
         "Lecture seule",
         "Modèle de menace",
+        "ADR",
     ]
     assert len(cases) == len(attendus), cases
     for case, attendu in zip(cases, attendus, strict=True):
