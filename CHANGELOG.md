@@ -47,5 +47,14 @@ la première version sera la 0.1.0 (milestone M0).
   statut et par sévérité, sérialisation déterministe, valeurs de `--password`,
   `--token`, `--secret` et `--client-secret` masquées dans `run.argv`. Format et
   compatibilité : `docs/format-rapport.md` (#22).
+- Commande `amnesia render <rapport.json> --format text|md` : re-rend un rapport
+  archivé sans refaire l'audit, chaque angle mort formulé comme une question
+  (« → Impossible : … »), de critical à info, avec `--group-by
+  severity|domain|target` et `--min-severity`. Section « Non vérifié »
+  obligatoire pour les checks en erreur ou non exécutés, résumé chiffré, couleurs
+  seulement sur un terminal sans `NO_COLOR` ni `--no-color`, repli ASCII (`->`)
+  selon l'encodage de sortie. Les valeurs du rapport sont neutralisées (séquences
+  ANSI, contrôles, bidi) et échappées en Markdown ; un rapport d'une autre
+  version majeure de format est refusé (code 4) (#23).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main

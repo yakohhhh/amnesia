@@ -20,8 +20,11 @@ planter à cause d'un encodage.
   des checks, questions et raisons des `Gap`, rapports, docstrings de `src/`.
 - Caractères typographiques admis : `→`, guillemets `« »`, apostrophe `’`, tiret
   demi-cadratin `–` (ruff accepte les deux derniers via `allowed-confusables`).
-- Un repli ASCII plus lisible (`->`, guillemets droits) pour un terminal limité
-  relève des renderers (#23), pas des textes eux-mêmes.
+- Un repli ASCII plus lisible pour une sortie limitée relève des rendus, pas
+  des textes eux-mêmes : `amnesia render` (#23) écrit `->` pour `→`, des
+  guillemets droits pour `« »` et une lettre sans accent quand l'encodage de
+  stdout ne sait pas les représenter (`amnesia.render.base.fallback`). Tout
+  autre caractère non représentable s'écrit `\u4e2d`.
 
 ## Lecture et écriture
 
