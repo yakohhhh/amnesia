@@ -775,6 +775,9 @@ def test_rapport_non_objet() -> None:
         (b"[" * 100_000, "JSON"),
         (b'{"x": ' + b"9" * 5000 + b"}", "nombre hors limites"),
     ],
+    # ids courts : par defaut pytest derive l'id du contenu, et tmp_path en fait
+    # un nom de dossier, trop long pour Windows avec 100 000 crochets
+    ids=["tronque", "liste", "nan", "infini", "bom-utf16", "profondeur", "nombre"],
 )
 def test_load_report_illisible(tmp_path: Path, contenu: bytes, message: str) -> None:
     chemin = tmp_path / "rapport.json"
