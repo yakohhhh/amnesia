@@ -1,0 +1,70 @@
+# Mises a jour automatiques des dependances (procedure : docs/dev/dependances.md).
+#
+# Hors de portee de Dependabot, mis a jour a la main selon cette procedure :
+# version et empreintes de uv (UV_VERSION, UV_SHA256_* de ci.yml), binaires
+# actionlint et gitleaks telecharges par la CI (version et SHA-256), hooks Go de
+# .pre-commit-config.yaml, lock PEP 723 de scripts/sync_github.py.
+#
+# cooldown : une version n'est proposee que 7 jours apres sa publication, comme
+# le delai de carence exclude-newer de [tool.uv] ; sans lui, uv lock refuserait
+# la version proposee.
+version: 2
+updates:
+  # Actions epinglees par SHA : Dependabot remplace ensemble le SHA et le
+  # commentaire « # vX.Y.Z » de chaque ligne uses:.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    labels: ["type:chore", "area:ci"]
+
+  # pyproject.toml (versions exactes ==) et uv.lock, mis a jour ensemble
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    cooldown:
+      default-days: 7
+    groups:
+      # outils de developpement, de CI et de build (tous les groupes de
+      # [dependency-groups], tests/test_outillage.py le verifie) : une seule PR par
+      # semaine. Les futures dependances d'execution (SDK WinRM, Graph, boto3)
+      # restent hors groupe, une PR chacune.
+      dev-tools:
+        patterns:
+          - "check-jsonschema"
+          - "check-wheel-contents"
+          - "hypothesis"
+          - "mypy"
+          - "nox"
+          - "pip-audit"
+          - "pre-commit"
+          - "pre-commit-hooks"
+          - "pytest"
+          - "pytest-*"
+          - "pyyaml"
+          - "ruff"
+          - "twine"
+          - "types-*"
+          - "validate-pyproject"
+          - "zizmor"
+        # Hors groupe : setuptools, fige deux fois (groupe dev et
+        # build-constraint-dependencies, tests/test_paquet.py verifie la
+        # concordance) alors que Dependabot ne modifie que le premier. Sa PR, a
+        # part, est completee a la main (docs/dev/dependances.md).
+    commit-message:
+      prefix: "deps"
+    labels: ["type:chore", "area:ci"]
