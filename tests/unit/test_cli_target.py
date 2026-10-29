@@ -55,7 +55,7 @@ def test_cibles_refusees_en_code_2(
     err = _refus(capsys, cible)
     assert "argument --target: " in err
     # message en francais, sans reprise brute de la saisie
-    assert "cible" in err or "hote" in err or "schema" in err
+    assert "cible" in err or "hôte" in err or "schéma" in err
     assert not cible or cible not in err
     assert "\x1b" not in err
 
@@ -71,7 +71,7 @@ def test_audit_affiche_la_forme_normalisee(
     monkeypatch.chdir(tmp_path)
     assert main(["audit", "--target", "WINRM://SRV-FILE.Corp.Local.:5986"]) == 0
     sortie = capsys.readouterr().out
-    assert "audit de winrm://srv-file.corp.local:5986 -> " in sortie
+    assert "audit de winrm://srv-file.corp.local:5986 → " in sortie
     assert "SRV-FILE" not in sortie
 
 

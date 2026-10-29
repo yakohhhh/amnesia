@@ -359,7 +359,7 @@ def _failed(exc: BaseException, **options: Any) -> CheckResult:
     ("exc", "attendu"),
     [
         (subprocess.CalledProcessError(5, ARGV), "commande 'wevtutil' : code 5"),
-        (subprocess.TimeoutExpired(ARGV, 30), "commande 'wevtutil' : delai de 30 s"),
+        (subprocess.TimeoutExpired(ARGV, 30), "commande 'wevtutil' : délai de 30 s"),
         # chaine passee au shell, executable designe par son chemin
         (
             subprocess.CalledProcessError(1, "/usr/bin/" + " ".join(ARGV)),

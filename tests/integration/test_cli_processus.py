@@ -1,5 +1,6 @@
 """La CLI lancee comme un utilisateur le ferait, dans un vrai processus."""
 
+import os
 import subprocess
 import sys
 
@@ -11,7 +12,10 @@ def _amnesia(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
         [sys.executable, "-m", "amnesia", *args],
         capture_output=True,
-        text=True,
+        # le processus fils ecrit en UTF-8 (aide accentuee) meme sous Windows, ou
+        # un pipe est sinon encode dans la page ANSI (docs/dev/encodage.md)
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        encoding="utf-8",
         check=False,
         timeout=60,
     )

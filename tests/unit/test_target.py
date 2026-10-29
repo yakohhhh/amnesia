@@ -110,13 +110,13 @@ def test_bundle_existant_accepte(
     [
         ("", "vide"),
         ("   ", "vide"),
-        ("winrm://", "hote manquant"),
-        ("winrm://:5986", "hote manquant"),
+        ("winrm://", "hôte manquant"),
+        ("winrm://:5986", "hôte manquant"),
         ("dc01; Remove-Item C:\\ -Recurse", "espace"),
-        ("winrm://$(whoami)", "metacaractere"),
-        ("winrm://dc01`nGet-Process", "metacaractere"),
-        ("winrm://dc01,dc02", "metacaractere"),
-        ("winrm://dc01|calc", "metacaractere"),
+        ("winrm://$(whoami)", "métacaractère"),
+        ("winrm://dc01`nGet-Process", "métacaractère"),
+        ("winrm://dc01,dc02", "métacaractère"),
+        ("winrm://dc01|calc", "métacaractère"),
         ("winrm://user:pass@dc01", "identifiants"),
         ("user@dc01", "identifiants"),
         ("winrm://-dc01", "tiret"),
@@ -126,14 +126,14 @@ def test_bundle_existant_accepte(
         ("winrm://" + "a" * 64, "63"),
         ("winrm://dc01..corp", "63"),
         ("winrm://dc_01", "63"),
-        ("winrm://dc01\x1b[31m", "controle"),
-        ("winrm://dc01\nfoo", "controle"),
-        ("winrm://dc01\x9b", "controle"),
+        ("winrm://dc01\x1b[31m", "contrôle"),
+        ("winrm://dc01\nfoo", "contrôle"),
+        ("winrm://dc01\x9b", "contrôle"),
         ("winrm://d\u0441\u0030\u0031", "ASCII"),  # c cyrillique (U+0441)
         ("winrm://dc01\u202e", "ASCII"),  # surcharge bidi (Trojan Source)
-        ("http://dc01", "schema inconnu"),
-        ("C:\\bundle", "schema inconnu"),
-        ("winrm:dc01", "winrm://<hote>"),
+        ("http://dc01", "schéma inconnu"),
+        ("C:\\bundle", "schéma inconnu"),
+        ("winrm:dc01", "winrm://<hôte>"),
         ("winrm://dc01:0", "port"),
         ("winrm://dc01:65536", "port"),
         ("winrm://dc01:", "port"),
@@ -195,7 +195,7 @@ def test_identifiants_jamais_repris_dans_le_message(gabarit: str, suffixe: str) 
 
 def test_message_echappe_la_saisie() -> None:
     # un schema inconnu est repris, mais echappe et tronque
-    with pytest.raises(TargetError, match="schema inconnu") as exc:
+    with pytest.raises(TargetError, match="schéma inconnu") as exc:
         Target.parse("z" * 200 + ":x")
     assert len(str(exc.value)) < 200
     assert "z" * 65 not in str(exc.value)

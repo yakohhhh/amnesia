@@ -60,7 +60,11 @@ def _mypy(tmp_path: Path, source: str) -> tuple[int, set[str]]:
     sortie = subprocess.run(  # noqa: S603 - interpreteur courant, sans shell
         [sys.executable, "-m", "mypy", "--cache-dir", os.devnull, str(module)],
         capture_output=True,
-        text=True,
+        # sortie de mypy en UTF-8 (chemins et messages) ; replace : un chemin dans
+        # la page ANSI de Windows ne doit pas faire planter le test
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        encoding="utf-8",
+        errors="replace",
         cwd=RACINE,
         check=False,
     )
@@ -118,7 +122,9 @@ def _uv_build(source: Path, dist: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - binaire uv, arguments constants
         [UV, "build", "--quiet", "--out-dir", str(dist), str(source)],
         capture_output=True,
-        text=True,
+        # uv ecrit ses messages en UTF-8 ; replace : diagnostic seulement
+        encoding="utf-8",
+        errors="replace",
         cwd=source,
         check=False,
     )

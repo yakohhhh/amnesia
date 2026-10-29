@@ -1,72 +1,72 @@
-"""Modele d'un check, de son resultat et d'un angle mort (Gap).
+"""Modèle d'un check, de son résultat et d'un angle mort (Gap).
 
-Un check rend un ``CheckResult`` dont le statut dit ce qu'il a pu etablir. Une
-liste de Gaps vide ne suffit pas : elle ne distingue pas « verifie, rien a
-signaler » de « rien n'a pu etre verifie » (acces refuse, timeout, check non
-implemente...). Les confondre donnerait exactement le faux sentiment de securite
+Un check rend un ``CheckResult`` dont le statut dit ce qu'il a pu établir. Une
+liste de Gaps vide ne suffit pas : elle ne distingue pas « vérifié, rien à
+signaler » de « rien n'a pu être vérifié » (accès refusé, timeout, check non
+implémenté...). Les confondre donnerait exactement le faux sentiment de sécurité
 qu'amnesia doit dissiper.
 
-Regle : ce qui n'a pas ete evalue n'est jamais conforme.
+Règle : ce qui n'a pas été évalué n'est jamais conforme.
 
 - ``verified`` n'est vrai que pour ``pass``, ``gap`` et ``not_applicable`` ;
 - ``compliant`` n'est vrai que pour ``pass`` ;
-- ``error`` et ``skipped`` sont comptes a part : ``excluded`` pour le motif
+- ``error`` et ``skipped`` sont comptés à part : ``excluded`` pour le motif
   ``user_excluded``, ``not_evaluated`` pour tous les autres motifs.
 
 Statuts (``Status``)
 --------------------
 pass
-    Le check a evalue la cible et n'a trouve aucun angle mort.
+    Le check a évalué la cible et n'a trouvé aucun angle mort.
     Ex. : le journal Security de dc01 fait 4 Go et couvre 120 jours.
 gap
-    Le check a evalue la cible et trouve au moins un angle mort (Gap).
-    Ex. : le journal Security de srv-file fait 20 Mo et a ete ecrase il y a
-    4 jours ; la question « qui s'est connecte en RDP ? » reste sans reponse.
+    Le check a évalué la cible et trouvé au moins un angle mort (Gap).
+    Ex. : le journal Security de srv-file fait 20 Mo et a été écrasé il y a
+    4 jours ; la question « qui s'est connecté en RDP ? » reste sans réponse.
 error
-    Le check a ete lance mais n'a pas pu conclure. Porte un motif d'erreur et
+    Le check a été lancé mais n'a pas pu conclure. Porte un motif d'erreur et
     une ``ErrorInfo``. Ex. : WinRM refuse la lecture du journal Security de dc01.
 skipped
-    Le check n'a pas ete execute. Porte un motif de saut.
-    Ex. : l'utilisateur a retire win.sysmon du perimetre de l'audit.
+    Le check n'a pas été exécuté. Porte un motif de saut.
+    Ex. : l'utilisateur a retiré win.sysmon du périmètre de l'audit.
 not_applicable
-    Le check a ete evalue et ne concerne pas la cible : sans objet, ni conforme
-    ni en defaut. Ex. : un check propre aux controleurs de domaine lance sur un
+    Le check a été évalué et ne concerne pas la cible : sans objet, ni conforme
+    ni en défaut. Ex. : un check propre aux contrôleurs de domaine lancé sur un
     serveur de fichiers.
 
 Motifs (``Reason``)
 -------------------
-Motifs de ``skipped`` (le check n'a pas ete execute) :
+Motifs de ``skipped`` (le check n'a pas été exécuté) :
 
 user_excluded
-    Exclu a la demande de l'utilisateur ; compte comme « exclu », pas comme
-    « non evalue ». Ex. : win.sysmon retire du perimetre par l'auditeur.
+    Exclu à la demande de l'utilisateur ; compté comme « exclu », pas comme
+    « non évalué ». Ex. : win.sysmon retiré du périmètre par l'auditeur.
 missing_privilege
-    Privilege insuffisant detecte avant l'execution (detection : #42).
+    Privilège insuffisant détecté avant l'exécution (détection : #42).
     Ex. : lire le journal Security exige SeSecurityPrivilege, absent du jeton.
 not_implemented
-    Le check n'est pas encore ecrit.
-    Ex. : win.time_sync, dont run() leve encore NotImplementedError.
+    Le check n'est pas encore écrit.
+    Ex. : win.time_sync, dont run() lève encore NotImplementedError.
 not_collected
-    Le fait necessaire est absent des donnees disponibles.
-    Ex. : bundle hors ligne collecte sans la configuration Sysmon.
+    Le fait nécessaire est absent des données disponibles.
+    Ex. : bundle hors ligne collecté sans la configuration Sysmon.
 
-Motifs de ``error`` (le check a echoue en cours d'execution) :
+Motifs de ``error`` (le check a échoué en cours d'exécution) :
 
 access_denied
-    La cible a refuse l'acces pendant l'execution.
-    Ex. : ``wevtutil gl Security`` renvoie « Acces refuse » sur dc01.
+    La cible a refusé l'accès pendant l'exécution.
+    Ex. : ``wevtutil gl Security`` renvoie « Accès refusé » sur dc01.
 timeout
-    Delai depasse. Ex. : la requete WMI sur dc01 ne repond pas en 30 s.
+    Délai dépassé. Ex. : la requête WMI sur dc01 ne répond pas en 30 s.
 unreachable
-    Cible injoignable. Ex. : port WinRM 5986 ferme ou nom DNS introuvable.
+    Cible injoignable. Ex. : port WinRM 5986 fermé ou nom DNS introuvable.
 internal_error
     Exception inattendue, bug d'amnesia ou du check.
-    Ex. : ``KeyError`` sur une sortie de commande au format imprevu.
+    Ex. : ``KeyError`` sur une sortie de commande au format imprévu.
 
 Exemple :
 
 >>> r = CheckResult.skipped(
-...     "win.sysmon", "dc01", Reason.USER_EXCLUDED, "retire du perimetre"
+...     "win.sysmon", "dc01", Reason.USER_EXCLUDED, "retiré du périmètre"
 ... )
 >>> r.verified, r.compliant, r.excluded, r.not_evaluated
 (False, False, True, False)
@@ -93,7 +93,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class Gap:
-    """Une question d'enquete a laquelle on ne pourra PAS repondre, et pourquoi."""
+    """Une question d'enquête à laquelle on ne pourra PAS répondre, et pourquoi."""
 
     question: str
     reason: str
@@ -101,20 +101,20 @@ class Gap:
 
 
 class Check:
-    """Un controle de forensic readiness. Les sous-classes implementent run()."""
+    """Un contrôle de forensic readiness. Les sous-classes implémentent run()."""
 
     id: str = "base"
     title: str = "base"
 
     def run(self, target: Target) -> list[Gap]:  # pragma: no cover - stub
-        raise NotImplementedError("check non implemente — voir docs/ROADMAP.md")
+        raise NotImplementedError("check non implémenté — voir docs/ROADMAP.md")
 
 
 # StrEnum (3.11+) : str() et format() rendent la valeur (« pass »), et non
 # « Status.PASS » comme un (str, Enum) depuis 3.11. to_dict() passe malgre tout
 # par .value, pour ne pas dependre de ce detail.
 class Status(StrEnum):
-    """Statut d'un resultat de check (definitions : docstring du module)."""
+    """Statut d'un résultat de check (définitions : docstring du module)."""
 
     PASS = "pass"  # noqa: S105 - statut, pas un mot de passe
     GAP = "gap"
@@ -124,7 +124,7 @@ class Status(StrEnum):
 
 
 class Reason(StrEnum):
-    """Motif d'un resultat skipped ou error (definitions : docstring du module)."""
+    """Motif d'un résultat skipped ou error (définitions : docstring du module)."""
 
     # skipped : le check n'a pas ete execute
     USER_EXCLUDED = "user_excluded"
@@ -139,7 +139,7 @@ class Reason(StrEnum):
 
     @property
     def status(self) -> Status:
-        """Le seul statut auquel ce motif peut etre associe."""
+        """Le seul statut auquel ce motif peut être associé."""
         return _STATUT_DU_MOTIF[self]
 
 
@@ -167,7 +167,7 @@ def _motifs(status: Status) -> str:
 # --- texte tire d'une exception ---------------------------------------------
 # Message et trace finissent dans le rapport client. Ils viennent de la stdlib,
 # d'une bibliotheque tierce ou de la sortie d'un hote audite (potentiellement
-# compromis) : on les caviarde, puis on neutralise leurs caracteres de controle.
+# compromis) : on les caviarde, puis on neutralise leurs caracteres de contrôle.
 
 _MASQUE = "***"
 _CAVIARDAGES: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -214,13 +214,13 @@ def _executable(cmd: Any) -> str:
 
 
 def _message_de(exc: BaseException) -> str:
-    """Message caviarde de l'exception ; ne leve jamais."""
+    """Message caviardé de l'exception ; ne lève jamais."""
     try:
         # str() de ces deux exceptions recopie toute la ligne de commande
         if isinstance(exc, subprocess.CalledProcessError):
             texte = f"commande {_executable(exc.cmd)!r} : code {exc.returncode}"
         elif isinstance(exc, subprocess.TimeoutExpired):
-            texte = f"commande {_executable(exc.cmd)!r} : delai de {exc.timeout} s"
+            texte = f"commande {_executable(exc.cmd)!r} : délai de {exc.timeout} s"
         else:
             texte = str(exc)
         return _assainir(texte)
@@ -230,11 +230,11 @@ def _message_de(exc: BaseException) -> str:
 
 
 def _trace_de(exc: BaseException) -> str:
-    """Frames de l'exception seules ; ne leve jamais.
+    """Frames de l'exception seules ; ne lève jamais.
 
-    Ni message, ni exceptions chainees (__cause__, __context__), ni notes : ils
-    peuvent porter le secret qu'un check a justement ecarte de son exception.
-    Nom de fichier sans son chemin, qui revelerait la machine de l'auditeur.
+    Ni message, ni exceptions chaînées (__cause__, __context__), ni notes : ils
+    peuvent porter le secret qu'un check a justement écarté de son exception.
+    Nom de fichier sans son chemin, qui révélerait la machine de l'auditeur.
     """
     try:
         lignes = ["Traceback (most recent call last):"]
@@ -250,15 +250,15 @@ def _trace_de(exc: BaseException) -> str:
 
 @dataclass(frozen=True, slots=True)
 class ErrorInfo:
-    """Exception a l'origine d'un statut error.
+    """Exception à l'origine d'un statut error.
 
     ``message`` et ``traceback`` finissent dans le rapport client.
-    ``from_exception`` reprend donc ``str(exc)`` caviarde (identifiants dans une
-    URL, /p:, -p, password=...) et sans caracteres de controle ; pour une erreur
-    de subprocess, seul l'executable est garde. Ce caviardage est un filet de
-    securite : un check ne met toujours aucun secret dans ses exceptions. La
-    trace n'est conservee que sur demande explicite (``with_traceback=True``),
-    reduite aux frames.
+    ``from_exception`` reprend donc ``str(exc)`` caviardé (identifiants dans une
+    URL, /p:, -p, password=...) et sans caractères de contrôle ; pour une erreur
+    de subprocess, seul l'exécutable est gardé. Ce caviardage est un filet de
+    sécurité : un check ne met toujours aucun secret dans ses exceptions. La
+    trace n'est conservée que sur demande explicite (``with_traceback=True``),
+    réduite aux frames.
     """
 
     type: str
@@ -282,12 +282,12 @@ class ErrorInfo:
 
 @dataclass(frozen=True, slots=True)
 class CheckResult:
-    """Resultat d'un check sur une cible : un statut, et ses Gaps s'il y en a.
+    """Résultat d'un check sur une cible : un statut, et ses Gaps s'il y en a.
 
-    Les invariants sont verifies a la construction (ValueError, TypeError) ;
-    passer de preference par les constructeurs ``passed``, ``with_gaps``,
+    Les invariants sont vérifiés à la construction (ValueError, TypeError) ;
+    passer de préférence par les constructeurs ``passed``, ``with_gaps``,
     ``skipped``, ``not_applicable`` et ``failed``. ``message`` reste du texte
-    libre : son rendu en terminal (#22) neutralise les caracteres de controle.
+    libre : son rendu en terminal (#22) neutralise les caractères de contrôle.
     """
 
     check_id: str
@@ -307,27 +307,27 @@ class CheckResult:
         for champ in ("check_id", "target"):
             valeur = getattr(self, champ)
             if not isinstance(valeur, str) or not valeur:
-                raise ValueError(f"{champ} doit etre une chaine non vide : {valeur!r}")
+                raise ValueError(f"{champ} doit être une chaîne non vide : {valeur!r}")
             # identifiant normalise : ni sequence ANSI, ni retour chariot, ni bidi
             if not valeur.isprintable():
                 raise ValueError(f"{champ} non imprimable : {valeur!r}")
         if not isinstance(self.status, Status):
-            raise TypeError(f"status doit etre un Status : {self.status!r}")
+            raise TypeError(f"status doit être un Status : {self.status!r}")
         if not isinstance(self.gaps, tuple) or not all(
             isinstance(g, Gap) for g in self.gaps
         ):
-            raise TypeError(f"gaps doit etre un tuple de Gap : {self.gaps!r}")
+            raise TypeError(f"gaps doit être un tuple de Gap : {self.gaps!r}")
         if self.reason is not None and not isinstance(self.reason, Reason):
-            raise TypeError(f"reason doit etre un Reason ou None : {self.reason!r}")
+            raise TypeError(f"reason doit être un Reason ou None : {self.reason!r}")
         if not isinstance(self.message, str):
-            raise TypeError(f"message doit etre une chaine : {self.message!r}")
+            raise TypeError(f"message doit être une chaîne : {self.message!r}")
         if self.error is not None and not isinstance(self.error, ErrorInfo):
-            raise TypeError(f"error doit etre un ErrorInfo ou None : {self.error!r}")
+            raise TypeError(f"error doit être un ErrorInfo ou None : {self.error!r}")
         if self.duration_s is not None and (
             isinstance(self.duration_s, bool)
             or not isinstance(self.duration_s, int | float)
         ):
-            raise TypeError(f"duration_s doit etre un nombre : {self.duration_s!r}")
+            raise TypeError(f"duration_s doit être un nombre : {self.duration_s!r}")
 
     def _verifier_invariants(self) -> None:
         statut = self.status.value
@@ -349,7 +349,7 @@ class CheckResult:
                 )
         elif self.reason is not None:
             raise ValueError(
-                f"statut {statut} : aucun motif attendu, recu {self.reason.value}"
+                f"statut {statut} : aucun motif attendu, reçu {self.reason.value}"
             )
         # error <=> ErrorInfo renseignee
         if self.status is Status.ERROR and self.error is None:
@@ -363,17 +363,17 @@ class CheckResult:
 
     @property
     def verified(self) -> bool:
-        """Vrai si la cible a ete evaluee : pass, gap ou not_applicable."""
+        """Vrai si la cible a été évaluée : pass, gap ou not_applicable."""
         return self.status in _STATUTS_VERIFIES
 
     @property
     def compliant(self) -> bool:
-        """Vrai pour pass uniquement : ce qui n'est pas evalue n'est pas conforme."""
+        """Vrai pour pass uniquement : ce qui n'est pas évalué n'est pas conforme."""
         return self.status is Status.PASS
 
     @property
     def excluded(self) -> bool:
-        """Exclu par l'utilisateur (skipped / user_excluded), compte a part."""
+        """Exclu par l'utilisateur (skipped / user_excluded), compté à part."""
         return self.reason is Reason.USER_EXCLUDED
 
     @property
@@ -474,9 +474,9 @@ class CheckResult:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Forme serialisable a cles stables ; enums rendus par leur .value.
+        """Forme sérialisable à clés stables ; enums rendus par leur .value.
 
-        Le schema du rapport releve de #22.
+        Le schéma du rapport relève de #22.
         """
         return {
             "check_id": self.check_id,
@@ -484,7 +484,7 @@ class CheckResult:
             "status": self.status.value,
             "reason": None if self.reason is None else self.reason.value,
             "message": self.message,
-            # Gap.to_dict() arrive avec le modele Gap v1 (#16)
+            # Gap.to_dict() arrive avec le modèle Gap v1 (#16)
             "gaps": [asdict(g) for g in self.gaps],
             "error": None if self.error is None else self.error.to_dict(),
             "duration_s": self.duration_s,
@@ -492,15 +492,15 @@ class CheckResult:
 
 
 class CheckSkipped(Exception):
-    """Levee par un check qui ne peut pas s'executer (motif de skipped).
+    """Levée par un check qui ne peut pas s'exécuter (motif de skipped).
 
-    Le moteur (#21) la convertit en resultat skipped. Un motif d'erreur
-    (timeout, access_denied...) est refuse : c'est une exception ordinaire.
+    Le moteur (#21) la convertit en résultat skipped. Un motif d'erreur
+    (timeout, access_denied...) est refusé : c'est une exception ordinaire.
     """
 
     def __init__(self, reason: Reason, message: str) -> None:
         if not isinstance(reason, Reason):
-            raise TypeError(f"reason doit etre un Reason : {reason!r}")
+            raise TypeError(f"reason doit être un Reason : {reason!r}")
         if reason.status is not Status.SKIPPED:
             raise ValueError(
                 f"motif {reason.value} invalide pour CheckSkipped "
@@ -516,7 +516,7 @@ class CheckSkipped(Exception):
 
 
 class NotApplicable(Exception):
-    """Levee par un check sans objet sur la cible ; convertie en not_applicable."""
+    """Levée par un check sans objet sur la cible ; convertie en not_applicable."""
 
     def __init__(self, message: str) -> None:
         super().__init__(message)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import codecs
+import io
 import logging
 import sys
 from pathlib import Path
@@ -16,11 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 def _options_journal(defauts: bool) -> argparse.ArgumentParser:
-    """Options de journalisation, acceptees avant comme apres la sous-commande.
+    """Options de journalisation, acceptées avant comme après la sous-commande.
 
-    Dans la copie attachee aux sous-commandes (defauts=False), default=SUPPRESS :
-    sinon la valeur par defaut de la sous-commande ecraserait celle passee avant,
-    et « amnesia -v audit » donnerait une verbosite nulle.
+    Dans la copie attachée aux sous-commandes (defauts=False), default=SUPPRESS :
+    sinon la valeur par défaut de la sous-commande écraserait celle passée avant,
+    et « amnesia -v audit » donnerait une verbosité nulle.
     """
 
     def defaut(valeur: object) -> object:
@@ -53,15 +55,38 @@ def _options_journal(defauts: bool) -> argparse.ArgumentParser:
         type=Path,
         default=defaut(None),
         metavar="PATH",
-        help="copie du journal dans un fichier, cree en 0600",
+        help="copie du journal dans un fichier, créé en 0600",
     )
     g.add_argument(
         "--log-format",
         choices=FORMATS,
         default=defaut("text"),
-        help="text (defaut) ou json : une ligne JSON par entree",
+        help="text (défaut) ou json : une ligne JSON par entrée",
     )
     return p
+
+
+# gestionnaires d'erreurs qui levent UnicodeEncodeError sur un caractere absent
+# de la page de code ou sur un surrogate isole (surrogateescape ne couvre que
+# U+DC80..U+DCFF) ; les autres (backslashreplace de stderr...) sont gardes
+_ERREURS_FATALES = frozenset({"strict", "surrogateescape", "surrogatepass"})
+
+
+def _proteger_sorties() -> None:
+    """Empêche stdout et stderr de planter sur un caractère impossible à encoder.
+
+    Sous Windows avant Python 3.15, une sortie redirigée est encodée dans la page
+    ANSI (cp1252) ou OEM (cp850) : « → » ou « ’ » y lèveraient UnicodeEncodeError
+    et y deviennent « ? ». Même en UTF-8, un argument d'argv contenant un octet
+    non UTF-8 (décodé en surrogate) ferait planter print() : il s'écrit « \\udcff ».
+    """
+    for flux in (sys.stdout, sys.stderr):
+        # None sous pythonw, ou flux remplace par un objet sans reconfigure()
+        if isinstance(flux, io.TextIOWrapper) and flux.errors in _ERREURS_FATALES:
+            # en UTF-8 seuls les surrogates echouent : backslashreplace garde la
+            # valeur de l'octet d'origine, utile a l'analyste
+            utf8 = codecs.lookup(flux.encoding).name == "utf-8"
+            flux.reconfigure(errors="backslashreplace" if utf8 else "replace")
 
 
 def _cible(valeur: str) -> Target:
@@ -77,8 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="amnesia",
         description=(
-            "Audit de forensic readiness: liste les questions d'enquete "
-            "auxquelles ton SI ne pourra PAS repondre le jour de l'incident."
+            "Audit de forensic readiness : liste les questions d'enquête "
+            "auxquelles ton SI ne pourra PAS répondre le jour de l'incident."
         ),
         parents=[_options_journal(defauts=True)],
     )
@@ -101,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _proteger_sorties()
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     # verifie apres coup : -q et -v peuvent etre de part et d'autre de la sous-commande
@@ -124,10 +150,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "audit":
-        print(f"[stub] audit de {args.target.id} -> {args.out}")
+        print(f"[stub] audit de {args.target.id} → {args.out}")
         print(
-            f"[stub] {len(checks)} checks enregistres. "
-            "Implemente leur run(): src/amnesia/checks/"
+            f"[stub] {len(checks)} checks enregistrés. "
+            "Implémente leur run() : src/amnesia/checks/"
         )
         for c in checks:
             print(f"  - {c.id}: {c.title}")

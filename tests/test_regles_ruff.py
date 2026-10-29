@@ -30,7 +30,7 @@ def _codes(source: str) -> set[str]:
         ],
         input=source,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         cwd=RACINE,
         check=False,
     )

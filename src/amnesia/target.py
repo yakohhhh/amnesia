@@ -1,19 +1,19 @@
-"""Cible d'un audit : modele Target et validation stricte de --target.
+"""Cible d'un audit : modèle Target et validation stricte de --target.
 
-Grammaire, extensible par schema :
+Grammaire, extensible par schéma :
 
 - ``local`` ou ``localhost`` : la machine courante (windows_host / local) ;
-- ``winrm://<hote>[:port]`` : un hote distant (windows_host / winrm). L'hote est
-  une IPv4, une IPv6 entre crochets ou un nom d'hote (RFC 1123, longueurs
-  RFC 1035) ; un IDN s'ecrit en punycode ``xn--`` ;
+- ``winrm://<hôte>[:port]`` : un hôte distant (windows_host / winrm). L'hôte est
+  une IPv4, une IPv6 entre crochets ou un nom d'hôte (RFC 1123, longueurs
+  RFC 1035) ; un IDN s'écrit en punycode ``xn--`` ;
 - ``bundle:<chemin>`` : une collecte hors ligne, fichier ou dossier existant
   (windows_host / bundle).
 
-Un nom nu (``dc01``) est refuse : le transport doit etre explicite.
+Un nom nu (``dc01``) est refusé : le transport doit être explicite.
 
-Regle : une cible n'est jamais interpolee dans du PowerShell, du LDAP ou une
-URL ; elle passe toujours par des parametres. La validation ci-dessous est une
-defense en profondeur, pas une autorisation d'interpoler.
+Règle : une cible n'est jamais interpolée dans du PowerShell, du LDAP ou une
+URL ; elle passe toujours par des paramètres. La validation ci-dessous est une
+défense en profondeur, pas une autorisation d'interpoler.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 
 
 class TargetError(ValueError):
-    """Cible refusee. Le message, en francais, ne reprend jamais d'identifiants."""
+    """Cible refusée. Le message, en français, ne reprend jamais d'identifiants."""
 
 
 class Kind(StrEnum):
@@ -45,7 +45,7 @@ class Transport(StrEnum):
     API = "api"  # reserve aux cibles cloud (#95)
 
 
-FORMES = "local, winrm://<hote>[:port] ou bundle:<chemin>"
+FORMES = "local, winrm://<hôte>[:port] ou bundle:<chemin>"
 
 # borne grossiere, avant toute analyse : aucune cible legitime n'en approche
 _LONGUEUR_MAX = 4096
@@ -59,7 +59,7 @@ _PORT = re.compile(r"[0-9]{1,5}")
 
 
 def _montrer(valeur: str, limite: int = 64) -> str:
-    """Forme affichable d'une saisie : echappee en ASCII et tronquee."""
+    """Forme affichable d'une saisie : échappée en ASCII et tronquée."""
     court = valeur if len(valeur) <= limite else valeur[:limite] + "..."
     return ascii(court)
 
@@ -68,44 +68,44 @@ def _verifier_caracteres(brut: str) -> None:
     if not brut.strip():
         raise TargetError("cible vide")
     if len(brut) > _LONGUEUR_MAX:
-        raise TargetError(f"cible trop longue (plus de {_LONGUEUR_MAX} caracteres)")
+        raise TargetError(f"cible trop longue (plus de {_LONGUEUR_MAX} caractères)")
     # C0, DEL et C1 : sequences d'echappement ANSI, retours a la ligne...
     if any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in brut):
-        raise TargetError("caractere de controle interdit dans la cible")
+        raise TargetError("caractère de contrôle interdit dans la cible")
     if any(c.isspace() for c in brut):
         raise TargetError("espace interdit dans la cible")
     if not brut.isascii():
         raise TargetError(
-            "caractere non ASCII interdit dans la cible "
-            "(un nom de domaine internationalise s'ecrit en punycode xn--)"
+            "caractère non ASCII interdit dans la cible "
+            "(un nom de domaine internationalisé s'écrit en punycode xn--)"
         )
     interdits = sorted(_METACARACTERES.intersection(brut))
     if interdits:
         raise TargetError(
-            f"metacaractere interdit dans la cible : {' '.join(interdits)}"
+            f"métacaractère interdit dans la cible : {' '.join(interdits)}"
         )
     if brut.startswith("-"):
         raise TargetError("tiret initial interdit dans la cible (injection d'option)")
 
 
 def _nom_ou_ipv4(hote: str) -> str:
-    """Nom d'hote ou IPv4, normalise : minuscules, sans point final."""
+    """Nom d'hôte ou IPv4, normalisé : minuscules, sans point final."""
     if not hote:
-        raise TargetError("hote manquant")
+        raise TargetError("hôte manquant")
     try:
         return str(ipaddress.IPv4Address(hote))
     except ValueError:
         pass
     nom = hote.lower().removesuffix(".")
     if len(nom) > 253:
-        raise TargetError("nom d'hote trop long (253 caracteres au plus)")
+        raise TargetError("nom d'hôte trop long (253 caractères au plus)")
     labels = nom.split(".")
     for label in labels:
         if label.startswith("-") or label.endswith("-"):
-            raise TargetError("nom d'hote invalide : tiret en debut ou fin de label")
+            raise TargetError("nom d'hôte invalide : tiret en début ou fin de label")
         if not _LABEL.fullmatch(label):
             raise TargetError(
-                "nom d'hote invalide : labels de 1 a 63 caracteres [a-z0-9-]"
+                "nom d'hôte invalide : labels de 1 à 63 caractères [a-z0-9-]"
             )
     # « 10.0.0.256 », « 2130706433 » ou « 0x7f000001 » ne sont pas des noms :
     # inet_aton et getaddrinfo en feraient une IPv4, sans requete DNS, d'ou un
@@ -137,19 +137,19 @@ def _port(brut: str) -> int:
 
 
 def _hote_port(autorite: str) -> tuple[str, int | None]:
-    """Hote normalise et port d'une autorite ``hote[:port]``."""
+    """Hôte normalisé et port d'une autorité ``hôte[:port]``."""
     if "@" in autorite:
         # le message ne reprend pas la saisie : elle contient un mot de passe
         raise TargetError("identifiants interdits dans la cible (user:pass@)")
     if "/" in autorite or "\\" in autorite:
-        raise TargetError("chemin interdit apres l'hote")
+        raise TargetError("chemin interdit après l'hôte")
     if autorite.startswith("["):
         hote_brut, crochet, reste = autorite[1:].partition("]")
         if not crochet:
-            raise TargetError("crochet fermant manquant apres l'adresse IPv6")
+            raise TargetError("crochet fermant manquant après l'adresse IPv6")
         hote = _ipv6(hote_brut)
     elif autorite.count(":") > 1:
-        raise TargetError("une adresse IPv6 s'ecrit entre crochets : [fe80::1]")
+        raise TargetError("une adresse IPv6 s'écrit entre crochets : [fe80::1]")
     else:
         hote_brut, deux_points, port_brut = autorite.partition(":")
         reste = deux_points + port_brut
@@ -157,7 +157,7 @@ def _hote_port(autorite: str) -> tuple[str, int | None]:
     if not reste:
         return hote, None
     if not reste.startswith(":"):
-        raise TargetError("caracteres inattendus apres l'hote")
+        raise TargetError("caractères inattendus après l'hôte")
     return hote, _port(reste[1:])
 
 
@@ -180,7 +180,7 @@ def _chemin_bundle(brut: str) -> Path:
 
 @dataclass(frozen=True)
 class Target:
-    """Une cible d'audit validee. A construire via Target.parse()."""
+    """Une cible d'audit validée. À construire via Target.parse()."""
 
     kind: Kind
     transport: Transport
@@ -190,7 +190,7 @@ class Target:
 
     @property
     def id(self) -> str:
-        """Forme normalisee : affichage, journaux, comparaison au perimetre."""
+        """Forme normalisée : affichage, journaux, comparaison au périmètre."""
         if self.transport is Transport.LOCAL:
             return "local"
         if self.transport is Transport.WINRM and self.address is not None:
@@ -199,14 +199,14 @@ class Target:
             return f"winrm://{hote}{port}"
         if self.transport is Transport.BUNDLE and self.path is not None:
             return f"bundle:{self.path}"
-        raise TargetError(f"cible incomplete ({self.kind}/{self.transport})")
+        raise TargetError(f"cible incomplète ({self.kind}/{self.transport})")
 
     def __str__(self) -> str:
         return self.id
 
     @classmethod
     def parse(cls, brut: str) -> Target:
-        """Valide et normalise une cible ; leve TargetError sinon."""
+        """Valide et normalise une cible ; lève TargetError sinon."""
         _verifier_caracteres(brut)
         schema, separateur, reste = brut.partition(":")
         schema = schema.lower()
@@ -214,7 +214,7 @@ class Target:
             return cls(Kind.WINDOWS_HOST, Transport.LOCAL)
         if separateur and schema == "winrm":
             if not reste.startswith("//"):
-                raise TargetError("syntaxe attendue : winrm://<hote>[:port]")
+                raise TargetError("syntaxe attendue : winrm://<hôte>[:port]")
             hote, port = _hote_port(reste[2:])
             return cls(Kind.WINDOWS_HOST, Transport.WINRM, address=hote, port=port)
         if separateur and schema == "bundle":
@@ -226,13 +226,13 @@ class Target:
             raise TargetError(f"transport manquant : utiliser {suggestion}")
         if separateur:
             raise TargetError(
-                f"schema inconnu {_montrer(schema)} ; schemas pris en charge : {FORMES}"
+                f"schéma inconnu {_montrer(schema)} ; schémas pris en charge : {FORMES}"
             )
-        raise TargetError(f"cible non reconnue ; formes acceptees : {FORMES}")
+        raise TargetError(f"cible non reconnue ; formes acceptées : {FORMES}")
 
 
 def _suggestion(brut: str) -> str | None:
-    """Forme winrm:// d'un hote nu (``dc01``, ``10.0.0.5:5986``, ``fe80::1``)."""
+    """Forme winrm:// d'un hôte nu (``dc01``, ``10.0.0.5:5986``, ``fe80::1``)."""
     for autorite in (brut, f"[{brut}]"):
         try:
             hote, port = _hote_port(autorite)

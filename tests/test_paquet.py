@@ -58,7 +58,10 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Iterator[zipfile.ZipFile]
         ],
         cwd=projet,
         capture_output=True,
-        text=True,
+        # messages de setuptools en UTF-8 ; replace : diagnostic seulement
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     assert build.returncode == 0, build.stderr
@@ -93,9 +96,13 @@ def test_version_depuis_les_sources(metadata: email.message.Message) -> None:
     sortie = subprocess.run(
         [sys.executable, "-S", "-m", "amnesia", "--version"],
         cwd=RACINE,
-        env={**os.environ, "PYTHONPATH": str(RACINE / "src")},
+        env={
+            **os.environ,
+            "PYTHONPATH": str(RACINE / "src"),
+            "PYTHONIOENCODING": "utf-8",
+        },
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         check=True,
     )
     assert sortie.stdout.strip() == f"amnesia {metadata['Version']}"
