@@ -100,8 +100,9 @@ uv run nox -s lint typecheck tests-3.11   # ruff, mypy --strict, pytest et couve
 `--locked` fait échouer `uv sync` si `uv.lock` ne correspond plus à
 `pyproject.toml`, au lieu de le régénérer en silence.
 
-La suite est verte quand nox termine par `Session tests-3.11 was successful.`,
-couverture d'au moins 80 % comprise. Des tests SKIPPED sont normaux : ils
+La suite est verte quand le bilan de nox affiche `lint: success`,
+`typecheck: success` et `tests-3.11: success`, couverture d'au moins 80 %
+comprise. Des tests SKIPPED sont normaux : ils
 demandent Windows, un binaire gitleaks dans le `PATH`, des droits administrateur,
 le lab Active Directory, un tenant cloud ou le réseau (marqueurs `windows`,
 `admin`, `lab`, `cloud` et `network`, options `--run-*` de
