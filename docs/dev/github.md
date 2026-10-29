@@ -58,6 +58,15 @@ les commandes appliquées relèvent de #13.
 
 - [ ] **Canal testé** : un signalement de test envoyé depuis un autre compte GitHub
   est bien notifié au propriétaire, puis fermé sans publication (#28).
+- [ ] **Commits sans adresse personnelle** : l'adresse d'auteur et de committer de
+  chaque commit poussé est publique, y compris dans les commits d'une PR
+  (`refs/pull/<n>/head`), qu'un merge squash ne réécrit pas. Le propriétaire
+  active sur GitHub « Keep my email addresses private » et « Block command line
+  pushes that expose my email », puis commite avec son adresse
+  `users.noreply.github.com`. Les commits déjà poussés gardent leur adresse :
+  l'historique publié n'est pas réécrit. Vérification avant chaque push :
+  `git log --format='%ae%n%ce' origin/main..HEAD | sort -u` ne montre que
+  l'adresse `users.noreply.github.com`.
 - [x] Secret scanning et protection des pushes.
 - [x] Alertes et mises à jour de sécurité Dependabot.
 - [x] Protection de `main` : PR obligatoire, check `ci-ok` requis, ni push forcé ni

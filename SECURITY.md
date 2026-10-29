@@ -125,6 +125,11 @@ d'amnesia.
   signalement est libre de publier.
 - **Correctif** : préparé dans la fourche privée temporaire de l'avis, puis publié
   dans une version corrective ([`docs/RELEASING.md`, « Correctifs »][correctifs]).
+  Il n'est jamais mergé depuis l'avis : GitHub n'exécute pas la CI dans la
+  fourche privée, et ce merge n'applique pas la protection de `main`. Le
+  mainteneur relit chaque commit et rejoue les contrôles de la CI en local avant
+  que rien n'atteigne le dépôt public, puis le correctif arrive dans `main` par
+  une PR ordinaire, avec `ci-ok` requis.
 - **Avis de sécurité** : publié sur GitHub (identifiant GHSA) avec la version
   corrigée. Un CVE est demandé à GitHub, autorité d'attribution (CNA), dès que la
   faille touche une version publiée.

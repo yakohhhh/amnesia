@@ -164,6 +164,25 @@ def test_perimetre_et_divulgation() -> None:
         assert element in divulgation, element
 
 
+def test_correctif_jamais_merge_depuis_l_avis() -> None:
+    # ni CI ni protection de branche sur un merge depuis la fourche privee de
+    # l'avis : le correctif passe par une PR ordinaire, controles rejoues avant
+    divulgation = _aplati(_section(_texte(SECURITE), "Divulgation et correctifs"))
+    for element in ("jamais mergé depuis l'avis", "en local", "`ci-ok` requis"):
+        assert element in divulgation, element
+    releasing = _texte(RACINE / "docs" / "RELEASING.md")
+    correctifs = _aplati(releasing.partition("### Correctifs")[2].partition("### ")[0])
+    for element in (
+        "« Merge pull requests »",
+        "jamais utilisé",
+        "--hook-stage manual",
+        "scripts/verifier_chemins.py",
+        "gitleaks git",
+        "PR ordinaire",
+    ):
+        assert element in correctifs, element
+
+
 def test_liens_absolus_vers_des_fichiers_et_titres_existants() -> None:
     # liens absolus, comme le README : le document est aussi affiche hors du
     # depot (onglet Security), ou un lien relatif ne se resout pas
@@ -234,3 +253,14 @@ def test_checklist_de_passage_en_public_active_le_signalement_prive() -> None:
     cibles = [cible for _, cible in _liens(signalement, _texte(GITHUB_MD))]
     assert cibles == ["../../SECURITY.md"]
     assert (GITHUB_MD.parent / cibles[0]).resolve() == SECURITE
+
+
+def test_checklist_de_passage_en_public_adresse_des_commits() -> None:
+    # l'adresse d'auteur d'un commit pousse est publique, refs/pull compris
+    section = _section(_texte(GITHUB_MD), "Passage en public")
+    (adresse,) = [e for e in _elements(section) if "adresse personnelle" in e]
+    assert adresse.startswith(("[ ] ", "[x] "))
+    for element in ("refs/pull/<n>/head", "Block command line pushes", "noreply"):
+        assert element in adresse, element
+    # la checklist ne cite aucune adresse complete
+    assert not COURRIEL.findall(section)
