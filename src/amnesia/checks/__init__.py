@@ -4,7 +4,15 @@ Importer ce paquet ne charge aucun check : le registre importe les paquets de
 domaine (``windows``, ``ad``...) au premier besoin.
 """
 
-from .base import Check, Gap
+from .base import (
+    Check,
+    Confidence,
+    Evidence,
+    Gap,
+    Reference,
+    ReferenceKind,
+    Severity,
+)
 from .registry import (
     REGISTRY,
     CheckMeta,
@@ -27,11 +35,16 @@ __all__ = [
     "Check",
     "CheckMeta",
     "CheckRegistrationError",
+    "Confidence",
     "Domain",
     "DuplicateCheckError",
+    "Evidence",
     "Gap",
     "InvalidCheckError",
+    "Reference",
+    "ReferenceKind",
     "Registry",
+    "Severity",
     "default_checks",
     "register",
 ]

@@ -26,6 +26,7 @@ from amnesia.checks import (
     DuplicateCheckError,
     InvalidCheckError,
     Registry,
+    Severity,
     default_checks,
     register,
     registry,
@@ -376,6 +377,14 @@ def test_checks_actuels() -> None:
             assert validate_fact_name(nom).startswith("windows."), nom
         assert meta.description.strip()
         assert not meta.implemented, meta.id
+
+
+def test_severites_alignees_sur_l_enum_severity() -> None:
+    # une seule source de verite : les niveaux du registre sont ceux de #16
+    assert registry.SEVERITES == ("critical", "high", "medium", "low", "info")
+    assert [Severity.parse(s) for s in registry.SEVERITES] == sorted(
+        Severity, reverse=True
+    )
 
 
 def test_un_module_par_check_windows() -> None:

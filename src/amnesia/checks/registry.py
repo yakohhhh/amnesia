@@ -70,7 +70,7 @@ from enum import StrEnum
 from typing import Any, NoReturn, TypeVar
 
 from ..target import Kind
-from .base import Check
+from .base import Check, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +98,9 @@ _PREFIXE_DU_DOMAINE: dict[Domain, str] = {
     Domain.SIEM: "siem",
 }
 
-# niveaux de Severity (#16), du plus grave au moins grave ; default_severity
-# passera a cet enum quand il existera
-SEVERITES = ("critical", "high", "medium", "low", "info")
+# valeurs de Severity (#16), du plus grave au moins grave : une seule source de
+# verite pour les niveaux ; default_severity reste declaree en chaine
+SEVERITES = tuple(s.value for s in sorted(Severity, reverse=True))
 
 # fullmatch et non match : « $ » accepterait un saut de ligne final
 _FORMAT_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+")
