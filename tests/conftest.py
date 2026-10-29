@@ -22,8 +22,10 @@ Limite : un sous-processus lance par un test n'est pas filtre.
 
 from __future__ import annotations
 
+import shutil
 import socket
 import sys
+import tempfile
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -91,6 +93,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         )
 
 
+# dossier temporaire des caches de hypothesis, supprime en fin de session
+_CACHE_HYPOTHESIS: list[Path] = []
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # declares ici et non dans pyproject : les options --run-* en derivent
     config.addinivalue_line("markers", "windows: test reserve a Windows")
@@ -101,6 +107,13 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "allow_hosts(hotes): restreint un test network a ces hotes"
     )
+    # caches de hypothesis (exemples, constantes, donnees Unicode) hors du depot :
+    # sinon .hypothesis/ est cree dans le repertoire courant, et la CI refuse
+    # tout fichier ecrit dans le depot par les tests
+    from hypothesis.configuration import set_hypothesis_home_dir
+
+    _CACHE_HYPOTHESIS.append(Path(tempfile.mkdtemp(prefix="amnesia-hypothesis-")))
+    set_hypothesis_home_dir(_CACHE_HYPOTHESIS[0])
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -111,6 +124,8 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     _ouvrir_le_reseau()
+    for dossier in _CACHE_HYPOTHESIS:
+        shutil.rmtree(dossier, ignore_errors=True)
 
 
 def pytest_collection_modifyitems(
