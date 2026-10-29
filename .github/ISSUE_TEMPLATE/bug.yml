@@ -1,0 +1,83 @@
+# Signalement de bug : environnement, commande et sortie, reproduites sur des
+# donnees fictives (SECURITY.md, « Support et signalements »). Les deux cases
+# d'anonymisation sont obligatoires (tests/test_contribution.py) ; schema
+# verifie par check-jsonschema (vendor.github-issue-forms).
+name: Bug
+description: Signaler un comportement incorrect d'amnesia, avec une sortie anonymisée.
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ce dépôt est public : tout ce qui est écrit ici l'est aussi. **Reproduis le bug sur une cible de test ou des données fictives**, et ne colle jamais de journal ni de sortie produits chez un client, même retouchés ([SECURITY.md](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md), « Support et signalements »). Ne joins jamais de rapport, de collecte, de bundle ni de capture d'un client.
+
+        Dans la commande et la sortie, remplace par des valeurs fictives (`SRV-FILE`, `exemple.invalid`, `192.0.2.10`, `bundle:./exemple`) : noms de client ou de mission, chemins (`bundle:`, `--out`, `--log-file`, profils `C:\Users\…`), noms d'hôtes, domaines, adresses IP, comptes, SID, GUID, identifiants de tenant et secrets. amnesia affiche les chemins de la cible et du rapport : ils contiennent souvent le nom du client.
+
+        Une faille de sécurité ne se signale pas ici : voir [SECURITY.md](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version d'amnesia
+      description: Sortie de `amnesia --version`, ou commit si tu travailles depuis les sources.
+      placeholder: amnesia 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Système d'exploitation
+      placeholder: Windows Server 2022, Ubuntu 24.04, macOS 15…
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Version de Python
+      description: Sortie de `python --version`.
+      placeholder: Python 3.11.9
+    validations:
+      required: true
+  - type: dropdown
+    id: cible
+    attributes:
+      label: Type de cible
+      description: Le type seulement, jamais le nom réel de la cible.
+      options:
+        - local
+        - "winrm://"
+        - "bundle:"
+        - autre
+    validations:
+      required: true
+  - type: textarea
+    id: commande
+    attributes:
+      label: Commande lancée (anonymisée)
+      description: Sur une cible de test ou des données fictives ; chemins, noms de client ou de mission, hôtes et comptes remplacés par des valeurs fictives.
+      placeholder: amnesia -v audit --target bundle:./exemple --out ./exemple.json
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: sortie
+    attributes:
+      label: Sortie obtenue (anonymisée)
+      description: Message d'erreur ou extrait de la sortie obtenus sur une cible de test ou des données fictives, jamais une sortie produite chez un client. Vérifie les chemins affichés (cible, rapport, journal).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: checkboxes
+    id: anonymisation
+    attributes:
+      label: Anonymisation
+      options:
+        - label: J'ai reproduit le bug sur une cible de test ou des données fictives, sans coller de sortie produite chez un client.
+          required: true
+        - label: J'ai remplacé noms de client ou de mission, chemins, noms d'hôtes, domaines, IP, comptes, SID, GUID, identifiants de tenant et secrets par des valeurs fictives.
+          required: true

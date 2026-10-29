@@ -1,0 +1,8 @@
+# Pas d'issue vierge : seuls les formulaires sont proposes. Les roles Write et
+# au-dela voient encore « Blank issue », libelle « Maintainers only » par GitHub.
+# Schema verifie par check-jsonschema (vendor.github-issue-config).
+blank_issues_enabled: false
+contact_links:
+  - name: Signaler une vulnérabilité
+    url: https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md
+    about: Jamais dans une issue publique. Signalement privé par GitHub, selon la politique de sécurité.

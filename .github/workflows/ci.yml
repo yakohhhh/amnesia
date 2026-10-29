@@ -184,6 +184,23 @@ jobs:
         run: >-
           uv run --only-group ci check-jsonschema
           --builtin-schema vendor.dependabot .github/dependabot.yml
+      # tous les formulaires du repertoire, config.yml a part (autre schema)
+      - name: formulaires d'issues conformes au schema (embarque, hors ligne)
+        run: |
+          shopt -s nullglob
+          formulaires=()
+          for f in .github/ISSUE_TEMPLATE/*.yml .github/ISSUE_TEMPLATE/*.yaml; do
+            case "${f##*/}" in
+              config.yml | config.yaml) ;;
+              *) formulaires+=("$f") ;;
+            esac
+          done
+          uv run --only-group ci check-jsonschema \
+            --builtin-schema vendor.github-issue-forms "${formulaires[@]}"
+      - name: config.yml des issues conforme au schema (embarque, hors ligne)
+        run: >-
+          uv run --only-group ci check-jsonschema
+          --builtin-schema vendor.github-issue-config .github/ISSUE_TEMPLATE/config.yml
 
   gitleaks:
     name: gitleaks

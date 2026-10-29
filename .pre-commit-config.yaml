@@ -68,6 +68,20 @@ repos:
         stages: [pre-commit, pre-push, manual]
         exclude: *donnees-brutes
 
+      # Formulaires d'issues et leur config.yml : schemas embarques dans
+      # check-jsonschema (groupe ci de uv.lock), hors ligne ; la CI rejoue les
+      # memes validations (job workflow-lint).
+      - id: formulaires-issues
+        name: formulaires d'issues conformes au schema GitHub
+        language: system
+        entry: uv run --locked --group ci check-jsonschema --builtin-schema vendor.github-issue-forms
+        files: '^\.github/ISSUE_TEMPLATE/(?!config\.ya?ml$)[^/]+\.ya?ml$'
+      - id: config-issues
+        name: config.yml des issues conforme au schema GitHub
+        language: system
+        entry: uv run --locked --group ci check-jsonschema --builtin-schema vendor.github-issue-config
+        files: '^\.github/ISSUE_TEMPLATE/config\.ya?ml$'
+
       # Garde-fous anti-fuite, actifs meme avec git add -f. Les motifs sont
       # insensibles a la casse ; tests/test_outillage.py les verifie.
       - id: interdire-sorties-amnesia

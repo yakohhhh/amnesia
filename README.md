@@ -52,6 +52,10 @@ amnesia --help
 
 ## Développement
 
+Pour contribuer (environnement, conventions, workflow Git, formulaires
+d'issues) :
+[`CONTRIBUTING.md`](https://github.com/yakohhhh/amnesia/blob/main/CONTRIBUTING.md).
+
 Les outils (ruff, mypy, pytest, nox) sont épinglés dans `pyproject.toml` et figés
 avec leurs empreintes dans `uv.lock`.
 
