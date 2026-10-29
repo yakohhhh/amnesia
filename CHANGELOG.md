@@ -33,5 +33,10 @@ la première version sera la 0.1.0 (milestone M0).
   strict : un caractère impossible à encoder ne fait pas planter la commande
   (#182).
 - Annotations de type publiées avec le paquet (marqueur `py.typed`) (#177).
+- Moteur d'audit, utilisable comme API Python (`from amnesia import run_audit,
+  AuditResult`) : faits collectés une fois par audit, délai par check (120 s par
+  défaut), un check en échec ou bloqué n'arrête pas les autres, résultats triés
+  par sévérité avec comptes par statut et par sévérité ; un Ctrl+C rend un
+  audit partiel marqué interrompu (#195).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main
