@@ -192,6 +192,17 @@ def test_package_data_dans_le_wheel(wheel: zipfile.ZipFile) -> None:
         assert f"amnesia/{sonde}" in contenu
 
 
+def test_schemas_json_dans_le_wheel(wheel: zipfile.ZipFile) -> None:
+    # equivalent de « unzip -l » : les vrais schemas, pas seulement les sondes
+    contenu = set(wheel.namelist())
+    for nom in ("report-v1.schema.json", "facts-1.schema.json"):
+        assert f"amnesia/schemas/{nom}" in contenu
+        assert (
+            wheel.read(f"amnesia/schemas/{nom}")
+            == (RACINE / "src" / "amnesia" / "schemas" / nom).read_bytes()
+        )
+
+
 def test_setuptools_des_tests_aligne_sur_le_backend_fige() -> None:
     dev = [d for d in PYPROJECT["dependency-groups"]["dev"] if "setuptools" in d]
     contraintes = PYPROJECT["tool"]["uv"]["build-constraint-dependencies"]
