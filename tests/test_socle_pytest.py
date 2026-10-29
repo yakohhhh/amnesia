@@ -19,6 +19,8 @@ import pytest
 import yaml
 from pytest_socket import SocketBlockedError
 
+from amnesia.target import Target
+
 if TYPE_CHECKING:
     from conftest import CheckFactice
 
@@ -240,9 +242,10 @@ def test_fixtures_communes(
     registre_factice: list[CheckFactice], horloge_figee: Callable[[], datetime]
 ) -> None:
     (sans_gap, avec_gap) = registre_factice
-    assert sans_gap.run("dc01") == []
-    assert [g.severity for g in avec_gap.run("dc01")] == ["high"]
-    assert avec_gap.cibles == ["dc01"]
+    cible = Target.parse("winrm://dc01")
+    assert sans_gap.run(cible) == []
+    assert [g.severity for g in avec_gap.run(cible)] == ["high"]
+    assert avec_gap.cibles == [cible]
     assert horloge_figee() == horloge_figee()
     assert horloge_figee().utcoffset() == timedelta(0)
 

@@ -64,6 +64,7 @@ amnesia = "amnesia.cli:main"
 [dependency-groups]
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [
+    "hypothesis==6.170.2",
     "mypy==2.4.0",
     "nox==2026.8.17",
     "pre-commit==4.7.0",
