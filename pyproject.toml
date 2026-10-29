@@ -100,7 +100,7 @@ build = [
     "check-wheel-contents==0.6.3",
     "twine==7.0.0",
     # [all] : classifiers verifies hors ligne avec trove-classifiers
-    "validate-pyproject[all]==0.26",
+    "validate-pyproject[all]==0.27",
 ]
 
 [tool.setuptools.packages.find]
