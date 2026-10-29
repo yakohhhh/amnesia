@@ -1,9 +1,9 @@
 """Journalisation d'amnesia : niveaux, sorties et expurgation des secrets.
 
 Les diagnostics vont toujours sur stderr (et dans --log-file) ; stdout reste
-reserve au rapport. Les SDK prevus (botocore, urllib3, msal, pypsrp...) ecrivent en
-DEBUG les requetes signees et leurs en-tetes : ils restent plafonnes a WARNING,
-meme en --debug, et tout ce qui sort passe par le filtre d'expurgation.
+réservé au rapport. Les SDK prévus (botocore, urllib3, msal, pypsrp...) écrivent en
+DEBUG les requêtes signées et leurs en-têtes : ils restent plafonnés à WARNING,
+même en --debug, et tout ce qui sort passe par le filtre d'expurgation.
 
 Loggers : ``amnesia``, ``amnesia.check.<id>`` et ``amnesia.collector.<transport>``.
 """
@@ -46,17 +46,17 @@ _verrou = threading.Lock()
 # handlers poses par setup_logging, retires a l'appel suivant
 _handlers: list[logging.Handler] = []
 
-# controles C0 et C1, DEL, separateurs Unicode de ligne et surrogates isoles (nom
+# contrôles C0 et C1, DEL, separateurs Unicode de ligne et surrogates isoles (nom
 # de fichier non UTF-8) : rendus en \xNN ou \uNNNN dans le format texte ; le
 # traceback garde ses \n (et la tabulation reste telle quelle)
 _AUTRES = r"\x7f-\x9f\u2028\u2029\ud800-\udfff"
 _CONTROLES = re.compile(rf"[\x00-\x08\x0a-\x1f{_AUTRES}]")
 _CONTROLES_TRACEBACK = re.compile(rf"[\x00-\x08\x0b-\x1f{_AUTRES}]")
-# json.dumps echappe deja les controles C0 ; restent C1, DEL, U+2028/U+2029 et
+# json.dumps echappe deja les contrôles C0 ; restent C1, DEL, U+2028/U+2029 et
 # les surrogates
 _CONTROLES_JSON = re.compile(f"[{_AUTRES}]")
 
-# (motif, remplacement), appliques dans l'ordre apres les secrets enregistres.
+# (motif, remplacement), appliques dans l'ordre apres les secrets enregistrés.
 # Cout lineaire exige (ReDoS) : un motif ne doit pas reparcourir une longue suite
 # de caracteres depuis chacune de ses positions (blob base64, hex dump...), d'ou
 # les ancrages (?<![\w-]) et les quantificateurs possessifs ou bornes.
@@ -108,7 +108,7 @@ _MOTIFS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 def register_secret(valeur: str | None) -> None:
-    """Enregistre une valeur a masquer dans tous les journaux (alimente par #38)."""
+    """Enregistre une valeur à masquer dans tous les journaux (alimenté par #38)."""
     if not valeur:
         return
     with _verrou:
@@ -118,7 +118,7 @@ def register_secret(valeur: str | None) -> None:
 
 
 def redact(texte: str) -> str:
-    """Masque les secrets enregistres et les motifs connus de jetons et de cles."""
+    """Masque les secrets enregistrés et les motifs connus de jetons et de clés."""
     with _verrou:
         secrets = sorted(_secrets, key=len, reverse=True)
     for valeur in secrets:
@@ -138,10 +138,10 @@ def _champ(record: logging.LogRecord, nom: str) -> Any:
 class _PlafondTiers(logging.Filter):
     """Sous WARNING, ne laisse passer que les loggers d'amnesia.
 
-    Couvre un logger tiers remis en DEBUG apres coup par setLevel. Ne couvre PAS
-    un handler pose directement sur un logger tiers : boto3.set_stream_logger
-    ajoute le sien, sans plafond ni expurgation, et les requetes signees partent
-    en clair. D'ou l'interdiction de set_stream_logger (ruff TID251, pyproject).
+    Couvre un logger tiers remis en DEBUG après coup par setLevel. Ne couvre PAS
+    un handler posé directement sur un logger tiers : boto3.set_stream_logger
+    ajoute le sien, sans plafond ni expurgation, et les requêtes signées partent
+    en clair. D'où l'interdiction de set_stream_logger (ruff TID251, pyproject).
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -155,8 +155,8 @@ class _PlafondTiers(logging.Filter):
 class _Expurgation(logging.Filter):
     """Masque les secrets du message, des champs extra et des tracebacks.
 
-    L'enregistrement est modifie en place : les handlers suivants recoivent aussi
-    la version expurgee.
+    L'enregistrement est modifié en place : les handlers suivants reçoivent aussi
+    la version expurgée.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -196,11 +196,11 @@ def _echapper(texte: str, motif: re.Pattern[str]) -> str:
 
 
 class _FormatTexte(logging.Formatter):
-    """Une entree par ligne, horodatee en UTC ; traceback seulement en --debug.
+    """Une entrée par ligne, horodatée en UTC ; traceback seulement en --debug.
 
-    Les caracteres de controle venus d'un hote audite (sequences ANSI/OSC, \\r,
+    Les caractères de contrôle venus d'un hôte audité (séquences ANSI/OSC, \\r,
     \\n) sont rendus visibles : ils ne peuvent ni agir sur le terminal ni forger
-    une fausse entree.
+    une fausse entrée.
     """
 
     # staticmethod : appele sur l'instance, time.gmtime ne recoit pas self
@@ -223,7 +223,7 @@ class _FormatTexte(logging.Formatter):
 
 
 class _FormatJson(logging.Formatter):
-    """Une ligne JSON par entree : ts (UTC), level, logger, check_id, target,
+    """Une ligne JSON par entrée : ts (UTC), level, logger, check_id, target,
     duration_ms et msg ; exc et stack seulement en --debug.
 
     L'expurgation porte sur chaque champ avant l'encodage, jamais sur la ligne
@@ -264,7 +264,7 @@ class _FormatJson(logging.Formatter):
 
 
 class _Stderr(logging.StreamHandler[TextIO]):
-    """Ecrit sur le sys.stderr courant, resolu a chaque entree (comme lastResort)."""
+    """Écrit sur le sys.stderr courant, résolu à chaque entrée (comme lastResort)."""
 
     @property
     def stream(self) -> Any:
@@ -276,7 +276,7 @@ class _Stderr(logging.StreamHandler[TextIO]):
 
 
 def _ouvrir_journal(chemin: str) -> Any:
-    """Ouvre le journal en ajout, cree en 0600 ; refuse un lien symbolique."""
+    """Ouvre le journal en ajout, créé en 0600 ; refuse un lien symbolique."""
     drapeaux = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(chemin, drapeaux, 0o600)
     try:
@@ -292,7 +292,7 @@ def _ouvrir_journal(chemin: str) -> Any:
 
 
 class _JournalFichier(logging.FileHandler):
-    """FileHandler dont le fichier est cree en 0600."""
+    """FileHandler dont le fichier est créé en 0600."""
 
     def _open(self) -> Any:
         return _ouvrir_journal(self.baseFilename)
@@ -304,13 +304,13 @@ def setup_logging(
     log_file: Path | None = None,
     log_format: str = "text",
 ) -> logging.Logger:
-    """Configure les journaux ; un nouvel appel remplace la configuration precedente.
+    """Configure les journaux ; un nouvel appel remplace la configuration précédente.
 
     verbosity : -1 (-q, erreurs seulement), 0 (avertissements), 1 (-v, INFO),
     2 et plus (-vv, DEBUG pour amnesia seulement). debug force DEBUG et ajoute les
     tracebacks, jamais les variables locales. Le logger racine et les loggers
-    tiers ne descendent jamais sous WARNING. Leve OSError si log_file ne peut
-    pas etre ouvert, sans toucher a la configuration en place.
+    tiers ne descendent jamais sous WARNING. Lève OSError si log_file ne peut
+    pas être ouvert, sans toucher à la configuration en place.
     """
     if log_format not in FORMATS:
         raise ValueError(f"format de journal inconnu : {log_format!r}")
@@ -352,7 +352,7 @@ def setup_logging(
 
 
 def check_logger(check_id: str) -> logging.Logger:
-    """Logger d'un check : ``amnesia.check.<id>`` (check_id deduit en JSON)."""
+    """Logger d'un check : ``amnesia.check.<id>`` (check_id déduit en JSON)."""
     return logging.getLogger(f"{LOGGER}.check.{check_id}")
 
 
