@@ -1,0 +1,80 @@
+# Proposition de check : la question d'enquete d'abord, puis d'ou vient la
+# preuve et comment la lire. Champs obligatoires verifies par
+# tests/test_contribution.py ; schema verifie par check-jsonschema
+# (vendor.github-issue-forms) en pre-commit et en CI.
+name: Nouveau check
+description: Proposer un check, c'est-à-dire une question d'enquête qu'un défaut de journalisation rendrait impossible.
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Un check d'amnesia part d'une **question d'enquête** à laquelle on ne pourra pas répondre le jour de l'incident, puis précise d'où viendrait la preuve et comment vérifier, en lecture seule, qu'elle sera bien là.
+
+        **Aucune donnée client** dans cette issue : ni nom d'hôte, ni domaine, ni adresse IP, ni identifiant de tenant ou de compte. Utilise des noms fictifs (`SRV-FILE`, `exemple.invalid`, `192.0.2.10`). Une vulnérabilité d'amnesia se signale en privé, jamais ici : voir [SECURITY.md](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md).
+  - type: dropdown
+    id: domaine
+    attributes:
+      label: Domaine
+      description: Domaine du check (préfixe de son id, `win.`, `ad.`, `m365.`, `aws.` ou `siem.`).
+      options:
+        - windows
+        - ad
+        - m365
+        - aws
+        - siem
+        - autre
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question(s) d'enquête rendue(s) impossible(s)
+      description: La ou les questions auxquelles l'enquêteur ne pourra pas répondre si la journalisation fait défaut.
+      placeholder: « Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ? »
+    validations:
+      required: true
+  - type: textarea
+    id: telemetrie
+    attributes:
+      label: Source de télémétrie
+      description: Journal, Event IDs, API ou trace qui répondrait à la question si elle était correctement configurée.
+      placeholder: Journal Security, Event IDs 4624 et 4625 (type de logon 10)
+    validations:
+      required: true
+  - type: textarea
+    id: collecte
+    attributes:
+      label: Méthode de collecte
+      description: Comment lire la configuration en lecture seule (cmdlet, commande, API, clé de registre).
+      placeholder: Get-WinEvent -ListLog Security (MaximumSizeInBytes, LogMode)
+    validations:
+      required: true
+  - type: textarea
+    id: privileges
+    attributes:
+      label: Privilèges minimaux
+      description: Droits strictement nécessaires à la collecte, sans compte d'administration si c'est évitable.
+      placeholder: Membre du groupe local « Lecteurs des journaux d'événements »
+    validations:
+      required: true
+  - type: textarea
+    id: seuil
+    attributes:
+      label: Seuil et sévérité
+      description: À partir de quand la question devient impossible, et la sévérité proposée selon la grille de docs/severite.md (critical, high, medium, low, info).
+      placeholder: Rétention du journal Security inférieure à 90 jours ; high
+  - type: textarea
+    id: references
+    attributes:
+      label: Références
+      description: Documentation de l'éditeur, technique MITRE ATT&CK, recommandation (ANSSI, CIS…).
+  - type: checkboxes
+    id: engagements
+    attributes:
+      label: Vérifications
+      options:
+        - label: La collecte proposée est en lecture seule et ne modifie rien sur la cible.
+          required: true
+        - label: Cette issue ne contient aucune donnée client (noms d'hôtes, domaines, IP, identifiants de tenant).
+          required: true

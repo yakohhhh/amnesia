@@ -1,0 +1,77 @@
+# Signalement de bug : environnement, commande et sortie, anonymisees avant
+# envoi. La case d'anonymisation est obligatoire (tests/test_contribution.py) ;
+# schema verifie par check-jsonschema (vendor.github-issue-forms).
+name: Bug
+description: Signaler un comportement incorrect d'amnesia, avec une sortie anonymisée.
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ce dépôt est public : tout ce qui est écrit ici l'est aussi. **Anonymise la commande et la sortie avant de les coller** : remplace noms d'hôtes, domaines, adresses IP, comptes et identifiants de tenant par des valeurs fictives (`SRV-FILE`, `exemple.invalid`, `192.0.2.10`). Ne joins jamais de rapport, de collecte ni de capture d'un client.
+
+        Une faille de sécurité ne se signale pas ici : voir [SECURITY.md](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version d'amnesia
+      description: Sortie de `amnesia --version`, ou commit si tu travailles depuis les sources.
+      placeholder: amnesia 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Système d'exploitation
+      placeholder: Windows Server 2022, Ubuntu 24.04, macOS 15…
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Version de Python
+      description: Sortie de `python --version`.
+      placeholder: Python 3.11.9
+    validations:
+      required: true
+  - type: dropdown
+    id: cible
+    attributes:
+      label: Type de cible
+      description: Le type seulement, jamais le nom réel de la cible.
+      options:
+        - local
+        - "winrm://"
+        - "bundle:"
+        - autre
+    validations:
+      required: true
+  - type: textarea
+    id: commande
+    attributes:
+      label: Commande lancée (anonymisée)
+      placeholder: amnesia audit --target winrm://srv-file.exemple.invalid -v
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: sortie
+    attributes:
+      label: Sortie obtenue (anonymisée)
+      description: Message d'erreur ou extrait de la sortie, après anonymisation.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: checkboxes
+    id: anonymisation
+    attributes:
+      label: Anonymisation
+      options:
+        - label: J'ai retiré noms d'hôtes, domaines, IP et identifiants de tenant.
+          required: true
