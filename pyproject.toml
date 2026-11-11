@@ -62,6 +62,16 @@ Changelog = "https://github.com/yakohhhh/amnesia/blob/main/CHANGELOG.md"
 [project.scripts]
 amnesia = "amnesia.cli:main"
 
+# Aucune cle « dependencies » : le socle n'a aucune dependance tierce
+# d'execution. Chaque SDK entre par un extra de domaine, declare par le ticket qui
+# introduit sa premiere dependance, aussi dans amnesia.deps.EXTRAS : borne basse
+# testee (job CI lowest-direct), pas de borne haute sans incompatibilite connue,
+# fiche d'acceptation remplie (docs/dev/dependances.md). « all » reference
+# tous les autres extras, sous la forme « amnesia-dfr[windows,ad,...] ».
+# tests/test_paquet.py verifie ces regles, metadonnees du wheel comprises.
+[project.optional-dependencies]
+all = []
+
 [dependency-groups]
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [

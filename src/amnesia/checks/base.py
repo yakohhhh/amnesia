@@ -47,7 +47,9 @@ not_implemented
     Le check n'est pas encore écrit.
     Ex. : win.time_sync, dont evaluate() lève encore NotImplementedError.
 not_collected
-    Le fait nécessaire est absent des données disponibles.
+    Le fait nécessaire est absent des données disponibles, ou ne peut pas être
+    collecté faute de l'extra qui fournit son SDK (``MissingExtra``, #44 : le
+    message donne alors la commande d'installation).
     Ex. : bundle hors ligne collecté sans la configuration Sysmon.
 
 Motifs de ``error`` (le check a échoué en cours d'exécution) :
@@ -753,7 +755,13 @@ class Check:
     - obligatoires : ``id`` (``domaine.nom``), ``title``, ``description``,
       ``domain``, ``target_kinds``, ``version`` (incrémentée quand la logique
       change) et ``default_severity`` ;
-    - vides par défaut : ``requires_facts`` (#20) et ``question_ids`` (#46).
+    - vides par défaut : ``requires_facts`` (#20) et ``question_ids`` (#46) ;
+    - ``requires_extra`` (#44) : extra optionnel sans lequel le check ne peut
+      jamais être évalué (SDK de son API, ``amnesia.deps.EXTRAS``), ``None``
+      par défaut. Le moteur le vérifie avant toute collecte : absent, le check
+      est « non évalué » et le message donne la commande d'installation. Un
+      extra propre à un transport (WinRM) relève de son collecteur, qui appelle
+      ``require_extra`` : le même check reste évaluable sur un bundle.
     """
 
     id: str
@@ -766,6 +774,7 @@ class Check:
     # cles des faits lus par evaluate() (windows.auditpol.backup...), sans doublon
     requires_facts: tuple[str, ...] = ()
     question_ids: tuple[str, ...] = ()
+    requires_extra: str | None = None
 
     def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
         """Évalue les faits requis, sans aucune I/O ; rend pass ou gap.

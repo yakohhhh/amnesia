@@ -125,7 +125,12 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
   fait `windows.auditpol.backup`) plutôt que `auditpol /get`, dont
   l'« Inclusion Setting » est traduite ;
 - un échec de collecte d'un fait donne un fait `unavailable` avec son motif, pas
-  une exception.
+  une exception ;
+- un SDK tiers (WinRM, LDAP, Graph, boto3) s'importe dans `collect()`, après
+  `require_extra("<extra>")`, jamais au niveau du module. Seule exception à la
+  règle précédente : sans l'extra, `require_extra` lève `MissingExtra`, que le
+  moteur traduit en « non évalué » avec la commande d'installation
+  ([`docs/dev/dependances.md`](dependances.md)).
 
 ## Écrire un check
 
@@ -148,6 +153,11 @@ class MonCheck(Check):
   peut être `None`.
 - Tant qu'un check n'est pas écrit, il hérite d'`evaluate()`, qui lève
   `NotImplementedError` ; le moteur (#21) le rend en `skipped/not_implemented`.
+- `requires_extra` (facultatif) : extra optionnel sans lequel le check ne peut
+  jamais être évalué, quel que soit le transport (SDK d'une API cloud :
+  `"aws"`). Sans lui, le moteur rend `skipped/not_collected` avec la commande
+  d'installation ; `amnesia list-checks` l'affiche. Convention :
+  [`docs/dev/dependances.md`](dependances.md).
 
 ## Exemple complet : tester un check avec `FixtureCollector`
 

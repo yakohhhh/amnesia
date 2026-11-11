@@ -133,17 +133,27 @@ def _cible(valeur: str) -> Target:
 
 ETATS = {True: "implémenté", False: "à implémenter"}
 
+# colonne extra de list-checks pour un check qui n'en requiert aucun
+SANS_EXTRA = "-"
+
+
+def _extra(meta: CheckMeta) -> str:
+    """Extra requis à la manière de pip (``[aws]``), ou ``-`` : socle seul."""
+    return SANS_EXTRA if meta.requires_extra is None else f"[{meta.requires_extra}]"
+
 
 def _lister_checks(metas: list[CheckMeta]) -> None:
-    """Une ligne par check : id, domaine, état et titre, en colonnes alignées."""
+    """Une ligne par check : id, domaine, extra requis, état et titre, alignés."""
     if not metas:
         return
     largeur_id = max(len(m.id) for m in metas)
     largeur_domaine = max(len(m.domain.value) for m in metas)
+    largeur_extra = max(len(_extra(m)) for m in metas)
     largeur_etat = max(len(e) for e in ETATS.values())
     for m in metas:
         print(
             f"{m.id:<{largeur_id}}  {m.domain.value:<{largeur_domaine}}  "
+            f"{_extra(m):<{largeur_extra}}  "
             f"{ETATS[m.implemented]:<{largeur_etat}}  {m.title}"
         )
 
@@ -192,7 +202,13 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--out", default="amnesia-report.json", help="rapport de sortie")
 
     sub.add_parser(
-        "list-checks", parents=[journal], help="Liste les checks disponibles"
+        "list-checks",
+        parents=[journal],
+        help="Liste les checks disponibles",
+        description=(
+            "Une ligne par check : id, domaine, extra optionnel requis ([nom] : "
+            f"à installer en plus du paquet ; {SANS_EXTRA} : aucun), état et titre."
+        ),
     )
     r = sub.add_parser(
         "render",

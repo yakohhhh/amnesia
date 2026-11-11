@@ -56,5 +56,12 @@ la première version sera la 0.1.0 (milestone M0).
   selon l'encodage de sortie. Les valeurs du rapport sont neutralisées (séquences
   ANSI, contrôles, bidi) et échappées en Markdown ; un rapport d'une autre
   version majeure de format est refusé (code 4) (#23).
+- Extras optionnels : le paquet n'installe aucune dépendance tierce, chaque SDK
+  (WinRM, LDAP, Microsoft Graph, boto3) arrivera par un extra de domaine importé
+  à la demande, que l'extra `all` agrège ; sans lui, le check est non évalué
+  (`skipped` / `not_collected`) avec la commande d'installation dans le message,
+  sans traceback, et `amnesia list-checks` affiche l'extra requis par chaque
+  check (`[aws]`, `-` sans extra). Politique d'acceptation des dépendances :
+  `docs/dev/dependances.md` (#209).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main

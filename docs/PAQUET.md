@@ -104,10 +104,20 @@ et vérifie sa présence.
 2. `validate-pyproject pyproject.toml` (classifiers vérifiés hors ligne) ;
 3. `twine check --strict` sur le sdist et le wheel ;
 4. `check-wheel-contents` sur le wheel ;
-5. wheel installé sans index dans un venv vierge : `amnesia --version` doit
-   afficher `importlib.metadata.version("amnesia-dfr")`, `amnesia list-checks`
-   doit sortir en code 0, et `PYTHONPATH=src python -m amnesia --version` doit
+5. wheel installé sans index dans un venv vierge, où il doit être le seul
+   paquet (socle sans dépendance tierce) : `amnesia --version` doit afficher
+   `importlib.metadata.version("amnesia-dfr")`, `amnesia list-checks` doit
+   sortir en code 0, et `PYTHONPATH=src python -m amnesia --version` doit
    afficher la même version.
 
-Hors périmètre : champ `license` et PEP 639 (#30), publication (#33), extras
-optionnels (#44).
+## Dépendances d'exécution : extras optionnels
+
+Le paquet n'a aucune dépendance tierce d'exécution : chaque SDK (WinRM, LDAP,
+Microsoft Graph, boto3...) entre par un extra de domaine, importé à la demande,
+et l'extra `all` les agrège (#44). Convention, import paresseux, bornes de
+version et politique d'acceptation :
+[`docs/dev/dependances.md`](dev/dependances.md). Le message d'un extra manquant
+donne la commande d'installation par le nom : tant que le nom n'est pas publié,
+installer l'extra depuis les sources (`uv sync --extra <extra>`).
+
+Hors périmètre : champ `license` et PEP 639 (#30), publication (#33).
