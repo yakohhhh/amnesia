@@ -150,7 +150,7 @@ le lab Active Directory, un tenant cloud ou le réseau (marqueurs `windows`,
 ```sh
 uv run nox -l                       # liste des sessions
 uv run nox                          # lint, typecheck et tests de Python 3.11 à 3.15
-uv run nox -s lint typecheck tests build   # comme la CI, build du paquet compris
+uv run nox -s lint typecheck tests build lowest-direct   # comme la CI
 ```
 
 nox télécharge par uv les interpréteurs absents. Les mêmes vérifications, une à
@@ -200,9 +200,12 @@ Pour les rejouer sur tout le dépôt : `uv run pre-commit run --all-files`.
   coupé, les marqueurs sont déclarés (`--strict-markers`), et aucun test n'écrit
   dans le dépôt (répertoire courant isolé dans `tmp_path`, vérifié en CI).
 - **Dépendances** ([`docs/dev/dependances.md`](docs/dev/dependances.md)) :
-  version exacte (`==`) dans `pyproject.toml`, publiée depuis plus de 7 jours
-  (`exclude-newer`), lock régénéré avec la version d'uv de la CI, puis `uv.lock`
-  commité dans la même PR :
+  outil de développement en version exacte (`==`) ; dépendance d'exécution
+  seulement dans un extra optionnel, à borne basse (`>=`), importée à la demande
+  après `require_extra()` et accompagnée de sa fiche d'acceptation (licence,
+  maintenance, surface d'attaque). Toujours une version publiée depuis plus de
+  7 jours (`exclude-newer`), lock régénéré avec la version d'uv de la CI, puis
+  `uv.lock` commité dans la même PR :
 
   ```sh
   uvx uv@0.13.0 lock

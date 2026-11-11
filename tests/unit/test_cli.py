@@ -3,14 +3,16 @@
 from collections.abc import Sequence
 from importlib.metadata import entry_points
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
-from amnesia import __version__, cli
+from amnesia import __version__, cli, deps
 from amnesia.checks import Check, Domain, Registry, default_checks
 from amnesia.checks.base import CheckResult
 from amnesia.checks.context import Context
 from amnesia.cli import build_parser, main
+from amnesia.deps import Package
 from amnesia.facts import FactSet
 from amnesia.target import Kind, Target
 
@@ -27,9 +29,10 @@ def test_list_checks(capsys: pytest.CaptureFixture[str]) -> None:
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == len(default_checks()) == 5
     for check, line in zip(default_checks(), lines, strict=True):
-        # id, domaine, etat et titre ; les 5 checks actuels sont des stubs
-        identifiant, domaine, *_ = line.split()
-        assert (identifiant, domaine) == (check.id, "windows")
+        # id, domaine, extra, etat et titre ; les 5 checks actuels sont des
+        # stubs du socle, sans extra
+        identifiant, domaine, extra, *_ = line.split()
+        assert (identifiant, domaine, extra) == (check.id, "windows", "-")
         assert " à implémenter " in line
         assert line.endswith(f"  {check.title}")
 
@@ -64,9 +67,70 @@ def test_list_checks_etat_et_colonnes(
     monkeypatch.setattr(cli, "REGISTRY", registre)
     assert main(["list-checks"]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        "ad.implemente_long  ad       implémenté     Check implémenté",
-        "win.stub            windows  à implémenter  Check à écrire",
+        "ad.implemente_long  ad       -  implémenté     Check implémenté",
+        "win.stub            windows  -  à implémenter  Check à écrire",
     ]
+
+
+def test_list_checks_extra_requis(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # extras d'essai : aucun n'est encore declare (#44)
+    monkeypatch.setattr(
+        deps,
+        "EXTRAS",
+        MappingProxyType(
+            {
+                "aws": (Package("boto3", "boto3"),),
+                "cloud-m365": (Package("msgraph-sdk", "msgraph"),),
+            }
+        ),
+    )
+
+    class Cloudtrail(Check):
+        id = "aws.cloudtrail"
+        title = "CloudTrail actif"
+        description = "Requiert boto3."
+        domain = Domain.AWS
+        target_kinds = (Kind.AWS_ACCOUNT,)
+        version = 1
+        default_severity = "high"
+        requires_extra: str | None = "aws"
+
+    class Audit(Cloudtrail):
+        id = "m365.audit_log"
+        title = "Journal d'audit unifié"
+        domain = Domain.M365
+        target_kinds = (Kind.M365_TENANT,)
+        requires_extra = "cloud-m365"
+
+    class Socle(Cloudtrail):
+        id = "win.socle"
+        title = "Check du socle"
+        domain = Domain.WINDOWS
+        target_kinds = (Kind.WINDOWS_HOST,)
+        requires_extra = None
+
+    registre = Registry()
+    for classe in (Cloudtrail, Audit, Socle):
+        registre.register(classe)
+    monkeypatch.setattr(cli, "REGISTRY", registre)
+    assert main(["list-checks"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "aws.cloudtrail  aws      [aws]         à implémenter  CloudTrail actif",
+        "m365.audit_log  m365     [cloud-m365]  à implémenter  Journal d'audit unifié",
+        "win.socle       windows  -             à implémenter  Check du socle",
+    ]
+
+
+def test_list_checks_aide_decrit_la_colonne_extra(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        main(["list-checks", "--help"])
+    aide = " ".join(capsys.readouterr().out.split())
+    assert "extra optionnel requis ([nom]" in aide
+    assert "- : aucun" in aide
 
 
 def test_list_checks_registre_vide(

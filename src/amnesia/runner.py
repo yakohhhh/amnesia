@@ -2,9 +2,9 @@
 
 Pour chaque check, dans l'ordre reçu :
 
-1. collecte de ses faits requis (``requires_facts``) par un ``CachingCollector``
-   propre à l'audit : un fait demandé par plusieurs checks n'est collecté qu'une
-   fois ;
+1. vérification de l'extra qu'il déclare (``requires_extra``), puis collecte de
+   ses faits requis (``requires_facts``) par un ``CachingCollector`` propre à
+   l'audit : un fait demandé par plusieurs checks n'est collecté qu'une fois ;
 2. ``resolve()`` traduit un fait requis indisponible en résultat (error, skipped
    ou not_applicable) ; le check n'est alors pas évalué ;
 3. sinon, ``evaluate()`` rend le résultat.
@@ -15,6 +15,9 @@ Un check qui plante ne fait jamais tomber les autres :
 Le check (ou la collecte de ses faits)   Résultat
 =======================================  =======================================
 lève ``CheckSkipped``                    ``skipped``, motif de l'exception
+lève ``MissingExtra`` (extra absent)     ``skipped`` / ``not_collected`` :
+                                         commande d'installation dans le
+                                         message, sans trace
 lève ``NotApplicable``                   ``not_applicable``
 lève ``NotImplementedError``             ``skipped`` / ``not_implemented``
 lève une autre exception                 ``error`` / ``internal_error`` : type
@@ -78,6 +81,7 @@ from .checks.base import (
     Status,
 )
 from .checks.context import Context
+from .deps import MissingExtra, require_extra
 from .facts import CachingCollector, Collector, FactSet, resolve
 from .log import check_logger
 from .target import Target
@@ -281,6 +285,9 @@ def _evaluer_brut(
     """Collecte, résolution, évaluation ; convertit les sauts levés par le check."""
     cible = contexte.target
     try:
+        # extra du check (SDK de son API) : verifie avant toute collecte
+        if check.requires_extra is not None:
+            require_extra(check.requires_extra)
         # sans fait requis, aucune collecte : le verrou du cache peut etre tenu
         # par un check abandonne apres un depassement de delai
         faits = (
@@ -292,6 +299,11 @@ def _evaluer_brut(
         if impose is not None:
             return impose
         return _verifier_resultat(check.evaluate(faits, contexte), check.id, cible.id)
+    except MissingExtra as exc:
+        # levee par le moteur ou par un collecteur (import paresseux) : non
+        # evalue, le message donne la commande d'installation ; aucune ErrorInfo,
+        # donc aucune trace, meme avec debug
+        return CheckResult.skipped(check.id, cible.id, Reason.NOT_COLLECTED, str(exc))
     except CheckSkipped as exc:
         return CheckResult.skipped(check.id, cible.id, exc.reason, exc.message)
     except NotApplicable as exc:

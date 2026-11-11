@@ -11,13 +11,14 @@ import subprocess
 import sys
 import tomllib
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import pytest
 import yaml
 
 import amnesia
+from amnesia import deps
 
 RACINE = Path(__file__).resolve().parent.parent
 PYPROJECT = tomllib.loads((RACINE / "pyproject.toml").read_text(encoding="utf-8"))
@@ -219,3 +220,258 @@ def test_ci_construit_le_paquet_sous_linux_et_windows() -> None:
         if any(re.search(r"\bnox -s\b.*\bbuild\b", c) for c in commandes):
             systemes.add(job["runs-on"].split("-")[0])
     assert systemes == {"ubuntu", "windows"}
+
+
+# --- dependances d'execution : extras optionnels (#44) -------------------------
+
+# Backports de la stdlib admis hors extra, seulement sous condition de version de
+# Python (« tomli ; python_version < "3.11" ») : docs/dev/dependances.md
+BACKPORTS = frozenset(
+    {"exceptiongroup", "importlib-metadata", "importlib-resources", "tomli"}
+)
+
+# Bornes hautes admises (distribution normalisee -> incompatibilite connue) ;
+# toute entree renvoie a la fiche de la dependance dans docs/dev/dependances.md
+BORNES_HAUTES: dict[str, str] = {}
+
+# nom [extras] specificateurs ; marqueur, forme des Requires-Dist de setuptools
+EXIGENCE = re.compile(
+    r"\s*(?P<nom>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*"
+    r"(?:\[(?P<extras>[^\]]*)\])?\s*(?P<versions>[^;]*?)\s*(?:;\s*(?P<marqueur>.*))?"
+)
+# setuptools ajoute « and extra == "x" » au premier niveau du marqueur d'origine,
+# mis entre parentheses s'il contient un « or »
+MARQUEUR_EXTRA = re.compile(
+    r"(?:(?P<condition>.*?)\s+and\s+)?extra\s*==\s*[\"'](?P<extra>[^\"']+)[\"']"
+)
+CONDITION_DE_VERSION = re.compile(
+    r"python(?:_full)?_version\s*<\s*[\"'][0-9]+(?:\.[0-9]+)*[\"']"
+)
+
+
+def _normaliser(nom: str) -> str:
+    """Nom de distribution normalisé (PEP 503)."""
+    return re.sub(r"[-_.]+", "-", nom).lower()
+
+
+def _exigence(texte: str) -> re.Match[str]:
+    trouve = EXIGENCE.fullmatch(texte)
+    assert trouve, f"exigence illisible : {texte!r}"
+    return trouve
+
+
+def _hors_parentheses(condition: str) -> str:
+    """Condition sans ses chaînes ni ses groupes entre parenthèses."""
+    texte = re.sub(r"\"[^\"]*\"|'[^']*'", '""', condition)
+    while True:
+        reduit = re.sub(r"\([^()]*\)", "", texte)
+        if reduit == texte:
+            return texte
+        texte = reduit
+
+
+def _extra_de(exigence: str) -> str | None:
+    """Extra qui conditionne l'exigence, ou None si elle s'installe sans extra.
+
+    Prudent : « a or b and extra == "x" » se lit « a or (b and extra == "x") »
+    et s'installe sans extra ; tout marqueur non reconnu compte comme sans extra.
+    """
+    marqueur = _exigence(exigence)["marqueur"]
+    if marqueur is None:
+        return None
+    trouve = MARQUEUR_EXTRA.fullmatch(marqueur.strip())
+    if trouve is None:
+        return None
+    condition = trouve["condition"]
+    if condition is not None and re.search(r"\bor\b", _hors_parentheses(condition)):
+        return None
+    return trouve["extra"]
+
+
+def _backport_conditionnel(exigence: str) -> bool:
+    """Backport de la stdlib installé seulement sous une version de Python."""
+    trouve = _exigence(exigence)
+    marqueur = trouve["marqueur"]
+    return (
+        _normaliser(trouve["nom"]) in BACKPORTS
+        and marqueur is not None
+        and CONDITION_DE_VERSION.fullmatch(marqueur.strip()) is not None
+    )
+
+
+def _hors_extra(exigences: Iterable[str]) -> list[str]:
+    """Exigences installées sans extra, backports conditionnels exceptés."""
+    return [
+        e for e in exigences if _extra_de(e) is None and not _backport_conditionnel(e)
+    ]
+
+
+def _extras_references_par_all(exigences: Iterable[str]) -> set[str]:
+    """Extras que « all » référence ; échoue s'il ajoute une autre dépendance."""
+    references: set[str] = set()
+    for exigence in exigences:
+        if _extra_de(exigence) != deps.ALL:
+            continue
+        trouve = _exigence(exigence)
+        # agregat auto-reference : amnesia-dfr[ad,aws], sans version ni SDK
+        assert _normaliser(trouve["nom"]) == deps.DISTRIBUTION, exigence
+        assert trouve["extras"], exigence
+        assert not trouve["versions"], exigence
+        references |= {e.strip() for e in trouve["extras"].split(",")}
+    return references
+
+
+@pytest.mark.parametrize(
+    ("exigence", "extra"),
+    [
+        ('boto3>=1.34; extra == "aws"', "aws"),
+        ("boto3 >=1.34 ; extra == 'aws'", "aws"),
+        ('amnesia-dfr[ad,aws]; extra == "all"', "all"),
+        ('pypsrp>=0.8; python_version < "3.13" and extra == "windows"', "windows"),
+        (
+            'x>=1; (sys_platform == "win32" or python_version < "3.12") '
+            'and extra == "ad"',
+            "ad",
+        ),
+        ("boto3>=1.34", None),
+        ('boto3>=1.34; python_version >= "3.11"', None),
+        (
+            'x>=1; sys_platform == "win32" or python_version < "3.12" '
+            'and extra == "ad"',
+            None,
+        ),
+        ('x>=1; extra == "ad" or sys_platform == "win32"', None),
+        ('x>=1; platform_release == "a or b" and extra == "ad"', "ad"),
+    ],
+    ids=[
+        "extra",
+        "espaces-apostrophes",
+        "all",
+        "condition-et-extra",
+        "or-entre-parentheses",
+        "sans-marqueur",
+        "marqueur-sans-extra",
+        "or-hors-parentheses",
+        "extra-ou-autre",
+        "or-dans-une-chaine",
+    ],
+)
+def test_marqueur_extra_reconnu(exigence: str, extra: str | None) -> None:
+    assert _extra_de(exigence) == extra
+
+
+@pytest.mark.parametrize(
+    ("exigence", "admise"),
+    [
+        ('tomli>=2; python_version < "3.11"', True),
+        ('exceptiongroup>=1.2; python_full_version < "3.11.4"', True),
+        ('Importlib_Metadata>=6; python_version < "3.12"', True),
+        ("tomli>=2", False),
+        ('requests>=2; python_version < "3.11"', False),
+        ('tomli>=2; sys_platform == "win32"', False),
+        ('tomli>=2; python_version >= "3.11"', False),
+    ],
+    ids=[
+        "tomli",
+        "full-version",
+        "nom-non-normalise",
+        "sans-condition",
+        "pas-un-backport",
+        "condition-de-plateforme",
+        "condition-inversee",
+    ],
+)
+def test_backport_conditionnel(exigence: str, admise: bool) -> None:
+    assert _backport_conditionnel(exigence) is admise
+    assert (_hors_extra([exigence]) == []) is admise
+
+
+def test_aucune_dependance_d_execution_hors_extra(
+    metadata: email.message.Message,
+) -> None:
+    # le socle s'installe sans aucun paquet tiers : chaque SDK passe par un extra
+    assert _hors_extra(metadata.get_all("Requires-Dist", [])) == []
+    assert not PROJET.get("dependencies"), "dependances du socle : extra attendu"
+
+
+def test_extra_all_reference_tous_les_extras(metadata: email.message.Message) -> None:
+    fournis = set(metadata.get_all("Provides-Extra", []))
+    assert deps.ALL in fournis
+    references = _extras_references_par_all(metadata.get_all("Requires-Dist", []))
+    assert references == fournis - {deps.ALL}
+
+
+def test_all_incomplet_detecte() -> None:
+    exigences = [
+        'boto3>=1.34; extra == "aws"',
+        'pypsrp>=0.8; extra == "windows"',
+        'amnesia-dfr[aws]; extra == "all"',
+    ]
+    assert _hors_extra(exigences) == []
+    assert _extras_references_par_all(exigences) == {"aws"}
+    # « all » n'agrege que des extras, sans dependance propre
+    with pytest.raises(AssertionError):
+        _extras_references_par_all(['boto3>=1.34; extra == "all"'])
+
+
+def test_extras_concordent_avec_amnesia_deps() -> None:
+    # nom PyPI dans pyproject.toml, module importe dans amnesia.deps.EXTRAS :
+    # require_extra() et le test des imports paresseux lisent le second
+    optionnelles = PROJET.get("optional-dependencies", {})
+    assert deps.ALL in optionnelles
+    declares = {
+        extra: {_normaliser(_exigence(e)["nom"]) for e in exigences}
+        for extra, exigences in optionnelles.items()
+        if extra != deps.ALL
+    }
+    connus = {
+        extra: {_normaliser(p.distribution) for p in paquets}
+        for extra, paquets in deps.EXTRAS.items()
+    }
+    assert connus == declares
+    for extra in declares:
+        # nom normalise (PEP 685) : celui que pip et uv comparent
+        assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", extra), extra
+
+
+def _ecarts_de_bornes(exigence: str) -> list[str]:
+    """Écarts à la règle des versions : borne basse, pas de borne haute."""
+    trouve = _exigence(exigence)
+    nom = _normaliser(trouve["nom"])
+    operateurs = set(re.findall(r"===|==|~=|!=|<=|>=|<|>", trouve["versions"]))
+    ecarts = []
+    if ">=" not in operateurs:
+        ecarts.append(f"{nom} : borne basse >= testee attendue")
+    if operateurs & {"==", "===", "~="}:
+        ecarts.append(f"{nom} : version figee, incompatible avec les autres extras")
+    if operateurs & {"<", "<="} and nom not in BORNES_HAUTES:
+        ecarts.append(f"{nom} : borne haute sans incompatibilite documentee")
+    return ecarts
+
+
+@pytest.mark.parametrize(
+    ("exigence", "conforme"),
+    [
+        ("boto3>=1.34", True),
+        ("pypsrp>=0.8,!=0.8.2", True),
+        ("boto3", False),
+        ("boto3==1.34.0", False),
+        ("boto3~=1.34", False),
+        ("boto3>=1.34,<2", False),
+    ],
+)
+def test_regle_des_bornes(exigence: str, conforme: bool) -> None:
+    assert (_ecarts_de_bornes(exigence) == []) is conforme
+
+
+def test_dependances_d_execution_a_borne_basse() -> None:
+    # borne basse testee par le job CI lowest-direct ; aucune borne haute sans
+    # incompatibilite connue (docs/dev/dependances.md)
+    ecarts = [
+        ecart
+        for extra, exigences in PROJET.get("optional-dependencies", {}).items()
+        if extra != deps.ALL
+        for exigence in exigences
+        for ecart in _ecarts_de_bornes(exigence)
+    ]
+    assert ecarts == []

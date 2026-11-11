@@ -48,6 +48,7 @@ dev = [
 ]
 
 [package.metadata]
+provides-extras = ["all"]
 
 [package.metadata.requires-dev]
 audit = [{ name = "pip-audit", specifier = "==2.10.1" }]
