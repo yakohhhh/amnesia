@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -390,11 +391,16 @@ def test_overwrite_sur_un_repertoire_code_4(
     assert "écriture impossible" in capsys.readouterr().err
 
 
+# nom d'ESC et de BEL : NTFS refuse les controles C0 dans un nom de fichier
+NOM_PIEGE = "x\x1b[31mrouge\x1b[0m\x1b]0;titre\x07.json"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="contrôles interdits par NTFS")
 def test_chemin_out_neutralise_sur_le_terminal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _registre(monkeypatch, conforme())
-    rapport = tmp_path / "x\x1b[31mrouge\x1b[0m\x1b]0;titre\x07.json"
+    rapport = tmp_path / NOM_PIEGE
     assert main(["audit", "--out", str(rapport)]) == exitcodes.OK
     sortie = capsys.readouterr()
     assert "Rapport JSON : " in sortie.out
@@ -408,6 +414,21 @@ def test_chemin_out_neutralise_sur_le_terminal(
     assert "existe déjà" in sortie.err
     assert "\x1b" not in sortie.err
     assert "\x07" not in sortie.err
+
+
+@pytest.mark.windows
+def test_chemin_out_refuse_par_ntfs_neutralise(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registre(monkeypatch, conforme())
+    # le nom ne peut pas etre cree : code 4, et l'erreur ne rejoue pas ESC ni BEL
+    assert main(["audit", "--out", str(tmp_path / NOM_PIEGE)]) == exitcodes.FATAL
+    sortie = capsys.readouterr()
+    assert "écriture impossible" in sortie.err
+    assert "\x1b" not in sortie.err
+    assert "\x07" not in sortie.err
+    assert "\\x1b[31mrouge" in sortie.err
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_rapport_ecrit_en_utf8_sans_bom_fins_de_ligne_lf(

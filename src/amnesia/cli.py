@@ -15,7 +15,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from . import __version__
 from .checks import REGISTRY, CheckMeta, default_checks
@@ -245,21 +245,96 @@ def _collecteur(target: Target) -> Collector:
     return _CollecteurAbsent(target.transport)
 
 
+# CreateFileW (winnt.h, fileapi.h)
+_GENERIC_WRITE = 0x40000000
+_FILE_SHARE_READ = 0x00000001
+_FILE_SHARE_WRITE = 0x00000002
+_CREATE_NEW = 1
+_FILE_ATTRIBUTE_NORMAL = 0x00000080
+_FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+
+
+def _creer_sans_suivre(chemin: Path) -> BinaryIO:
+    """Crée ``chemin`` pour y écrire des octets, sans jamais suivre de lien.
+
+    Échoue (``OSError``) dès qu'une entrée occupe ce nom, lien symbolique cassé
+    compris. Sous POSIX, c'est la garantie du mode ``x`` (``O_CREAT | O_EXCL``).
+    Sous Windows, ``open()`` appelle ``CreateFileW(CREATE_NEW)``, qui suit un
+    lien cassé et crée sa cible : ``FILE_FLAG_OPEN_REPARSE_POINT`` y fait du
+    lien lui-même l'entrée existante (``ERROR_FILE_EXISTS``), d'où l'appel
+    direct.
+    """
+    if sys.platform == "win32":
+        return _creer_sans_suivre_windows(chemin)
+    else:
+        # if/else et non retour anticipe : mypy ignore la branche de l'autre
+        # plateforme sans la signaler comme inatteignable
+        return chemin.open("xb")
+
+
+if sys.platform == "win32":
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    def _creer_sans_suivre_windows(chemin: Path) -> BinaryIO:
+        """``CreateFileW(CREATE_NEW)`` avec ``FILE_FLAG_OPEN_REPARSE_POINT``."""
+        # instance propre : ctypes.windll est partage, ses argtypes aussi
+        noyau = ctypes.WinDLL("kernel32", use_last_error=True)
+        creer = noyau.CreateFileW
+        creer.argtypes = (
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        )
+        creer.restype = wintypes.HANDLE
+        fermer = noyau.CloseHandle
+        fermer.argtypes = (wintypes.HANDLE,)
+        fermer.restype = wintypes.BOOL
+        poignee = creer(
+            os.fspath(chemin),
+            _GENERIC_WRITE,
+            _FILE_SHARE_READ | _FILE_SHARE_WRITE,
+            None,
+            _CREATE_NEW,
+            _FILE_ATTRIBUTE_NORMAL | _FILE_FLAG_OPEN_REPARSE_POINT,
+            None,
+        )
+        # INVALID_HANDLE_VALUE vaut -1, rendu non signe par HANDLE (c_void_p)
+        if poignee is None or poignee == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            fd = msvcrt.open_osfhandle(poignee, os.O_WRONLY)
+        except BaseException:
+            fermer(poignee)
+            raise
+        try:
+            return os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            raise
+
+
 def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> bool:
     """Écrit le rapport dans ``chemin`` ; faux (et journal) si c'est impossible.
 
-    Le fichier est toujours créé en mode ``x`` (``O_EXCL``), qui ne suit jamais
-    un lien, symbolique ou physique, planté à cet emplacement. Sans
-    ``overwrite``, un fichier existant n'est donc jamais écrasé. Avec, l'entrée
-    présente est d'abord retirée (un lien est retiré, sa cible reste intacte),
-    puis le rapport est créé à sa place ; une entrée réapparue entre les deux
-    fait échouer la création : rien n'est écrasé. Permissions, écriture
-    atomique et emplacement par défaut : #25.
+    Le fichier est toujours créé par ``_creer_sans_suivre`` (mode ``x``,
+    ``O_EXCL``), qui ne suit jamais un lien, symbolique ou physique, planté à
+    cet emplacement, sous POSIX comme sous Windows. Sans ``overwrite``, un
+    fichier existant n'est donc jamais écrasé. Avec, l'entrée présente est
+    d'abord retirée (un lien est retiré, sa cible reste intacte), puis le
+    rapport est créé à sa place ; une entrée réapparue entre les deux fait
+    échouer la création : rien n'est écrasé. Permissions, écriture atomique et
+    emplacement par défaut : #25.
     """
     try:
         if overwrite:
             chemin.unlink(missing_ok=True)
-        with chemin.open("xb") as fichier:
+        with _creer_sans_suivre(chemin) as fichier:
             fichier.write(octets)
     except OSError as exc:
         logger.error(
