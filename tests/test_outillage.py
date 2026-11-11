@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -275,6 +276,48 @@ def test_ci_rejoue_les_garde_fous_anti_fuite() -> None:
     assert "git cat-file blob" in commandes
     assert "scripts/verifier_chemins.py" in commandes
     assert "tests/test_gitleaks.py" in commandes
+
+
+def _option(commande: list[str], option: str) -> str:
+    assert option in commande, f"{option} absent de {commande}"
+    return commande[commande.index(option) + 1]
+
+
+def test_telechargements_de_la_ci_reessayes_et_verifies() -> None:
+    # HTTPS seul, TLS >= 1.2, reessais bornes contre les erreurs 5xx passageres
+    # de GitHub, puis empreinte SHA-256 verifiee sur le fichier final, avant
+    # extraction
+    jobs = set()
+    for wf in WORKFLOWS:
+        _, doc = _charger(wf)
+        for nom, _, etape in _etapes(doc):
+            run, lieu = etape.get("run", ""), f"{wf.name}:{nom}"
+            lignes = run.replace("\\\n", " ").splitlines()
+            commandes = [shlex.split(c) for c in lignes if c.startswith("curl ")]
+            # aucun curl hors de ces commandes (pipe, sous-shell...)
+            assert len(re.findall(r"\bcurl\b", run)) == len(commandes), lieu
+            for curl in commandes:
+                jobs.add(nom)
+                assert _option(curl, "--proto") == "=https", lieu
+                assert "--tlsv1.2" in curl, lieu
+                assert "-fsSL" in curl, lieu  # -f : une erreur HTTP fait echouer
+                assert not {"-k", "--insecure"} & set(curl), lieu
+                assert 1 <= int(_option(curl, "--retry")) <= 5, lieu
+                assert "--retry-all-errors" in curl, lieu
+                assert 0 < int(_option(curl, "--max-time")) <= 60, lieu
+                assert 0 < int(_option(curl, "--retry-max-time")) <= 300, lieu
+                assert _option(curl, "-o") == "$archive", lieu
+                verification = re.search(
+                    r'echo "\$\{(\w+_SHA256)\}  \$\{archive\}"'
+                    r" \| sha256sum --check --strict\n",
+                    run,
+                )
+                assert verification, lieu
+                assert re.fullmatch(r"[0-9a-f]{64}", etape["env"][verification[1]])
+                debut, fin = verification.span()
+                assert run.index("curl ") < debut, lieu
+                assert fin <= run.index('tar -xzf "$archive"'), lieu
+    assert jobs == {"workflow-lint", "gitleaks"}
 
 
 # depots de test independants de la config git du developpeur (signature,

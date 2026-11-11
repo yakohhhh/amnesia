@@ -163,13 +163,21 @@ jobs:
           version: ${{ env.UV_VERSION }}
           checksum: ${{ env.UV_SHA256_LINUX_X64 }}
           enable-cache: true
+      # Telechargement en HTTPS seul (redirections comprises), TLS 1.2 minimum.
+      # Une erreur passagere de GitHub (5xx, coupure) est reessayee : 5 fois au
+      # plus, apres 1, 2, 4, 8 puis 16 s, 60 s par tentative, aucune nouvelle
+      # tentative apres 300 s. curl vide le fichier avant de reessayer, et
+      # l'empreinte est verifiee sur le fichier final, avant extraction. Meme
+      # commande pour gitleaks ; tests/test_outillage.py le verifie.
       - name: actionlint (binaire officiel, empreinte verifiee)
         env:
           ACTIONLINT_VERSION: "1.7.12"
           ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
         run: |
           archive="$RUNNER_TEMP/actionlint.tar.gz"
-          curl -fsSL --proto '=https' --tlsv1.2 -o "$archive" \
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-all-errors --retry-max-time 300 --max-time 60 \
+            -o "$archive" \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
@@ -217,13 +225,16 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # reessais bornes et empreinte : voir l'etape actionlint
       - name: gitleaks (binaire officiel, empreinte verifiee)
         env:
           GITLEAKS_VERSION: "8.30.1"
           GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
         run: |
           archive="$RUNNER_TEMP/gitleaks.tar.gz"
-          curl -fsSL --proto '=https' --tlsv1.2 -o "$archive" \
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            --retry 5 --retry-all-errors --retry-max-time 300 --max-time 60 \
+            -o "$archive" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
