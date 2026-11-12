@@ -65,13 +65,15 @@ def test_nom_nu_suggere_winrm(capsys: pytest.CaptureFixture[str]) -> None:
     assert "transport manquant : utiliser winrm://dc01" in err
 
 
+@pytest.mark.usefixtures("registre_factice")
 def test_audit_affiche_la_forme_normalisee(
     capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert main(["audit", "--target", "WINRM://SRV-FILE.Corp.Local.:5986"]) == 0
+    # registre factice : un Gap high, donc code 1 (#24)
+    assert main(["audit", "--target", "WINRM://SRV-FILE.Corp.Local.:5986"]) == 1
     sortie = capsys.readouterr().out
-    assert "audit de winrm://srv-file.corp.local:5986 → " in sortie
+    assert "Cibles : winrm://srv-file.corp.local:5986\n" in sortie
     assert "SRV-FILE" not in sortie
 
 

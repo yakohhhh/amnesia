@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from amnesia import cli
 from amnesia.checks import default_checks
 from amnesia.cli import _proteger_sorties, main
 
@@ -58,32 +59,29 @@ def _cli(
     )
 
 
-@pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
+@pytest.mark.parametrize("encodage", ["utf-8", "cp1252", "cp850"])
 def test_sortie_redirigee_page_de_code(tmp_path: Path, encodage: str) -> None:
-    # « → » vient de la CLI, « ’ » du nom du rapport ; absents de cp850, et
-    # « → » absent de cp1252 : sans repli, UnicodeEncodeError. La cible est
-    # validee en ASCII (#18) : le texte non ASCII passe par --out.
-    # Cible .invalid (RFC 6761), jamais localhost : une fois les collecteurs
-    # implémentés, ce test auditerait sinon la machine qui l'execute.
-    args = (
+    # « ’ » vient du nom du rapport, repete sur stdout ; absent de cp850 : sans
+    # repli, UnicodeEncodeError. La cible est validee en ASCII (#18) : le texte
+    # non ASCII passe par --out. Cible .invalid (RFC 6761), jamais localhost :
+    # une fois les collecteurs implémentés, ce test auditerait sinon la machine
+    # qui l'execute. Sans collecteur WinRM, l'audit est incomplet : code 3 (#24).
+    resultat = _cli(
+        tmp_path,
+        encodage,
         "audit",
         "--target",
         "winrm://poste-essai.invalid",
         "--out",
         "rapport d’audit.json",
     )
-    reference = _cli(tmp_path, "utf-8", *args)
-    assert reference.returncode == 0, reference.stderr
-    texte = reference.stdout.decode("utf-8")
-    assert "→" in texte
-    assert "’" in texte
-    assert "enregistrés" in texte
-
-    resultat = _cli(tmp_path, encodage, *args)
-    assert resultat.returncode == 0
+    assert resultat.returncode == 3, resultat.stderr
     assert resultat.stderr == b""
-    assert resultat.stdout == texte.encode(encodage, errors="replace")
-    assert "enregistrés" in resultat.stdout.decode(encodage)
+    texte = resultat.stdout.decode(encodage)
+    assert "Non vérifié" in texte
+    assert "Rapport JSON : rapport d" in texte
+    assert ("’" in texte) == (encodage != "cp850")
+    assert (tmp_path / "rapport d’audit.json").read_bytes().startswith(b"{\n")
 
 
 @pytest.mark.parametrize("encodage", ["cp1252", "cp850"])
@@ -98,8 +96,11 @@ def test_aide_et_liste_redirigees_page_de_code(tmp_path: Path, encodage: str) ->
 @pytest.mark.skipif(sys.platform == "win32", reason="argv en octets : POSIX")
 def test_argv_non_utf8_sortie_utf8(tmp_path: Path) -> None:
     # nom Latin-1 passe par un script : l'octet 0xff devient le surrogate
-    # U+DCFF, que l'UTF-8 strict refuse
-    # (la cible, validee en ASCII par #18, refuserait l'octet : il passe par --out)
+    # U+DCFF, que l'UTF-8 strict refuse (la cible, validee en ASCII par #18,
+    # refuserait l'octet : il passe par --out). Selon le systeme de fichiers,
+    # le rapport est cree sous ce nom (code 3 : audit incomplet sans collecteur
+    # WinRM, nom repris sur stdout) ou refuse (code 4, nom repris dans l'erreur
+    # sur stderr) : dans les deux cas, sans crash et en \udcff.
     resultat = _cli(
         tmp_path,
         "utf-8:strict",
@@ -109,9 +110,10 @@ def test_argv_non_utf8_sortie_utf8(tmp_path: Path) -> None:
         "--out",
         b"a\xffb.json",
     )
-    assert resultat.returncode == 0, resultat.stderr
-    assert resultat.stderr == b""
-    assert "→ a\\udcffb.json".encode() in resultat.stdout
+    assert resultat.returncode in (3, 4), resultat.stderr
+    assert b"Traceback" not in resultat.stderr
+    assert b"a\\udcffb.json" in resultat.stdout + resultat.stderr
+    assert b"\xff" not in resultat.stdout + resultat.stderr
 
 
 @pytest.mark.parametrize(
@@ -123,18 +125,26 @@ def test_argv_non_utf8_sortie_utf8(tmp_path: Path) -> None:
         ("surrogateescape", "a\ud800b.json", b"a\\ud800b.json"),
     ],
 )
+@pytest.mark.usefixtures("registre_factice")
 def test_surrogate_en_sortie_utf8(
     monkeypatch: pytest.MonkeyPatch, errors: str, rapport: str, attendu: bytes
 ) -> None:
     sortie = _flux("utf-8", errors)
     monkeypatch.setattr(sys, "stdout", sortie)
-    # le surrogate passe par --out : la cible est validee en ASCII (#18)
+
+    # le surrogate passe par --out : la cible est validee en ASCII (#18). Le
+    # fichier n'est pas cree (un systeme de fichiers peut refuser le nom) : seul
+    # son nom, repete sur stdout apres le rendu, est en jeu ici
+    def ecriture_simulee(chemin: Path, octets: bytes, *, overwrite: bool) -> bool:
+        return True
+
+    monkeypatch.setattr(cli, "_ecrire_rapport", ecriture_simulee)
     cible = "winrm://essai.invalid"
-    assert main(["audit", "--target", cible, "--out", rapport]) == 0
+    assert main(["audit", "--target", cible, "--out", rapport]) == 1
     sortie.flush()
     tampon = sortie.buffer
     assert isinstance(tampon, io.BytesIO)
-    assert attendu in tampon.getvalue()
+    assert b"Rapport JSON : " + attendu in tampon.getvalue()
 
 
 def _flux(encodage: str, errors: str) -> io.TextIOWrapper:
