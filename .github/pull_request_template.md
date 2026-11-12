@@ -24,5 +24,6 @@ Une faille de sécurité se signale en privé (SECURITY.md), jamais dans une PR.
 - [ ] Documentation à jour (README, `docs/`, docstrings).
 - [ ] Lecture seule respectée : rien n'est écrit ni modifié sur la cible auditée.
 - [ ] Modèle de menace (`docs/threat-model.md`) mis à jour en cas de nouveau transport ou connecteur.
+- [ ] ADR : Cette PR nécessite-t-elle un ADR ? Oui si elle change une frontière entre modules, un transport, un format ou une garantie de sécurité (`docs/adr/README.md`) : l'ADR est dans la PR, ou son numéro est cité.
 
 Closes #
