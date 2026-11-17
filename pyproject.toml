@@ -65,12 +65,12 @@ amnesia = "amnesia.cli:main"
 [dependency-groups]
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [
-    "hypothesis==6.170.2",
+    "hypothesis==6.170.5",
     # validation du rapport contre son JSON Schema (#22) : tests seulement, le
     # paquet installe n'en depend pas
     "jsonschema==4.26.0",
     "mypy==2.4.0",
-    "nox==2026.8.17",
+    "nox==2026.10.20",
     "pre-commit==4.7.0",
     "pre-commit-hooks==6.0.0",
     "pytest==9.1.1",
@@ -88,7 +88,7 @@ dev = [
 ci = [
     # schemas embarques (--builtin-schema) : .github/dependabot.yml valide hors ligne
     "check-jsonschema==0.38.2",
-    "zizmor==1.30.1",
+    "zizmor==1.31.1",
 ]
 # audit des vulnerabilites connues de uv.lock (job CI pip-audit) : groupe a part,
 # ses dependances (requests, cyclonedx...) n'entrent ni dans dev ni dans ci
