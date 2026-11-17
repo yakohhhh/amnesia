@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Synchronisation des labels et milestones (scripts/sync_github.py).
 
 Tous les appels passent par tests/faux_gh.py, lance comme un vrai gh : aucun
@@ -115,6 +118,8 @@ def test_labels_yml_decrit_toute_la_taxonomie() -> None:
         *(f"type:{t}" for t in types),
         *(f"priority:{p}" for p in ("high", "medium", "low")),
         *(f"area:{z}" for z in zones.split()),
+        # tickets ranges hors du coeur par l'ADR 0001 (#30)
+        "edition:commerciale",
         "good first issue",
         *("help wanted", "duplicate", "invalid", "wontfix", "question"),
     }

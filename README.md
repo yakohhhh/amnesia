@@ -146,9 +146,19 @@ des plugins indépendants.
 ## Vendable
 
 C'est une **prestation de conseil que des cabinets facturent déjà** (digital
-forensic readiness assessment). `amnesia` la transforme en produit : licence aux
-MSP et aux cabinets d'audit, rapport client en marque blanche. Tu peux même le
-facturer comme prestation dès la v0.
+forensic readiness assessment). Le modèle retenu est l'**open core**
+([ADR 0001](https://github.com/yakohhhh/amnesia/blob/main/docs/adr/0001-modele-de-licence.md)) :
+
+- **le cœur**, ce dépôt, reste sous licence MIT, gratuit pour tous, cabinets et
+  MSP compris : moteur et catalogue de checks, collecte, collecteur PowerShell
+  déposé chez le client, CLI, rapports JSON, texte, Markdown et HTML sans
+  marque. Il reste utilisable seul, de bout en bout, pour auditer son propre SI
+  ou celui d'un client ;
+- **les éditions commerciales** (rapport client en marque blanche, export PDF,
+  scoring de maturité, fonctionnalités MSP multi-clients) sont des composants
+  séparés, sous licence propriétaire, développés hors de ce dépôt.
+
+Tu peux même facturer l'audit comme prestation dès la v0, avec le cœur seul.
 
 > Nom PyPI : le paquet s'appelle `amnesia-dfr` (le nom `amnesia` est pris), mais
 > la commande reste `amnesia`. Il n'est pas encore publié (#33) : installe-le
@@ -166,4 +176,10 @@ sont dans
 
 ## Licence
 
-MIT.
+Tout le contenu de ce dépôt est sous licence MIT
+([`LICENSE`](https://github.com/yakohhhh/amnesia/blob/main/LICENSE)) ; aucune édition commerciale n'y est
+publiée. Chaque fichier déclare sa licence en en-tête SPDX ou dans `REUSE.toml`,
+et la conformité [REUSE](https://reuse.software/) est vérifiée en CI. Les
+contributions sont acceptées sous DCO (`Signed-off-by` sur chaque commit, pas de
+CLA) : voir
+[`CONTRIBUTING.md`](https://github.com/yakohhhh/amnesia/blob/main/CONTRIBUTING.md#licence-des-contributions).

@@ -68,5 +68,13 @@ la première version sera la 0.1.0 (milestone M0).
   interruption avec rapport partiel. `amnesia render --fail-on` applique la
   même table à un rapport archivé. Sans sous-commande, l'aide part sur stderr
   (#24).
+- Licence MIT déclarée au format de la PEP 639 : métadonnée
+  `License-Expression: MIT` et fichier `LICENSE` sous `.dist-info/licenses/` du
+  wheel. Chaque fichier du dépôt déclare sa licence (en-tête SPDX ou
+  `REUSE.toml`), conformité REUSE vérifiée en CI (#30).
+- Contributions acceptées sous DCO, sans CLA : chaque commit d'une PR externe
+  porte le `Signed-off-by` de son auteur (`git commit -s`), vérifié en CI ;
+  politique dans `CONTRIBUTING.md`, modèle open core dans
+  `docs/adr/0001-modele-de-licence.md` (#30).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main

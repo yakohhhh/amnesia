@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Modele Gap v1 : severite typee, preuve, references, empreinte, to_dict()."""
 
 from __future__ import annotations

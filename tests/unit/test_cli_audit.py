@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Commande audit reelle : --out, --format, --fail-on et codes de sortie (#24)."""
 
 from __future__ import annotations

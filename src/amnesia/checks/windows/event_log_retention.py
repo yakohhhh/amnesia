@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Taille et rétention des journaux d'événements d'un hôte Windows."""
 
 from ...target import Kind

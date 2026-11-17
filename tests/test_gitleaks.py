@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Regles de .gitleaks.toml verifiees avec le vrai binaire gitleaks.
 
 Le binaire est pris dans GITLEAKS_BIN ou dans le PATH ; le job CI gitleaks

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Textes accentues et sortie robuste a l'encodage (docs/dev/encodage.md)."""
 
 import io

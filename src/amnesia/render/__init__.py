@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Rendus lisibles d'un rapport JSON : les questions d'enquête sans réponse.
 
 Le rendu est séparé de l'audit : la collecte a lieu sur site, le livrable est

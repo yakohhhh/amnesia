@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Rendus « questions sans réponse » en terminal et en Markdown (#23)."""
 
 from __future__ import annotations

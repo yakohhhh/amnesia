@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Socle des rendus : lecture du rapport JSON, options et textes communs.
 
 Les rendus ne lisent que le rapport JSON (#22, ``docs/format-rapport.md``),

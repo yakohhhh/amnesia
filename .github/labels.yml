@@ -76,6 +76,12 @@ labels:
     color: "fef2c0"
     description: "Produit et modèle commercial"
 
+  # Ticket range hors du coeur par l'ADR 0001 (tableau « Fonctionnalites par
+  # edition ») : developpe dans une edition commerciale, hors de ce depot
+  - name: "edition:commerciale"
+    color: "8a4baf"
+    description: "Hors du cœur : édition commerciale, développée hors de ce dépôt (ADR 0001)"
+
   - name: "good first issue"
     color: "7057ff"
     description: "Bon point de départ"

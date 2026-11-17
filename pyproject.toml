@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=68,<85"]
+# >=77 : license en expression SPDX et license-files (PEP 639)
+requires = ["setuptools>=77,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,7 +11,10 @@ description = "Audit de forensic readiness : ce que ton SI aura oublié le jour 
 # plancher justifie dans docs/PAQUET.md ; matrice CI, nox et classifiers le suivent
 requires-python = ">=3.11"
 readme = "README.md"
-license = { text = "MIT" }
+# PEP 639 : expression SPDX (metadonnee License-Expression) et fichier copie
+# sous .dist-info/licenses/ ; modele de licence : docs/adr/0001-modele-de-licence.md
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Ayman Mazroui" }]
 keywords = [
     "forensic readiness",
@@ -25,7 +29,8 @@ keywords = [
     "Microsoft 365",
     "CloudTrail",
 ]
-# Aucun classifier « License :: » (PEP 639, #30). Une entree par version de la
+# Aucun classifier « License :: » : la PEP 639 les remplace par l'expression
+# license, et setuptools refuse les deux ensemble. Une entree par version de la
 # matrice CI : tests/test_paquet.py verifie la concordance. « Typing :: Typed » :
 # PEP 561, le paquet publie ses annotations (marqueur amnesia/py.typed).
 classifiers = [
@@ -88,6 +93,9 @@ dev = [
 ci = [
     # schemas embarques (--builtin-schema) : .github/dependabot.yml valide hors ligne
     "check-jsonschema==0.38.2",
+    # conformite REUSE (job CI reuse) ; charset-normalizer : detection d'encodage
+    # en pur Python, sans la libmagic du systeme (absente de macOS et Windows)
+    "reuse[charset-normalizer]==6.3.0",
     "zizmor==1.31.1",
 ]
 # audit des vulnerabilites connues de uv.lock (job CI pip-audit) : groupe a part,

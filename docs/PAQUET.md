@@ -80,8 +80,14 @@ une collision est signalée.
 
 ## Métadonnées publiées
 
-- **Description** accentuée, **keywords**, **classifiers** (aucun `License ::`,
-  PEP 639 : #30 ; `Typing :: Typed` arrive avec #9) et **`[project.urls]`**.
+- **Description** accentuée, **keywords**, **classifiers** (`Typing :: Typed`
+  arrive avec #9) et **`[project.urls]`**.
+- **Licence** au format de la PEP 639 (#30) : `license = "MIT"` (expression SPDX,
+  publiée en `License-Expression: MIT`) et `license-files = ["LICENSE"]` (fichier
+  copié sous `.dist-info/licenses/` du wheel). Aucun classifier `License ::` :
+  setuptools refuse de les combiner avec l'expression, d'où `setuptools>=77` dans
+  `build-system.requires`. Modèle de licence :
+  [ADR 0001](adr/0001-modele-de-licence.md).
 - Le dépôt est public depuis le 29 octobre 2026 (#13) : les URL sont
   accessibles à tous. Le lien Changelog vise `CHANGELOG.md` (#31).
 - Le `README.md` est la long_description publiée : liens absolus uniquement, un
@@ -109,5 +115,4 @@ et vérifie sa présence.
    doit sortir en code 0, et `PYTHONPATH=src python -m amnesia --version` doit
    afficher la même version.
 
-Hors périmètre : champ `license` et PEP 639 (#30), publication (#33), extras
-optionnels (#44).
+Hors périmètre : publication (#33), extras optionnels (#44).

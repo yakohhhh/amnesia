@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Rapport JSON v1 : contenu, tri, determinisme, masquage d'argv et JSON Schema."""
 
 from __future__ import annotations

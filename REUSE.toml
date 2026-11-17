@@ -1,0 +1,40 @@
+# Licence et titulaire des fichiers sans en-tete SPDX (specification REUSE 3.3,
+# verifiee par le job CI reuse : uv run --only-group ci reuse lint).
+#
+# Le code (Python, PowerShell, scripts shell ou batch) porte son propre en-tete
+# SPDX : aucun motif ci-dessous ne doit le couvrir, sans quoi reuse lint ne
+# signalerait plus un en-tete oublie (tests/test_licence.py le verifie). Un
+# nouveau type de fichier non commentable s'ajoute ici, dans la PR qui l'introduit.
+# Modele de licence : docs/adr/0001-modele-de-licence.md.
+version = 1
+
+[[annotations]]
+path = [
+    # documentation, modele de PR, CHANGELOG
+    "**.md",
+    # configuration et formulaires (YAML, TOML, fichiers de l'outillage)
+    "**.yml",
+    "**.yaml",
+    "**.toml",
+    ".editorconfig",
+    ".gitattributes",
+    ".gitignore",
+    ".python-version",
+    # locks generes par uv
+    "**.lock",
+    # JSON (schemas du rapport, fixtures) : aucun commentaire possible
+    "**.json",
+    # donnees du paquet : marqueur PEP 561, catalogue et gabarits de rapport
+    "src/amnesia/py.typed",
+    "src/amnesia/catalog/**",
+    "src/amnesia/templates/**",
+    # fixtures anonymisees et sorties de reference des tests
+    "tests/fixtures/**",
+    "tests/golden/**",
+]
+# aggregate : une mention de copyright citee dans un document (la ligne de
+# LICENSE reprise par l'ADR 0001) s'ajoute au titulaire declare ici, au lieu de
+# le remplacer
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Ayman Mazroui"
+SPDX-License-Identifier = "MIT"

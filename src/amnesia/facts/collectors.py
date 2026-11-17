@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Collecteurs de faits : protocole ``Collector`` et implémentations de base.
 
 Un collecteur joint la cible (processus local, WinRM, bundle hors ligne, API) et

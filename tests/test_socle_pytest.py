@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Le socle de tests applique bien ses regles (tests/conftest.py, pyproject).
 
 Chaque cas lance un pytest distinct (pytester, sous-processus) avec le conftest

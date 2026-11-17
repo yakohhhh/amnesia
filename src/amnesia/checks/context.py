@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Contexte d'évaluation d'un check : cible, configuration, horloge et logger.
 
 ``evaluate()`` est une fonction pure : tout ce qui varie d'un audit à l'autre

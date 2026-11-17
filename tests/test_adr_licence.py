@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Forme de l'ADR 0001 sur le modèle de licence (docs/adr/0001-modele-de-licence.md).
 
 Ces tests vérifient que l'ADR répond aux critères d'acceptation de #11 par sa

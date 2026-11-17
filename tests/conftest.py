@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Socle commun des tests : marqueurs d'environnement, reseau bloque, isolation.
 
 Arborescence :

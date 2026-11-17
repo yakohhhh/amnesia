@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Mises a jour (Dependabot) et audit des vulnerabilites des dependances.
 
 Procedure : docs/dev/dependances.md.

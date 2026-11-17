@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 # /// script
 # requires-python = ">=3.11"
 # # meme version que le groupe dev ; empreintes figees dans sync_github.py.lock

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Checks d'amnesia : modèle (``base``) et registre (``registry``).
 
 Importer ce paquet ne charge aucun check : le registre importe les paquets de

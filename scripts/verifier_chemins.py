@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Refuse les chemins interdits (donnees client, fichiers de secrets) dans un depot.
 
 Confronte tous les chemins de l'historique (merges compris) et de l'arbre courant

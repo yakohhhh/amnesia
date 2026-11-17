@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Codes de sortie de la CLI : les seules valeurs que ``main()`` renvoie.
 
 Lancé depuis un RMM, une tâche planifiée ou une CI, un audit qui trouve des

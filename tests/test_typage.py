@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Typage statique : mypy strict, marqueur PEP 561 et classifier publies."""
 
 import os

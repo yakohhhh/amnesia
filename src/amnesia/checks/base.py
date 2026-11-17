@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Modèle d'un check, de son résultat et d'un angle mort (Gap).
 
 Un check rend un ``CheckResult`` dont le statut dit ce qu'il a pu établir. Une

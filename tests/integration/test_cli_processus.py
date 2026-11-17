@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """La CLI lancee comme un utilisateur le ferait, dans un vrai processus."""
 
 import os

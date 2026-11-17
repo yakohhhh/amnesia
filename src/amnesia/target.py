@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Cible d'un audit : modèle Target et validation stricte de --target.
 
 Grammaire, extensible par schéma :

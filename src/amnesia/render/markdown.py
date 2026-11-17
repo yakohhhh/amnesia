@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Rendu Markdown (GFM) : un titre par groupe et un tableau récapitulatif.
 
 Toute valeur du rapport passe par ``escape_markdown()`` : ni lien, ni image,

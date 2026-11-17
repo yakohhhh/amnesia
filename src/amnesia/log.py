@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Journalisation d'amnesia : niveaux, sorties et expurgation des secrets.
 
 Les diagnostics vont toujours sur stderr (et dans --log-file) ; stdout reste

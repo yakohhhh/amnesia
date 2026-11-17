@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Politique de versionnage : CHANGELOG.md et docs/RELEASING.md (#31).
 
 Ces tests verifient la forme (format Keep a Changelog, table milestones ->

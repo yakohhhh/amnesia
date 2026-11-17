@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Paquet construit : version unique, metadonnees publiees et donnees embarquees."""
 
 import email.message
@@ -30,7 +33,8 @@ SONDES = [
 
 
 @pytest.fixture(scope="module")
-def wheel(tmp_path_factory: pytest.TempPathFactory) -> Iterator[zipfile.ZipFile]:
+def construction(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
+    """Wheel construit et sortie d'erreur du backend (avertissements compris)."""
     # Build dans une copie du projet (ni build/ ni egg-info dans le depot), avec
     # le setuptools du groupe dev : meme version que le backend fige, hors ligne.
     projet = tmp_path_factory.mktemp("projet")
@@ -66,7 +70,12 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Iterator[zipfile.ZipFile]
     )
     assert build.returncode == 0, build.stderr
     (chemin,) = dist.glob("*.whl")
-    with zipfile.ZipFile(chemin) as archive:
+    return chemin, build.stderr
+
+
+@pytest.fixture(scope="module")
+def wheel(construction: tuple[Path, str]) -> Iterator[zipfile.ZipFile]:
+    with zipfile.ZipFile(construction[0]) as archive:
         yield archive
 
 
@@ -124,6 +133,37 @@ def test_metadata_publiees(metadata: email.message.Message) -> None:
     assert set(urls) == {"Homepage", "Repository", "Issues", "Changelog"}
     for url in urls.values():
         assert url.startswith("https://"), url
+
+
+def test_licence_au_format_pep_639(
+    metadata: email.message.Message, wheel: zipfile.ZipFile
+) -> None:
+    # expression SPDX (metadonnees 2.4) a la place du champ License, et fichier
+    # de licence copie sous .dist-info/licenses/ (#30)
+    assert metadata["Metadata-Version"] == "2.4"
+    assert metadata["License-Expression"] == "MIT"
+    assert metadata["License"] is None
+    assert metadata.get_all("License-File") == ["LICENSE"]
+    (licence,) = [
+        n for n in wheel.namelist() if n.endswith(".dist-info/licenses/LICENSE")
+    ]
+    assert wheel.read(licence) == (RACINE / "LICENSE").read_bytes()
+
+
+def test_build_sans_avertissement_de_depreciation(
+    construction: tuple[Path, str],
+) -> None:
+    # setuptools annonce ainsi la fin de « license = { text = ... } » (18/02/2027)
+    _, sortie = construction
+    assert "SetuptoolsDeprecationWarning" not in sortie
+    assert "project.license" not in sortie
+
+
+def test_setuptools_assez_recent_pour_la_pep_639() -> None:
+    # license-files et l'expression SPDX : setuptools >= 77
+    (exigence,) = PYPROJECT["build-system"]["requires"]
+    assert re.fullmatch(r"setuptools>=(\d+),<\d+", exigence)
+    assert int(re.findall(r"\d+", exigence)[0]) >= 77
 
 
 def test_classifiers_suivent_la_matrice_ci() -> None:
