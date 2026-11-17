@@ -282,7 +282,7 @@ def test_de_git_clone_a_une_suite_verte() -> None:
     parcours = [
         f"git clone {DEPOT}.git",
         "cd amnesia",
-        "uv sync --locked",
+        "uv sync --locked --all-extras",
         "uv run pre-commit install",
         "uv run nox -s lint typecheck tests-3.11",
     ]

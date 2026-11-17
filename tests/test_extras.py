@@ -228,6 +228,38 @@ def test_session_lowest_direct_installe_les_bornes_basses() -> None:
     assert '"pytest"' in session[0]
 
 
+# --- version de uv.lock : typee et testee avec tous les extras ------------------
+
+
+def _session_nox(nom: str) -> str:
+    texte = (RACINE / "noxfile.py").read_text(encoding="utf-8")
+    session = re.search(
+        rf"^def {nom}\(session: nox\.Session\) -> None:\n.*?(?=\n@nox\.session|\Z)",
+        texte,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert session, f"session nox {nom} absente"
+    return session[0]
+
+
+def test_jobs_typecheck_et_test_installent_tous_les_extras() -> None:
+    # uv sync seul n'installe aucun extra : la version de uv.lock ne serait ni
+    # typee ni testee, et une PR Dependabot passerait sans l'installer
+    doc = yaml.safe_load(CI.read_text(encoding="utf-8"))
+    for nom in ("typecheck", "test"):
+        commandes = [etape.get("run", "") for etape in doc["jobs"][nom]["steps"]]
+        assert "uv sync --locked --all-extras" in commandes, nom
+        assert "uv sync --locked" not in commandes, nom
+
+
+def test_sessions_nox_typecheck_et_tests_installent_tous_les_extras() -> None:
+    # job nox-windows : les sessions nox, pas le uv sync du job
+    for nom in ("typecheck", "tests"):
+        assert '_sync(session, "--all-extras")' in _session_nox(nom), nom
+    # le wheel du socle s'installe et se lance sans aucun extra
+    assert "--all-extras" not in _session_nox("build")
+
+
 # --- politique ecrite -----------------------------------------------------------
 
 

@@ -47,14 +47,15 @@ def lint(session: nox.Session) -> None:
 
 @nox.session(python=PYTHONS[0])
 def typecheck(session: nox.Session) -> None:
-    _sync(session)
+    # --all-extras : chaque SDK d'un extra, a la version de uv.lock (#44)
+    _sync(session, "--all-extras")
     # sans argument : cibles et mode strict lus dans [tool.mypy] de pyproject.toml
     session.run("mypy", *session.posargs)
 
 
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
-    _sync(session)
+    _sync(session, "--all-extras")
     # sans argument, comme la CI : suite complete et seuil de couverture
     session.run(
         "pytest",

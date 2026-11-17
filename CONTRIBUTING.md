@@ -125,7 +125,7 @@ envoyer un script distant directement à un shell (`curl … | sh`, `irm … | i
 ```sh
 git clone https://github.com/yakohhhh/amnesia.git
 cd amnesia
-uv sync --locked                          # Python 3.11, projet et groupe dev depuis uv.lock
+uv sync --locked --all-extras             # Python 3.11, projet, extras et groupe dev (uv.lock)
 uv run pre-commit install                 # hooks lancés à chaque commit
 uv run nox -s lint typecheck tests-3.11   # ruff, mypy --strict, pytest et couverture
 ```
@@ -135,7 +135,9 @@ plutôt son fork (section
 [« Une issue, une branche, une PR »](#une-issue-une-branche-une-pr)).
 
 `--locked` fait échouer `uv sync` si `uv.lock` ne correspond plus à
-`pyproject.toml`, au lieu de le régénérer en silence.
+`pyproject.toml`, au lieu de le régénérer en silence. `--all-extras` installe
+aussi le SDK de chaque extra, que mypy et les tests doivent voir comme en CI :
+`uv sync` seul n'en installe aucun.
 
 La suite est verte quand le bilan de nox affiche `lint: success`,
 `typecheck: success` et `tests-3.11: success`, couverture d'au moins 80 %

@@ -74,8 +74,10 @@ utilisateurs : le renommer les casserait. Il se choisit donc une fois pour
 toutes, en minuscules et tirets (forme normalisée de la PEP 685, vérifiée par
 les tests).
 
-Depuis les sources : `uv sync --extra <extra>` (ou `--all-extras`), ou
-`pip install -e ".[<extra>]"` dans un environnement virtuel.
+Depuis les sources : `uv sync --inexact --extra <extra>` (sans `--inexact`,
+`uv sync` désinstalle les autres extras), ou `pip install -e ".[<extra>]"` dans
+un environnement virtuel. Pour développer : `uv sync --locked --all-extras`,
+pour que mypy et les tests voient chaque SDK, comme en CI.
 
 ## Import paresseux
 
@@ -119,9 +121,11 @@ class CollecteurAws:
   (`[aws]` ; `-` sans extra). Un extra propre à un transport (`windows` pour
   WinRM) relève de son collecteur, qui appelle `require_extra()` : les mêmes
   checks restent évaluables sur un bundle hors ligne, sans SDK.
-- Tant que le nom `amnesia-dfr` n'est pas publié (#33), la commande du message,
-  qui installe par le nom, ne vaut que dans un environnement où amnesia est déjà
-  installé ; ailleurs, installer l'extra depuis les sources
+- La commande du message installe depuis les sources : `uv sync --inexact
+  --extra <extra>` (`--inexact` garde les extras déjà installés), ou
+  `pip install -e ".[<extra>]"`. Jamais par le nom tant que `amnesia-dfr` n'est
+  pas publié (#33, menace M25) : le message s'affiche dans la CLI et dans les
+  rapports, et un test y refuse toute installation par le nom
   ([`docs/PAQUET.md`](../PAQUET.md)).
 
 ## Bornes de version
@@ -133,7 +137,9 @@ class CollecteurAws:
 - **Pas de borne haute** sans incompatibilité connue, décrite dans la fiche de
   la dépendance et reprise dans `BORNES_HAUTES` de `tests/test_paquet.py`.
 - `uv.lock` fige la version la plus récente admise, délai de carence compris :
-  c'est elle que testent les jobs `test` et `nox-windows`. Dependabot propose
+  c'est elle que typent et testent les jobs `typecheck`, `test` et
+  `nox-windows`, qui installent tous les extras (`uv sync --locked
+  --all-extras` ; `uv sync` seul n'en installe aucun). Dependabot propose
   chaque nouvelle version d'une dépendance d'exécution dans une PR à part ; seul
   `uv.lock` doit y changer. Une PR qui relève aussi la borne basse sans que le
   code l'exige est corrigée avant le merge : borne d'origine rétablie, puis

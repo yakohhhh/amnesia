@@ -16,7 +16,7 @@ ne l'importe qu'au moment de s'en servir, jamais au niveau du module :
 Un test statique refuse tout import tiers exécuté au chargement d'un module de
 ``amnesia``. Sans l'extra, ``require_extra`` lève ``MissingExtra`` ; le moteur
 la traduit en résultat « non évalué » (``skipped`` / ``not_collected``) dont le
-message donne la commande d'installation, sans traceback.
+message donne la commande d'installation depuis les sources, sans traceback.
 
 Ce module n'importe rien d'amnesia : tout module peut s'en servir sans créer de
 cycle. Convention et politique d'acceptation d'une dépendance :
@@ -34,7 +34,7 @@ from types import MappingProxyType
 logger = logging.getLogger(__name__)
 
 DISTRIBUTION = "amnesia-dfr"
-"""Nom de distribution d'amnesia, repris par les commandes d'installation."""
+"""Nom de distribution d'amnesia (métadonnées du paquet, ``all``)."""
 
 ALL = "all"
 """Extra agrégat : référence tous les autres extras (``amnesia-dfr[aws,...]``)."""
@@ -86,16 +86,26 @@ class MissingExtra(Exception):
         manquants = ", ".join(self.packages) or "paquet inconnu"
         return (
             f"extra {self.extra} non installé (manquant : {manquants}) ; "
-            f"pour l'installer : {self.command}"
+            f"pour l'installer depuis les sources d'amnesia : {self.command} "
+            f'(ou pip install -e ".[{self.extra}]")'
         )
 
 
 def install_command(extra: str) -> str:
-    """Commande pip qui installe ``extra`` : ``pip install "amnesia-dfr[aws]"``.
+    """Commande qui installe ``extra`` depuis les sources : ``uv sync ... aws``.
 
-    Guillemets compris : sans eux, zsh interpréterait les crochets.
+    ``uv sync --inexact --extra aws``, lancée dans la copie des sources
+    d'amnesia : ``--inexact`` garde les extras déjà installés, qu'un
+    ``uv sync`` exact désinstallerait.
+
+    Jamais d'installation par le nom depuis un index tant que ``amnesia-dfr``
+    n'est pas publié (#33, menace M25 de docs/threat-model.md) : n'importe qui
+    peut enregistrer le nom, et son paquet s'exécuterait sur le poste qui
+    détient les identifiants d'audit. Le message part dans la CLI et dans les
+    rapports remis au client ; un test le vérifie. #33 rétablit une commande
+    par le nom qui vise l'environnement d'amnesia (``uv tool``, ``pipx``).
     """
-    return f'pip install "{DISTRIBUTION}[{extra}]"'
+    return f"uv sync --inexact --extra {extra}"
 
 
 def require_extra(extra: str) -> None:

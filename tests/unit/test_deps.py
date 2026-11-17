@@ -29,7 +29,7 @@ INSTANT = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
 PRESENT = "amnesia_essai44_present"
 CASSE = "amnesia_essai44_casse"
 ABSENT = "amnesia_essai44_absent"
-COMMANDE = 'pip install "amnesia-dfr[essai]"'
+COMMANDE = "uv sync --inexact --extra essai"
 
 
 @pytest.fixture
@@ -77,8 +77,9 @@ def test_extras_declares_en_lecture_seule() -> None:
 
 
 def test_commande_d_installation_exacte() -> None:
-    assert install_command("aws") == 'pip install "amnesia-dfr[aws]"'
-    assert install_command("cloud-m365") == 'pip install "amnesia-dfr[cloud-m365]"'
+    # depuis les sources, jamais par le nom tant qu'il n'est pas publie (#33)
+    assert install_command("aws") == "uv sync --inexact --extra aws"
+    assert install_command("cloud-m365") == "uv sync --inexact --extra cloud-m365"
 
 
 def test_extra_absent_leve_missing_extra(
@@ -91,7 +92,8 @@ def test_extra_absent_leve_missing_extra(
     assert exc.value.command == COMMANDE
     assert str(exc.value) == (
         "extra essai non installé (manquant : essai-sdk) ; "
-        f"pour l'installer : {COMMANDE}"
+        f"pour l'installer depuis les sources d'amnesia : {COMMANDE} "
+        '(ou pip install -e ".[essai]")'
     )
 
 
@@ -112,7 +114,7 @@ def test_seuls_les_paquets_manquants_sont_cites(
         require_extra("partiel")
     assert exc.value.packages == ("essai-sdk", "casse-sdk")
     assert "present-sdk" not in str(exc.value)
-    assert 'pip install "amnesia-dfr[partiel]"' in str(exc.value)
+    assert "uv sync --inexact --extra partiel" in str(exc.value)
 
 
 def test_message_sans_chemin_ni_trace(
@@ -140,7 +142,9 @@ def test_extra_non_textuel_refuse() -> None:
         require_extra(["aws"])  # type: ignore[arg-type]
 
 
-def test_aucun_extra_declare_message_explicite() -> None:
+def test_aucun_extra_declare_message_explicite(monkeypatch: pytest.MonkeyPatch) -> None:
+    # isole de l'EXTRAS reel, qui se remplira avec les tickets #63, #66, #95
+    monkeypatch.setattr(deps, "EXTRAS", MappingProxyType({}))
     with pytest.raises(ValueError, match=r"déclarés : aucun"):
         require_extra("aws")
 

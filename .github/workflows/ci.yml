@@ -62,7 +62,9 @@ jobs:
           version: ${{ env.UV_VERSION }}
           checksum: ${{ env.UV_SHA256_LINUX_X64 }}
           enable-cache: true
-      - run: uv sync --locked
+      # --all-extras : chaque SDK d'un extra, a la version de uv.lock (#44) ;
+      # uv sync seul n'installe aucun extra
+      - run: uv sync --locked --all-extras
       # mypy --strict sur src et tests, configure dans [tool.mypy]
       - run: uv run mypy
 
@@ -93,7 +95,8 @@ jobs:
           checksum: ${{ env.UV_SHA256_LINUX_X64 }}
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --locked
+      # --all-extras : les tests voient chaque SDK, a la version de uv.lock (#44)
+      - run: uv sync --locked --all-extras
       # seuil de couverture : [tool.coverage.report] fail_under dans pyproject
       - run: uv run pytest -q --cov --cov-report=term-missing
       # fichiers ignores compris : les sorties d'amnesia (amnesia-report*,

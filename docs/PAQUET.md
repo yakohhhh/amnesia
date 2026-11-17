@@ -73,7 +73,12 @@ Publishing ; un publisher « pending » ne réserve pas le nom) :
   `uv tool install dist/amnesia_dfr-<version>-py3-none-any.whl` ;
 - aucune commande de la documentation n'installe `amnesia-dfr` par son nom depuis
   un index. Un test parcourt `README.md` et `docs/` et échoue sinon ; #33 le retire
-  quand il ajoute la ligne d'installation PyPI, une fois le nom publié.
+  quand il ajoute la ligne d'installation PyPI, une fois le nom publié ;
+- le message d'un extra manquant, affiché par la CLI et repris dans les rapports,
+  n'installe pas non plus par le nom : il donne la commande depuis les sources
+  (`amnesia.deps.install_command`, vérifiée par un test). #33 y rétablit une
+  commande par le nom qui vise l'environnement d'amnesia (`uv tool`, `pipx`)
+  plutôt qu'un `pip` quelconque, et retire ce test avec le précédent.
 
 À réexaminer si `amnesia` expose une API importable par des tiers (plugins), ou si
 une collision est signalée.
@@ -117,7 +122,8 @@ Microsoft Graph, boto3...) entre par un extra de domaine, importé à la demande
 et l'extra `all` les agrège (#44). Convention, import paresseux, bornes de
 version et politique d'acceptation :
 [`docs/dev/dependances.md`](dev/dependances.md). Le message d'un extra manquant
-donne la commande d'installation par le nom : tant que le nom n'est pas publié,
-installer l'extra depuis les sources (`uv sync --extra <extra>`).
+donne la commande d'installation depuis les sources (`uv sync --inexact --extra
+<extra>`, ou `pip install -e ".[<extra>]"`), jamais par le nom tant qu'il n'est
+pas publié.
 
 Hors périmètre : champ `license` et PEP 639 (#30), publication (#33).

@@ -186,6 +186,18 @@ def test_aucune_installation_par_nom_avant_publication() -> None:
     assert not trouvees
 
 
+def test_extra_manquant_sans_installation_par_nom_avant_publication() -> None:
+    # meme garde-fou sur le message produit a l'execution : il s'affiche dans la
+    # CLI et dans les rapports remis au client (menace M25). A retirer par #33
+    # avec le test precedent, une fois le nom publie (docs/PAQUET.md).
+    assert INSTALLATION_PAR_NOM.search('pip install "amnesia-dfr[aws]"')
+    for extra in ("aws", "cloud-m365"):
+        message = str(deps.MissingExtra(extra, ["paquet-sdk"]))
+        assert deps.install_command(extra) in message
+        assert not INSTALLATION_PAR_NOM.search(deps.install_command(extra))
+        assert not INSTALLATION_PAR_NOM.search(message)
+
+
 def test_package_data_dans_le_wheel(wheel: zipfile.ZipFile) -> None:
     assert SONDES
     contenu = set(wheel.namelist())
