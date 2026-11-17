@@ -1,5 +1,6 @@
 """Tests de fumee de la CLI."""
 
+import json
 from collections.abc import Sequence
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -88,18 +89,27 @@ def test_audit_valeurs_par_defaut() -> None:
     assert (args.target, args.out) == (Target.parse("localhost"), "amnesia-report.json")
 
 
-def test_audit_stub(
+def test_audit_reel_ecrit_le_rapport(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
     registre_factice: Sequence[Check],
 ) -> None:
-    # un nom nu (« dc01 ») est refuse depuis #18 : le transport est explicite
-    assert main(["audit", "--target", "winrm://dc01"]) == 0
+    # un nom nu (« dc01 ») est refuse depuis #18 : le transport est explicite ;
+    # le registre factice porte un Gap high : code 1 (tests/unit/test_cli_audit.py)
+    assert main(["audit", "--target", "winrm://dc01"]) == 1
     sortie = capsys.readouterr().out
-    assert all(c.id in sortie for c in registre_factice)
-    assert list(tmp_path.iterdir()) == []  # cwd isole par le conftest
+    assert "[stub]" not in sortie
+    # rapport par defaut dans le cwd, isole par le conftest
+    rapport = tmp_path / "amnesia-report.json"
+    assert list(tmp_path.iterdir()) == [rapport]
+    resultats = json.loads(rapport.read_text(encoding="utf-8"))["results"]
+    assert sorted(r["check_id"] for r in resultats) == sorted(
+        c.id for c in registre_factice
+    )
 
 
 def test_sans_sous_commande_code_2(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([]) == 2
-    assert capsys.readouterr().out.startswith("usage: amnesia")
+    sortie = capsys.readouterr()
+    assert sortie.out == ""
+    assert sortie.err.startswith("usage: amnesia")
