@@ -12,23 +12,25 @@ La règle du registre lui-même est l'[ADR 0003](0003-registre-des-decisions.md)
 
 | N° | Décision | Statut | Date | Tickets |
 |---|---|---|---|---|
-| 0001 | Modèle de licence | proposé | 2026-10-29 | #11, #30 |
-| 0002 | Nom et marque | proposé | 2026-10-29 | #12 |
+| [0001](0001-modele-de-licence.md) | Modèle de licence | accepté | 2026-10-29 | #11, #30 |
+| [0002](0002-nom-et-marque.md) | Nom et marque | accepté | 2026-10-29 | #12 |
 | [0003](0003-registre-des-decisions.md) | Tenir un registre de décisions | accepté | 2026-10-29 | #34 |
 | [0004](0004-separation-collecte-evaluation.md) | Séparation de la collecte et de l'évaluation | accepté | 2026-10-29 | #20, #21, #15 |
 | [0005](0005-versionnage-du-schema-de-rapport.md) | Versionnage du schéma de rapport | accepté | 2026-10-29 | #22, #31 |
 | [0006](0006-garantie-lecture-seule.md) | Garantie de lecture seule | accepté | 2026-10-29 | #27, #39, #37, #64 |
 | [0007](0007-transports.md) | Transports : WinRM, SSH par le client OpenSSH, bundles hors ligne | accepté | 2026-10-29 | #63, #64, #119, #48, #52 |
 
-Les ADR 0001 et 0002 sont en cours d'écriture dans les PR de #11 et de #12 ;
-leurs numéros sont réservés ici pour que le registre reste dans l'ordre :
+Les ADR 0001 et 0002 précèdent ce registre : écrits avant le gabarit MADR, ils
+gardent leur forme (titre « ADR NNNN — Titre », en-tête en tableau, sections
+propres), puisqu'un ADR accepté ne se réécrit pas. Leur forme est vérifiée par
+`tests/test_adr_licence.py` et `tests/test_adr_nom_marque.py` ; leur ligne
+d'index reprend le statut et la date de leur en-tête.
 
-- **0001, modèle de licence** : le modèle *open core* a été retenu le
-  29/10/2026 (cœur sous licence libre, modules commerciaux à part) ; les termes
-  exacts et la politique de contribution (DCO ou CLA, #30) sont fixés par l'ADR.
-  Tant qu'il n'est pas mergé, la licence déclarée reste MIT.
-- **0002, nom et marque** : le changement de nom est décidé, le nouveau nom
-  n'est pas choisi. Tant que l'ADR n'est pas mergé, le projet, le paquet
+- **0001, modèle de licence** : modèle *open core* (cœur sous licence MIT,
+  éditions commerciales à part) et contributions sous DCO (#30). Les
+  fonctionnalités des éditions commerciales ne vont pas dans ce dépôt.
+- **0002, nom et marque** : accepté partiellement. Le changement de nom est
+  acté, le nouveau nom n'est pas choisi ; d'ici là, le projet, le paquet
   (`amnesia-dfr`) et la commande (`amnesia`) gardent leur nom.
 
 ## Statuts

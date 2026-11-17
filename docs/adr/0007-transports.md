@@ -52,16 +52,34 @@ Pour les cibles injoignables :
 Trois transports, un collecteur chacun, derrière le même protocole
 `Collector` :
 
-- **WinRM/PSRP** (option 1, #63) pour les hôtes Windows : HTTPS 5986 avec
-  validation du certificat et Kerberos par défaut ; HTTP 5985 seulement avec
-  chiffrement des messages, jamais Basic en clair. Il permet un endpoint JEA
-  sans commande libre (#64), ce qu'aucune autre option n'offre.
+- **WinRM/PSRP** (option 1, #63) pour les hôtes Windows, avec les mesures M05
+  et M07 du modèle de menace : HTTPS 5986 avec validation du certificat, sans
+  option pour la désactiver ; HTTP 5985 seulement avec chiffrement des
+  messages ; Basic et CredSSP refusés quel que soit le canal ; Kerberos seul
+  par défaut, sans délégation ; NTLM seulement avec `--allow-ntlm` ; proxy
+  ignoré. Il permet un endpoint JEA sans commande libre (#64), ce qu'aucune
+  autre option n'offre.
 - **SSH par le client OpenSSH** (option 4, #119) pour les hôtes Linux : amnesia
-  lance `ssh` en sous-processus (argv en liste, délai, `BatchMode=yes`,
-  `StrictHostKeyChecking` strict) et réutilise la configuration, les clés, les
-  agents, les hôtes connus et les sauts (`ProxyJump`) déjà en place sur le
-  poste de l'auditeur. Aucune bibliothèque SSH n'entre dans les dépendances ;
-  OpenSSH est un prérequis du poste, documenté.
+  lance `ssh` en sous-processus et réutilise les clés, les agents, les hôtes
+  connus et les sauts (`ProxyJump`) déjà en place sur le poste de l'auditeur.
+  Aucune bibliothèque SSH n'entre dans les dépendances ; OpenSSH est un
+  prérequis du poste, documenté. La cible est peut-être compromise (H4) : ce
+  que la configuration de l'auditeur lui donnerait de plus que la lecture est
+  coupé sur la ligne de commande, où `-o` l'emporte sur `~/.ssh/config`.
+  Toute invocation a cette forme, argv en liste et délai explicite :
+
+  ```text
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no
+      -o ForwardX11=no -o ClearAllForwardings=yes -o PermitLocalCommand=no
+      -o ConnectTimeout=<délai> -- <hôte> <commande de l'allowlist>
+  ```
+
+  `ForwardAgent=no` empêche la cible d'utiliser l'agent de l'auditeur pour
+  joindre d'autres clients (l'équivalent SSH de la délégation CredSSP refusée
+  par M05) ; `--` et la validation de l'hôte par `amnesia.target` (ni « - » en
+  tête, aucun caractère hors de `[A-Za-z0-9.-]` sauf pour une adresse IPv6
+  validée par `ipaddress`) empêchent qu'un hôte comme `-oProxyCommand=...`
+  devienne une option qui exécute une commande sur le poste.
 - **Bundles hors ligne** (option 6, #48, #52) : un collecteur PowerShell
   autonome, figé et remis avec son SHA-256, exécuté par l'administrateur du
   client avec ses propres droits ; il produit un bundle (`amnesia.facts/1`,
@@ -82,8 +100,10 @@ dans le modèle de menace avant d'être mergé (règle de révision de
 
 - Bien : aucun agent, aucune dépendance SSH, et un mode hors ligne qui couvre
   les clients les plus contraints, ceux qui en ont le plus besoin.
-- Bien : SSH hérite de tout ce que l'auditeur a déjà configuré (clés
-  matérielles, agents, bastions), sans réimplémenter l'authentification.
+- Bien : SSH hérite de l'authentification que l'auditeur a déjà configurée
+  (clés matérielles, agents, bastions), sans la réimplémenter ; les options
+  qui donneraient à la cible un accès au poste (agent, X11, redirections,
+  commande locale) sont coupées quelle que soit cette configuration.
 - Mal : SSH dépend d'un binaire externe et de sa version ; les tests
   d'intégration exigent OpenSSH, et l'analyse de ses erreurs passe par son
   code de sortie et stderr, pas par une API.
@@ -96,9 +116,14 @@ dans le modèle de menace avant d'être mergé (règle de révision de
 ### Confirmation
 
 - `src/amnesia/target.py` : seules les formes `local`, `winrm://`, `bundle:`
-  sont acceptées aujourd'hui ; `ssh://` arrivera avec #119.
-- `docs/threat-model.md` : flux F1 (WinRM), F5 et F6 (bundle), à compléter
-  pour SSH par #119.
+  sont acceptées aujourd'hui ; `ssh://` arrivera avec #119, avec un test qui
+  refuse un hôte commençant par « - » et un test de la forme de l'invocation
+  `ssh` ci-dessus.
+- `docs/threat-model.md` : flux F1 (WinRM), F5 et F6 (bundle) ; la PR de #119
+  y ajoute le flux SSH et ses mesures (règle de révision), et aucun
+  `ssh://` n'est accepté avant.
+- #63 : tests du collecteur WinRM qui refusent Basic, CredSSP, la délégation
+  et NTLM sans `--allow-ntlm`.
 - `tests/test_architecture.py` : un collecteur n'importe ni le moteur ni les
   checks de domaine.
 

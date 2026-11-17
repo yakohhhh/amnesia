@@ -45,6 +45,11 @@ Une décision pas encore tranchée, ou tranchée mais dont l'ADR est en cours,
 figure dans l'index avec le statut « proposé » : le registre dit aussi ce qui
 reste ouvert.
 
+Les ADR 0001 (licence, #11) et 0002 (nom, #12) ont été acceptés avant ce
+registre, dans une forme à eux (en-tête en tableau, sections propres). Ils la
+gardent, puisqu'un ADR accepté ne se réécrit pas : l'index les range comme les
+autres, et le gabarit MADR vaut à partir de l'ADR 0003.
+
 Le modèle de PR demande « Cette PR nécessite-t-elle un ADR ? », et
 `CONTRIBUTING.md` renvoie vers l'architecture et le registre.
 
@@ -52,8 +57,8 @@ Le modèle de PR demande « Cette PR nécessite-t-elle un ADR ? », et
 
 - Bien : le « pourquoi » est versionné, relu, lié aux tickets et aux PR, et
   survit à la clôture des issues.
-- Bien : un partenaire ou un auditeur externe lit cinq fichiers plutôt que
-  150 tickets.
+- Bien : un partenaire ou un auditeur externe lit quelques fichiers plutôt
+  que 150 tickets.
 - Mal : une décision de plus à prendre à chaque PR (« faut-il un ADR ? ») ; la
   question dans le modèle de PR rend ce coût explicite et borné.
 - Mal : un ADR peut vieillir sans que personne ne le marque « remplacé » ; la
@@ -64,7 +69,10 @@ Le modèle de PR demande « Cette PR nécessite-t-elle un ADR ? », et
 `tests/test_architecture.py` vérifie la forme du registre : fichiers
 `NNNN-sujet.md`, numéros uniques et continus, sections obligatoires, statut
 connu, ligne d'index pour chaque fichier, et question de l'ADR dans le modèle
-de PR. La justesse d'une décision reste affaire de revue.
+de PR. Pour 0001 et 0002, il ne vérifie que le titre, le statut, la date et la
+ligne d'index ; leur forme détaillée relève de `tests/test_adr_licence.py` et
+de `tests/test_adr_nom_marque.py`. La justesse d'une décision reste affaire de
+revue.
 
 ## Avantages et inconvénients des options
 

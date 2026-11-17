@@ -24,7 +24,7 @@ flowchart LR
     EVALUATION["Évaluation<br/>checks, fonctions pures<br/>amnesia.checks"]
     RESULTATS["Résultats<br/>CheckResult, Gap, AuditResult<br/>amnesia.runner"]
     RAPPORT["Rapport JSON<br/>schema_version 1.x<br/>amnesia.report"]
-    RENDUS["Rendus<br/>terminal, Markdown<br/>HTML, PDF"]
+    RENDUS["Rendus<br/>texte, Markdown : amnesia.render<br/>HTML, PDF à venir"]
     CLI["CLI<br/>amnesia.cli"]
     JOURNAL["Journal de diagnostic<br/>amnesia.log, secrets expurgés"]
 
@@ -38,6 +38,7 @@ flowchart LR
     CLI -.->|"orchestre"| TRANSPORT
     CLI -.-> RESULTATS
     CLI -.-> RAPPORT
+    CLI -.-> RENDUS
     JOURNAL -.- COLLECTE
     JOURNAL -.- EVALUATION
 ```
@@ -50,7 +51,7 @@ flowchart LR
 | Évaluation | `amnesia.checks` (`Check.evaluate`, registre, `resolve()`) | `FactSet`, `Context` | `CheckResult` : `pass`, `gap` (avec des `Gap`), `error`, `skipped` ou `not_applicable` | [ADR 0004](adr/0004-separation-collecte-evaluation.md) |
 | Résultats | `amnesia.runner` (`run_audit`, `AuditResult`, `AuditSummary`) | checks, cible, collecteur | résultats triés par sévérité, comptes, `complete`, `interrupted` | — |
 | Rapport JSON | `amnesia.report` (`build_report`, `dumps_report`, schéma `report-v1`) | `AuditResult`, `argv` | document versionné, déterministe, validé par le schéma ([`format-rapport.md`](format-rapport.md)) | [ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md) |
-| Rendus | #23 (terminal, Markdown), #77 (HTML, PDF) | le rapport JSON, jamais les objets internes | documents lisibles ; hors des surfaces publiques ([`RELEASING.md`](RELEASING.md)) | [ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md) |
+| Rendus | `amnesia.render` (`render_report`, `read_report`, texte et Markdown) ; HTML et PDF : #77 | le rapport JSON (un rapport archivé se re-rend), jamais les objets d'un audit | documents lisibles, texte venu de la cible neutralisé ; hors des surfaces publiques ([`RELEASING.md`](RELEASING.md)) | [ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md) |
 
 Deux règles traversent toute la chaîne :
 
@@ -61,9 +62,11 @@ Deux règles traversent toute la chaîne :
   seules sorties d'un audit sont le rapport, le journal de diagnostic et, en
   mode hors ligne, le bundle produit par le collecteur autonome (#48).
 
-État au 29/10/2026 : la commande `audit` de la CLI est encore un squelette
-(branchement de `run_audit` et de `build_report` : #24) ; `LocalCollector` ne
-collecte rien encore (#48) ; WinRM, SSH, bundle et cloud sont à venir.
+État actuel : la commande `audit` enchaîne `run_audit`, `build_report` et un
+rendu, et traduit le rapport en code de sortie (`amnesia.exitcodes`, #24) ;
+`amnesia render` re-rend un rapport archivé (#23). `LocalCollector` ne collecte
+encore aucun fait (#48) : tout fait est `unavailable`, donc aucun check n'est
+`pass`. WinRM, SSH, bundle et cloud sont à venir.
 
 ## Modules et dépendances autorisées
 
@@ -77,7 +80,10 @@ basses. De bas en haut :
 3. **collecte et résolution** : `amnesia.facts.collectors`,
    `amnesia.facts.resolution` ;
 4. **checks de domaine** : `amnesia.checks.windows`, `amnesia.checks.ad` ;
-5. **moteur et rapport** : `amnesia.runner`, puis `amnesia.report` ;
+5. **moteur, rapport et rendus** : `amnesia.runner`, puis `amnesia.report`,
+   puis `amnesia.render` (`base`, puis `text` et `markdown`) ; à côté,
+   `amnesia.exitcodes` (codes de sortie, d'après les sévérités de
+   `amnesia.checks.base`) ;
 6. **entrée** : `amnesia.cli`, `amnesia.__main__`.
 
 Table des dépendances internes autorisées (imports exécutés au chargement ;
@@ -90,7 +96,12 @@ modules.
 |---|---|
 | `amnesia` | `amnesia.runner` |
 | `amnesia.__main__` | `amnesia.cli` |
-| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.log`, `amnesia.report`, `amnesia.target` |
+| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.exitcodes` | `amnesia.checks.base` |
+| `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
+| `amnesia.render.markdown` | `amnesia.render.base` |
+| `amnesia.render.text` | `amnesia.render.base` |
+| `amnesia.render.base` | `amnesia.checks.base`, `amnesia.report` |
 | `amnesia.report` | `amnesia.checks`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.checks`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
@@ -110,16 +121,31 @@ Ce que la table interdit, et pourquoi :
 - **un check n'importe ni collecteur, ni moteur, ni rapport, ni CLI** : il ne
   reçoit que des faits et un contexte, et peut donc être testé sous Linux avec
   des faits enregistrés (`FixtureCollector`) ;
-- **un module de check n'importe aucun module d'I/O** de la bibliothèque
-  standard (`subprocess`, `socket`, `os`, `pathlib`, `shutil`, `urllib`,
-  `http`, `winreg`, `ctypes`) ni de SDK (`winrm`, `ldap3`, `boto3`, `msgraph`) :
-  `evaluate()` est une fonction pure, et un check ne peut pas écrire sur la
-  cible même par erreur ([ADR 0006](adr/0006-garantie-lecture-seule.md)) ;
+- **un module de check ne fait aucune I/O** : `evaluate()` est une fonction
+  pure ([ADR 0006](adr/0006-garantie-lecture-seule.md)). Le test applique une
+  liste blanche, pas une liste noire : de la bibliothèque standard, un module
+  de check n'importe que des modules de calcul (`__future__`, `collections`,
+  `collections.abc`, `dataclasses`, `datetime`, `enum`, `functools`,
+  `ipaddress`, `itertools`, `math`, `operator`, `re`, `typing`), donc ni
+  `subprocess`, `socket`, `os`, `pathlib`, `io`, `tempfile`, `asyncio`,
+  `importlib`, `winreg` ou `ctypes`, ni SDK (`winrm`, `ldap3`...) ; d'un
+  module interne, il n'importe que des noms que ce module définit (pas
+  `subprocess`, que `amnesia.checks.base` importe pour son propre usage) ; il
+  n'utilise ni `open`, ni `__import__`, `exec`, `eval`, `compile` ou
+  `breakpoint`, ni l'introspection qui rend un module atteignable
+  (`__globals__`, `__subclasses__`...). C'est un garde-fou contre l'erreur
+  dans un check du dépôt, pas une isolation : du code Python malveillant, ou
+  un check tiers installé hors du dépôt (#149), garde tous les droits de
+  l'interpréteur ;
 - **la collecte ne connaît pas le moteur** : un collecteur se remplace par un
   autre (local, WinRM, bundle) sans toucher aux checks ni au moteur ;
 - **le rapport lit des résultats, jamais la cible** ; les rendus lisent le
-  rapport JSON, jamais les objets Python : le contrat machine est le seul point
-  de passage ([ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md)) ;
+  rapport JSON (`read_report()`), jamais les objets d'un audit (`AuditResult`,
+  `CheckResult`) : le contrat machine est le seul point de passage
+  ([ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md)). Du code du moteur,
+  `amnesia.render.base` n'importe que le vocabulaire commun : les énumérations
+  `Severity`, `Status` et `Reason` de `amnesia.checks.base` et `SCHEMA_VERSION`
+  de `amnesia.report` ;
 - **`amnesia.cli` n'est importé que par `__main__`** : l'API Python
   (`from amnesia import run_audit`) ne dépend pas de la ligne de commande.
 
