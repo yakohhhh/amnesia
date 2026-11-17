@@ -1,0 +1,180 @@
+{
+  "schema_version": "1.0.0",
+  "tool": {
+    "name": "amnesia",
+    "version": "0.1.0",
+    "catalog_version": null
+  },
+  "run": {
+    "id": "5f0c6b1e-8a3d-4c2b-9e7f-1a2b3c4d5e6f",
+    "started_at": "2026-10-21T09:30:00Z",
+    "finished_at": "2026-10-21T09:30:04.250000Z",
+    "duration_s": 4.25,
+    "complete": false,
+    "interrupted": false,
+    "profile": null,
+    "argv": [
+      "audit",
+      "--target",
+      "winrm://srv-file.exemple.invalid",
+      "--token",
+      "***",
+      "--out",
+      "rapport-srv-file.json"
+    ]
+  },
+  "targets": [
+    {
+      "id": "winrm://srv-file.exemple.invalid",
+      "kind": "windows_host",
+      "transport": "winrm"
+    }
+  ],
+  "results": [
+    {
+      "check_id": "ad.exemple_controleur",
+      "check_version": null,
+      "target": "winrm://srv-file.exemple.invalid",
+      "status": "not_applicable",
+      "reason": null,
+      "message": "la cible n'est pas un contrôleur de domaine",
+      "error": null,
+      "duration_s": 0.0
+    },
+    {
+      "check_id": "win.audit_policy",
+      "check_version": 1,
+      "target": "winrm://srv-file.exemple.invalid",
+      "status": "pass",
+      "reason": null,
+      "message": "",
+      "error": null,
+      "duration_s": 0.125
+    },
+    {
+      "check_id": "win.event_log_retention",
+      "check_version": 2,
+      "target": "winrm://srv-file.exemple.invalid",
+      "status": "gap",
+      "reason": null,
+      "message": "",
+      "error": null,
+      "duration_s": 0.5
+    },
+    {
+      "check_id": "win.powershell_logging",
+      "check_version": 1,
+      "target": "winrm://srv-file.exemple.invalid",
+      "status": "gap",
+      "reason": null,
+      "message": "",
+      "error": null,
+      "duration_s": 0.25
+    },
+    {
+      "check_id": "win.sysmon",
+      "check_version": 1,
+      "target": "winrm://srv-file.exemple.invalid",
+      "status": "error",
+      "reason": "access_denied",
+      "message": "accès refusé à la configuration Sysmon",
+      "error": {
+        "type": "PermissionError",
+        "message": "accès refusé à la configuration Sysmon",
+        "traceback": null
+      },
+      "duration_s": 1.5
+    },
+    {
+      "check_id": "win.time_sync",
+      "check_version": 1,
+      "target": "winrm://srv-file.exemple.invalid",
+      "status": "skipped",
+      "reason": "not_implemented",
+      "message": "check non implémenté",
+      "error": null,
+      "duration_s": null
+    }
+  ],
+  "gaps": [
+    {
+      "fingerprint": "8bcac978c5c18ccbffdca61a07951bee2e73e11430676cc6961095bcfa02ba4b",
+      "check_id": "win.event_log_retention",
+      "target": "winrm://srv-file.exemple.invalid",
+      "resource": "Security",
+      "question_id": null,
+      "question": "Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?",
+      "reason": "Le journal Security fait 20 Mo et a été écrasé il y a 4 jours.",
+      "severity": "high",
+      "evidence": {
+        "observed": 4,
+        "expected": 90,
+        "unit": "days",
+        "observed_window_days": 4,
+        "required_window_days": 90,
+        "confidence": "measured",
+        "source": "Get-WinEvent -LogName Security -Oldest -MaxEvents 1",
+        "details": {
+          "max_size_bytes": 20971520,
+          "log_mode": "Circular",
+          "oldest_event_utc": "2026-10-17T09:30:00Z"
+        }
+      },
+      "remediation": "Porter le journal Security à 4 Go au moins par GPO : Configuration ordinateur > Stratégies > Modèles d'administration > Composants Windows > Service Journal des événements > Sécurité.",
+      "remediation_id": null,
+      "references": [
+        {
+          "kind": "attack",
+          "id": "T1021.001",
+          "version": "v20",
+          "url": "https://attack.mitre.org/techniques/T1021/001/"
+        }
+      ],
+      "compromise_indicator": false
+    },
+    {
+      "fingerprint": "56f5e1ed812ee96cc1c60df9e2c2b3683cb3009f7f8d67f490be554ac21e019d",
+      "check_id": "win.powershell_logging",
+      "target": "winrm://srv-file.exemple.invalid",
+      "resource": "ScriptBlockLogging",
+      "question_id": null,
+      "question": "Quelles commandes PowerShell l'attaquant a-t-il exécutées ?",
+      "reason": "La journalisation des blocs de script est désactivée.",
+      "severity": "medium",
+      "evidence": {
+        "observed": false,
+        "expected": true,
+        "unit": "bool",
+        "observed_window_days": null,
+        "required_window_days": null,
+        "confidence": "measured",
+        "source": "registre HKLM PowerShell ScriptBlockLogging",
+        "details": {}
+      },
+      "remediation": "Activer « Activer la journalisation des blocs de scripts PowerShell » par GPO.",
+      "remediation_id": null,
+      "references": [],
+      "compromise_indicator": false
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "by_status": {
+      "pass": 1,
+      "gap": 2,
+      "error": 1,
+      "skipped": 1,
+      "not_applicable": 1
+    },
+    "by_severity": {
+      "critical": 0,
+      "high": 1,
+      "medium": 1,
+      "low": 0,
+      "info": 0
+    },
+    "gaps": 2,
+    "excluded": 0,
+    "not_evaluated": 2
+  }
+}

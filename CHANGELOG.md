@@ -47,5 +47,26 @@ la première version sera la 0.1.0 (milestone M0).
   statut et par sévérité, sérialisation déterministe, valeurs de `--password`,
   `--token`, `--secret` et `--client-secret` masquées dans `run.argv`. Format et
   compatibilité : `docs/format-rapport.md` (#22).
+- Commande `amnesia render <rapport.json> --format text|md` : re-rend un rapport
+  archivé sans refaire l'audit, chaque angle mort formulé comme une question
+  (« → Impossible : … »), de critical à info, avec `--group-by
+  severity|domain|target` et `--min-severity`. Section « Non vérifié »
+  obligatoire pour les checks en erreur ou non exécutés, résumé chiffré, couleurs
+  seulement sur un terminal sans `NO_COLOR` ni `--no-color`, repli ASCII (`->`)
+  selon l'encodage de sortie. Les valeurs du rapport sont neutralisées (séquences
+  ANSI, contrôles, bidi) et échappées en Markdown ; un rapport d'une autre
+  version majeure de format est refusé (code 4) (#23).
+- `amnesia audit` lance réellement les checks : rapport JSON écrit dans `--out`
+  (jamais écrasé sans `--overwrite` ; un lien planté à cet emplacement n'est
+  jamais suivi, même en écrasant ; `--out -` : JSON sur stdout, rendu texte
+  sur stderr), rendu texte ou JSON sur stdout (`--format`, `--no-color`,
+  `NO_COLOR`). Codes de sortie stables (`amnesia.exitcodes`, table dans
+  `amnesia audit --help` et le README) : 0 audit complet sans angle mort au
+  seuil, 1 angle mort de sévérité >= `--fail-on` (`low` par défaut, `never` ne
+  neutralise que ce code), 2 usage, 3 audit incomplet (check en erreur ou non
+  exécuté : « pas pu vérifier » n'est pas « conforme »), 4 erreur fatale, 130
+  interruption avec rapport partiel. `amnesia render --fail-on` applique la
+  même table à un rapport archivé. Sans sous-commande, l'aide part sur stderr
+  (#24).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main
