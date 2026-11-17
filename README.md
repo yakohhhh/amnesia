@@ -50,6 +50,36 @@ pip install -e .
 amnesia --help
 ```
 
+`amnesia audit` écrit le rapport JSON dans `--out` (`amnesia-report.json` par
+défaut, jamais écrasé sans `--overwrite` ; `--out -` l'envoie sur stdout et le
+rendu texte sur stderr) et affiche les questions d'enquête sans réponse
+(`--format text`, ou `json` pour le rapport lui-même ; `--no-color` et
+`NO_COLOR` coupent les couleurs).
+
+## Codes de sortie
+
+Lancé depuis un RMM, une tâche planifiée ou une CI, un audit qui trouve des
+angles morts ou qui n'a rien pu vérifier ne doit jamais paraître vert. Le code
+de sortie traduit donc le contenu du rapport (`amnesia audit --help` reprend la
+table ; constantes dans `amnesia.exitcodes`) :
+
+| Code | Signification |
+| --- | --- |
+| `0` | Audit complet, aucun angle mort de sévérité >= `--fail-on`. |
+| `1` | Au moins un angle mort de sévérité >= `--fail-on` (prioritaire sur 3). |
+| `2` | Erreur d'usage ou de configuration (option, cible invalide, rapport déjà présent sans `--overwrite`). |
+| `3` | Audit incomplet : un check en erreur, non exécuté ou en délai dépassé, sans angle mort au-dessus du seuil. « Pas pu vérifier » n'est pas « conforme » ; un check sans objet (`not_applicable`) ne rend pas l'audit incomplet. |
+| `4` | Erreur fatale : aucune cible exploitable, rapport impossible à écrire ou à lire. |
+| `130` | Interruption (Ctrl-C) : un rapport partiel est écrit, avec `run.interrupted = true`. |
+
+`--fail-on {critical,high,medium,low,info,never}` (`low` par défaut) fixe le
+seuil du code 1 ; `never` le neutralise, jamais le code 3. `amnesia render
+<rapport.json> --fail-on <seuil>` applique la même table à un rapport archivé,
+pour une CI qui ne refait pas l'audit ; sans `--fail-on`, un rendu réussi vaut
+0. La table est stable : le sens d'un code ne change jamais et un code retiré
+n'est jamais réattribué
+([`docs/RELEASING.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/RELEASING.md)).
+
 ## Développement
 
 Pour contribuer (environnement, conventions, workflow Git, formulaires
