@@ -121,7 +121,10 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
 - `subprocess` avec un `encoding=` explicite (`docs/dev/encodage.md`) et
   `env=subprocess_env()` : un `pwsh` lancé sans `POWERSHELL_TELEMETRY_OPTOUT=1`
   envoie une télémétrie à Microsoft, et sans `POWERSHELL_UPDATECHECK=Off`
-  vérifie ses mises à jour (#26) ;
+  vérifie ses mises à jour (#26). `tests/test_reseau.py` le vérifie sur l'AST
+  de `src/` : chaque `subprocess.run`, `Popen`, `check_output`… et
+  `asyncio.create_subprocess_*` reçoit `env=subprocess_env(...)` explicite,
+  et `os.system`, `os.popen`, `os.exec*` et `os.spawn*` sont refusés ;
 - un collecteur ne joint que la cible désignée par l'utilisateur, jamais un
   tiers. Les collecteurs sont les seuls modules de `src/` autorisés à ouvrir une
   connexion : la règle ruff `TID251` interdit `socket.socket`,

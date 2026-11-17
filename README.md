@@ -171,19 +171,28 @@ sans que tu le décides. amnesia est **hors ligne par défaut** :
 - ses rendus (texte, Markdown) ne chargent aucune ressource externe : ni image,
   ni feuille de style, ni script, ni police ; les liens de référence restent du
   texte ;
-- tout sous-processus lancé par un collecteur reçoit
+- tout sous-processus lancé par amnesia, `pwsh` compris, reçoit
   `POWERSHELL_TELEMETRY_OPTOUT=1` et `POWERSHELL_UPDATECHECK=Off` dans son
   environnement : PowerShell 7 envoie sinon une télémétrie au démarrage puis
   pendant la session, et vérifie ses mises à jour ; la variable n'a d'effet que
   posée avant le lancement du processus.
 
-Ces engagements sont tenus par le code, pas seulement par ce texte : seuls les
-collecteurs (`src/amnesia/facts/collectors.py`, liste explicite dans
-`pyproject.toml`) peuvent ouvrir une connexion, la règle ruff `TID251` interdit
-`socket`, `urllib.request`, `http.client`, `requests` et `httpx` partout
-ailleurs, et la suite de tests tourne avec le réseau coupé, sous-processus
-compris. Le futur contrôle de licence (#154) restera vérifiable hors ligne. Une
-dépendance qui enfreindrait cette règle est une vulnérabilité à signaler
+Ces engagements sont tenus par le code, pas seulement par ce texte :
+
+- seuls les collecteurs (`src/amnesia/facts/collectors.py`, liste explicite
+  dans `pyproject.toml`) peuvent ouvrir une connexion : la règle ruff `TID251`
+  interdit partout ailleurs `socket.socket`, `socket.create_connection`,
+  `asyncio.open_connection`, `http.client`, `urllib.request`, `urllib3`,
+  `requests` et `httpx`, et un test refuse hors des collecteurs tout import d'un
+  module réseau ou d'un SDK de connexion ;
+- un test vérifie que chaque sous-processus lancé par amnesia reçoit
+  l'environnement de `amnesia.facts.subprocess_env()` ;
+- les tests coupent le réseau, et chaque commande (`--help`, `--version`,
+  `list-checks`, `schema`, `render`, `audit`) est aussi lancée dans un
+  processus dont le réseau est coupé avant le moindre import d'amnesia.
+
+Le futur contrôle de licence (#154) restera vérifiable hors ligne. Une
+dépendance qui enfreindrait ces règles est une vulnérabilité à signaler
 ([`SECURITY.md`](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md)).
 
 ## Scope & légal

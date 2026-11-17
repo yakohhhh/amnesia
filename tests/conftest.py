@@ -260,10 +260,12 @@ _RESSOURCES_EXTERNES = (
     # image Markdown en ligne : ![alt](https://...) ou ![alt](<https://...>)
     re.compile(r"!\[[^\]]*\]\(\s*<?\s*" + _CIBLE_DISTANTE, re.I),
     # elements HTML qui chargent une ressource des l'affichage (image, script,
-    # feuille de style, police, cadre, media, SVG <use>/<image>)
+    # feuille de style, police, cadre, media, SVG <use>/<image>, fond de page
+    # ou de tableau)
     re.compile(
         r"<(?:img|script|link|iframe|frame|embed|object|source|track|video|audio"
-        r"|use|image|input)\b[^>]*?\b(?:src|href|data|poster|srcset|xlink:href)"
+        r"|use|image|input|body|table|td|th)\b[^>]*?"
+        r"\b(?:src|href|data|poster|srcset|background|xlink:href)"
         r"\s*=\s*[\"']?\s*" + _CIBLE_DISTANTE,
         re.I | re.S,
     ),

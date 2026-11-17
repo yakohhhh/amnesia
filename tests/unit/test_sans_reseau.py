@@ -8,11 +8,13 @@ blocage est bien actif dans ce processus.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pytest_socket import SocketBlockedError
@@ -22,11 +24,19 @@ from amnesia.checks import Check, Domain
 from amnesia.checks.base import CheckResult
 from amnesia.checks.context import Context
 from amnesia.cli import main
-from amnesia.facts import SUBPROCESS_ENV, FactSet, subprocess_env
+from amnesia.exitcodes import GAPS, INCOMPLETE, OK
+from amnesia.facts import (
+    SUBPROCESS_ENV,
+    Collector,
+    FactSet,
+    FixtureCollector,
+    subprocess_env,
+)
 from amnesia.target import Kind, Target
 
 RACINE = Path(__file__).resolve().parents[2]
 FIXTURE = RACINE / "tests" / "fixtures" / "report-min.json"
+FAITS = RACINE / "tests" / "fixtures" / "facts" / "exemple.json"
 GOLDENS = RACINE / "tests" / "golden"
 
 
@@ -51,6 +61,27 @@ class CheckQuiSeConnecte(CheckHorsLigne):
         # hors d'un collecteur reseau : interdit par TID251 et par le socle
         socket.create_connection(("192.0.2.1", 80), timeout=1)
         return CheckResult.passed(self.id, ctx.target.id)
+
+
+class CollecteurFactice:
+    """Collecteur sans connexion : faits de la fixture, demandes consignées."""
+
+    def __init__(self) -> None:
+        self.interne = FixtureCollector(FAITS)
+        self.demandes: list[tuple[str, tuple[str, ...]]] = []
+
+    def collect(
+        self, target: Target, names: Iterable[str], *, timeout: float
+    ) -> FactSet:
+        noms = tuple(names)
+        self.demandes.append((target.id, noms))
+        return self.interne.collect(target, noms, timeout=timeout)
+
+
+def _resultats(rapport: Path) -> list[dict[str, Any]]:
+    contenu: dict[str, Any] = json.loads(rapport.read_text(encoding="utf-8"))
+    resultats: list[dict[str, Any]] = contenu["results"]
+    return resultats
 
 
 # --- temoins : le blocage de #5 est actif ici ---------------------------------
@@ -116,12 +147,56 @@ def test_audit_checks_factices(
     assert "SocketBlockedError" not in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("cible", ["local", "winrm://dc01.invalid"])
+def test_audit_collecteur_factice(
+    cible: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # checks du registre, collecteur factice : seul un collecteur joint la
+    # cible ; ni le moteur, ni le rapport, ni le rendu n'ouvrent de connexion,
+    # meme pour une cible distante
+    collecteur = CollecteurFactice()
+
+    def fabrique(target: Target) -> Collector:
+        return collecteur
+
+    monkeypatch.setattr(cli, "_collecteur", fabrique)
+    rapport = tmp_path / "rapport.json"
+    with caplog.at_level(logging.DEBUG):
+        code = main(["audit", "--target", cible, "--out", str(rapport)])
+    assert code in {OK, GAPS, INCOMPLETE}
+    assert collecteur.demandes, "le collecteur factice n'a pas servi"
+    resultats = _resultats(rapport)
+    assert resultats
+    assert [r["error"] for r in resultats if r["status"] == "error"] == []
+    assert "SocketBlockedError" not in caplog.text
+
+
+def test_audit_check_qui_se_connecte_jamais_silencieux(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # la tentative bloquee devient un resultat error et un audit incomplet,
+    # jamais un pass ni une erreur fatale
+    monkeypatch.setattr(cli, "default_checks", lambda: [CheckQuiSeConnecte()])
+    rapport = tmp_path / "rapport.json"
+    code = main(["audit", "--target", "winrm://dc01.invalid", "--out", str(rapport)])
+    assert code == INCOMPLETE
+    (resultat,) = _resultats(rapport)
+    assert resultat["status"] == "error"
+    assert resultat["error"]["type"] == "pytest_socket.SocketBlockedError"
+
+
 # --- rendus : aucune ressource externe -----------------------------------------
 
 
 @pytest.mark.parametrize(
     "contenu",
     [
+        # exemples des criteres d'acceptation de #26
+        "![](https://cdn.example/logo.png)",
+        '<link href="https://cdn.example/style.css">',
         "![logo](https://cdn.example/logo.png)",
         "![logo]( <https://cdn.example/logo.png> )",
         "![logo](//cdn.example/logo.png)",
@@ -138,6 +213,8 @@ def test_audit_checks_factices(
         '<meta http-equiv="refresh" content="0;url=https://evil.example">',
         '<use xlink:href="https://cdn.example/sprite.svg#a"/>',
         '<IMG SRC="HTTPS://CDN.EXAMPLE/A.PNG">',
+        '<body background="https://cdn.example/fond.png">',
+        '<td style="background: url(//cdn.example/fond.png)">',
     ],
 )
 def test_ressource_externe_refusee(
@@ -204,3 +281,16 @@ def test_subprocess_env_part_de_l_environnement(
     assert env["POWERSHELL_TELEMETRY_OPTOUT"] == "1"
     # os.environ n'est pas modifie
     assert "POWERSHELL_TELEMETRY_OPTOUT" not in os.environ
+
+
+def test_subprocess_env_casse_des_noms_windows() -> None:
+    # Windows ignore la casse des noms : aucun homonyme ne reste a cote de la
+    # valeur imposee, qui pourrait sinon perdre dans le bloc d'environnement
+    env = subprocess_env(
+        {
+            "Path": r"C:\Windows",
+            "powershell_telemetry_optout": "0",
+            "PowerShell_UpdateCheck": "Default",
+        }
+    )
+    assert env == {"Path": r"C:\Windows", **SUBPROCESS_ENV}

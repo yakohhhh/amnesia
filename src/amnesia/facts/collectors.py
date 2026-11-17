@@ -59,12 +59,22 @@ def subprocess_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
     """Environnement d'un sous-processus : ``base`` (défaut ``os.environ``) et
     ``SUBPROCESS_ENV``, qui l'emporte.
 
-    À passer en ``env=`` à chaque ``subprocess.run`` d'un collecteur : un
-    ``pwsh`` lancé sans ``POWERSHELL_TELEMETRY_OPTOUT=1`` envoie une télémétrie
-    à Microsoft, et sans ``POWERSHELL_UPDATECHECK=Off`` vérifie ses mises à
-    jour, ce qui contredirait l'engagement « hors ligne par défaut ».
+    À passer en ``env=`` à chaque sous-processus lancé par amnesia (vérifié sur
+    l'AST de ``src/`` par ``tests/test_reseau.py``) : un ``pwsh`` lancé sans
+    ``POWERSHELL_TELEMETRY_OPTOUT=1`` envoie une télémétrie à Microsoft, et sans
+    ``POWERSHELL_UPDATECHECK=Off`` vérifie ses mises à jour, ce qui
+    contredirait l'engagement « hors ligne par défaut ».
+
+    Une variable de ``base`` homonyme à la casse près est retirée : Windows ne
+    distingue pas la casse des noms de variables, et un
+    ``powershell_telemetry_optout=0`` resté dans le bloc d'environnement
+    pourrait l'emporter sur la valeur imposée.
     """
-    return {**(os.environ if base is None else base), **SUBPROCESS_ENV}
+    source = os.environ if base is None else base
+    imposees = {nom.upper() for nom in SUBPROCESS_ENV}
+    env = {nom: val for nom, val in source.items() if nom.upper() not in imposees}
+    env.update(SUBPROCESS_ENV)
+    return env
 
 
 class Collector(Protocol):

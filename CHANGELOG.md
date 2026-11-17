@@ -75,7 +75,7 @@ la première version sera la 0.1.0 (milestone M0).
   rapport de plantage ; amnesia ne contacte que les cibles désignées, depuis les
   seuls collecteurs (règle ruff `TID251` partout ailleurs, liste explicite dans
   `pyproject.toml`), et ses rendus ne chargent aucune ressource externe. Tout
-  sous-processus d'un collecteur reçoit `POWERSHELL_TELEMETRY_OPTOUT=1` et
+  sous-processus lancé par amnesia reçoit `POWERSHELL_TELEMETRY_OPTOUT=1` et
   `POWERSHELL_UPDATECHECK=Off` (`amnesia.facts.subprocess_env()`). Engagement
   écrit : README, section « Confidentialité » (#26).
 
