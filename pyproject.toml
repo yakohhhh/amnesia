@@ -65,30 +65,30 @@ amnesia = "amnesia.cli:main"
 [dependency-groups]
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [
-    "hypothesis==6.170.5",
+    "hypothesis==6.170.14",
     # validation du rapport contre son JSON Schema (#22) : tests seulement, le
     # paquet installe n'en depend pas
     "jsonschema==4.26.0",
-    "mypy==2.4.0",
+    "mypy==2.4.1",
     "nox==2026.10.20",
     "pre-commit==4.7.0",
     "pre-commit-hooks==6.0.0",
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-cov==7.1.0",
     "pytest-socket==0.8.1",
     "pyyaml==6.0.3",
-    "ruff==0.17.1",
+    "ruff==0.17.3",
     # backend de build, meme version que build-constraint-dependencies : les
     # tests construisent le wheel hors ligne (tests/test_paquet.py)
     "setuptools==84.2.1",
     "types-jsonschema==4.26.0.20261006",
-    "types-pyyaml==6.0.12.20260906",
+    "types-pyyaml==6.0.12.20261103",
 ]
 # outils d'audit de la CI, hors groupe dev (installes a la demande)
 ci = [
     # schemas embarques (--builtin-schema) : .github/dependabot.yml valide hors ligne
-    "check-jsonschema==0.38.2",
-    "zizmor==1.31.1",
+    "check-jsonschema==0.39.0",
+    "zizmor==1.32.0",
 ]
 # audit des vulnerabilites connues de uv.lock (job CI pip-audit) : groupe a part,
 # ses dependances (requests, cyclonedx...) n'entrent ni dans dev ni dans ci
