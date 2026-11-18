@@ -182,16 +182,20 @@ besoin d'une nouvelle lecture l'y ajoute, dans la même PR :
 - **script PowerShell** : un fichier de `src/amnesia/ps/`, jamais une chaîne
   dans le code Python, inscrit dans `SCRIPTS` avec son empreinte
   (`script_digest()`) et chargé par `load_script()`. Il n'emploie que les
-  cmdlets (`PsCommand`, nom complet, aucun alias) et méthodes .NET
-  (`PsMethod`) de l'allowlist, n'affecte que des variables simples et ne
-  redirige rien vers un fichier. Un verbe interdit (`Set-`, `New-`...) n'est
+  cmdlets (`PsCommand`, nom complet, aucun alias), méthodes .NET
+  (`PsMethod`) et types (`PsType` : une conversion `[Type]$valeur` appelle un
+  constructeur) de l'allowlist, n'affecte que des variables simples et ne
+  redirige rien vers un fichier. Aucun paramètre ne joint un autre hôte
+  (`-ComputerName`, `-CimSession`), aucun n'est étalé (`@variable`). Un verbe
+  interdit (`Set-`, `New-`...) n'est
   admis que par une exception nommée et justifiée (`exception=True`) ;
   `ForEach-Object` n'est pas admis, son paramètre `-MemberName` appelant
   une méthode hors de vue de l'analyse : utiliser l'instruction `foreach` ;
 - **LDAP, AWS, HTTP** : le client passe par `ReadOnlyLdap`,
   `protect_aws_client()` ou `HttpGuard(api, base_url)` ; une opération qui
   laisse une trace ou consomme un quota chez le client porte un `opt_in`,
-  décrit dans `OPT_INS`, et reste refusée par défaut ;
+  décrit dans `OPT_INS`, et reste refusée par défaut ; une lecture qui
+  renvoie un secret ou du contenu entre dans `AWS_DENIED` ou `HTTP_DENIED` ;
 - `ALLOWLIST_VERSION` est incrémenté, puis `uv run python
   scripts/generer_read_only.py` régénère la documentation (un test échoue
   sinon).

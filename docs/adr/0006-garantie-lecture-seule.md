@@ -82,11 +82,19 @@ refusé avant exécution par `ReadOnlyViolation` :
 - un exécutable n'est lancé que par son chemin complet, sous une forme
   d'arguments figée (`wevtutil.exe gl <canal>`, jamais `wevtutil cl`) ;
 - un script PowerShell vit dans `src/amnesia/ps/`, est inscrit au registre
-  avec son empreinte SHA-256, et la CI analyse son AST : commande, alias ou
-  méthode .NET hors allowlist, affectation à une propriété ou redirection
-  vers un fichier font échouer le test ;
+  avec son empreinte SHA-256, et la CI analyse son AST : commande, alias,
+  méthode .NET ou type hors allowlist (une conversion `[Type]$valeur` appelle
+  un constructeur), paramètre qui joint un autre hôte, affectation à une
+  propriété ou redirection vers un fichier font échouer le test ;
 - une connexion LDAP est enveloppée (bind et search seulement) ; un client
   AWS ou HTTP reçoit une garde qui refuse l'opération avant tout envoi.
+
+Pour AWS et HTTP, la règle admet les lectures par préfixe (`Get*`, `List*`,
+`Describe*`) ou par verbe (`GET`), puis retire celles qui renvoient un secret
+ou du contenu, émettent des identifiants ou lancent une recherche
+(`AWS_DENIED`, `HTTP_DENIED`). Une liste de refus est incomplète par nature :
+chaque collecteur cloud (#95, #112, #113) remplacera la règle large de son
+API par les services et les endpoints qu'il nomme.
 
 Être en lecture seule ne suffit pas à faire une bonne source : la commande
 `auditpol.exe /get /category:* /r` est dans l'allowlist parce qu'elle n'écrit

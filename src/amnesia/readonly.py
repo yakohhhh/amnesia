@@ -45,7 +45,7 @@ from importlib.resources import files
 from pathlib import Path, PureWindowsPath
 from types import MappingProxyType
 from typing import Any, Final, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 ALLOWLIST_VERSION: Final = 1
 """Version de l'allowlist, incrémentée à chaque opération ajoutée ou retirée."""
@@ -131,6 +131,22 @@ class PsMethod:
 
 
 @dataclass(frozen=True, slots=True)
+class PsType:
+    """Type .NET admis dans un script PowerShell, par son nom tel qu'il est écrit.
+
+    Une conversion (``[Type]$valeur``, ``[Type]@{...}``, ``-as [Type]``) appelle
+    un constructeur ou des accesseurs : le type compte autant qu'une méthode.
+    """
+
+    name: str
+    reads: str
+
+    @property
+    def label(self) -> str:
+        return f"[{self.name}]"
+
+
+@dataclass(frozen=True, slots=True)
 class LdapOperation:
     """Opération LDAP admise, par le nom de la méthode du client."""
 
@@ -174,8 +190,31 @@ class HttpEndpoint:
         return f"{self.method} {self.path}"
 
 
+@dataclass(frozen=True, slots=True)
+class HttpDenied:
+    """Chemins refusés quel que soit le verbe : suite de segments consécutifs.
+
+    La suite est cherchée partout dans le chemin, sans tenir compte de la casse
+    ni d'une clé OData accolée au segment (``drives('...')``).
+    """
+
+    api: str
+    segments: tuple[str, ...]
+    reason: str
+
+    @property
+    def label(self) -> str:
+        return "/".join(["**", *self.segments, "**"])
+
+
 Operation = (
-    Executable | PsCommand | PsMethod | LdapOperation | AwsOperation | HttpEndpoint
+    Executable
+    | PsCommand
+    | PsMethod
+    | PsType
+    | LdapOperation
+    | AwsOperation
+    | HttpEndpoint
 )
 
 # --- allowlist ------------------------------------------------------------------
@@ -183,10 +222,27 @@ Operation = (
 # une valeur ne commence jamais par « / » ni « - » : elle serait lue comme une
 # option (wevtutil /r:<hote>, reg query \\<hote>\...)
 _CANAL = Param("canal", r"[A-Za-z0-9][A-Za-z0-9 _./-]{0,254}")
-_CLE = Param(
-    "clé", r"(?:HKLM|HKEY_LOCAL_MACHINE)(?:\\[A-Za-z0-9 _.{}()-]{1,255}){1,32}"
+_RACINE = r"(?:HKLM|HKEY_LOCAL_MACHINE)"
+_SOUS_CLE = r"(?:\\[A-Za-z0-9 _.{}()-]{1,255})"
+# une cle lue en entier : seulement sous les racines de configuration que les
+# checks consultent ; ailleurs, une cle peut porter un secret parmi ses valeurs
+# (DefaultPassword de Winlogon) et se lit valeur par valeur
+_CLE_ENTIERE = Param(
+    "clé de configuration",
+    _RACINE
+    + r"\\(?i:SOFTWARE\\Policies"
+    + r"|SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies"
+    + r"|SYSTEM\\CurrentControlSet\\Services\\EventLog"
+    + r"|SYSTEM\\CurrentControlSet\\Control\\Lsa)"
+    + _SOUS_CLE
+    + "{0,28}",
 )
-_VALEUR = Param("valeur", r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,254}")
+# ruches SAM et SECURITY de HKLM (comptes locaux, secrets LSA) : jamais lues
+_CLE = Param(
+    "clé",
+    _RACINE + r"(?!\\(?i:SAM|SECURITY)(?:\\|$))" + _SOUS_CLE + "{1,32}",
+)
+_VALEUR = Param("valeur", r"(?!(?i:DefaultPassword)$)[A-Za-z0-9][A-Za-z0-9 _.-]{0,254}")
 _SERVICE = Param("service", r"[A-Za-z0-9][A-Za-z0-9_.$-]{0,255}")
 
 _WINDOWS: tuple[Operation, ...] = (
@@ -219,7 +275,11 @@ _WINDOWS: tuple[Operation, ...] = (
         "w32tm.exe", ("/query", "/configuration"), "configuration du service de temps"
     ),
     Executable("w32tm.exe", ("/query", "/source"), "source de temps courante"),
-    Executable("reg.exe", ("query", _CLE), "valeurs d'une clé de registre HKLM"),
+    Executable(
+        "reg.exe",
+        ("query", _CLE_ENTIERE),
+        "valeurs d'une clé de configuration du registre HKLM",
+    ),
     Executable(
         "reg.exe", ("query", _CLE, "/v", _VALEUR), "une valeur d'une clé de registre"
     ),
@@ -236,7 +296,6 @@ _WINDOWS: tuple[Operation, ...] = (
     PsCommand("Get-ChildItem", "énumération de sous-clés de registre"),
     PsCommand("Test-Path", "existence d'une clé de registre ou d'un fichier"),
     PsCommand("Get-Service", "état et mode de démarrage des services"),
-    PsCommand("Get-CimInstance", "lecture d'instances CIM (version du système...)"),
     PsCommand("Get-Date", "horodatage de la collecte"),
     PsCommand("Where-Object", "filtrage en mémoire"),
     PsCommand("Select-Object", "projection en mémoire"),
@@ -256,6 +315,17 @@ _WINDOWS: tuple[Operation, ...] = (
         "GetCurrent",
         "System.Security.Principal.WindowsIdentity",
         "identité du compte d'audit, pour nommer un privilège manquant",
+    ),
+    PsType("ordered", "dictionnaire ordonné de la sortie, en mémoire"),
+    PsType("pscustomobject", "objet de sortie, en mémoire"),
+    PsType("string", "conversion en texte"),
+    PsType("int", "conversion en entier"),
+    PsType("long", "conversion en entier long"),
+    PsType("bool", "conversion en booléen"),
+    PsType("datetime", "conversion en horodatage"),
+    PsType(
+        "System.Security.Principal.WindowsIdentity",
+        "type de la méthode statique `GetCurrent()` ci-dessus",
     ),
 )
 
@@ -354,16 +424,77 @@ PS_FORBIDDEN_COMMANDS: Final = (
 )
 """Cmdlets interdites, jamais admises dans l'allowlist."""
 
+PS_FORBIDDEN_PARAMETERS: Final = ("ComputerName", "Cn", "CimSession")
+"""Paramètres interdits sur toute cmdlet, abréviations comprises : ils joignent
+un autre hôte que la cible du script."""
+
 AWS_DENIED: Final[Mapping[str, str]] = MappingProxyType(
     {
         "secretsmanager:GetSecretValue": "renvoie un secret en clair",
         "s3:GetObject": "renvoie le contenu d'un objet : une donnée métier",
         "ssm:GetParameter*": "renvoie des paramètres, dont des secrets déchiffrés",
         "ec2:GetPasswordData": "renvoie le mot de passe administrateur d'une instance",
+        "sts:GetSessionToken": "émet des identifiants temporaires",
+        "sts:GetFederationToken": "émet des identifiants temporaires",
+        "sso:GetRoleCredentials": "émet des identifiants temporaires",
+        "cognito-identity:Get*": (
+            "crée une identité (`GetId`) ou émet des identifiants et des jetons"
+        ),
+        "redshift:GetClusterCredentials*": (
+            "émet des identifiants de base de données et peut créer "
+            "l'utilisateur (`AutoCreate`)"
+        ),
+        "redshift-serverless:GetCredentials": (
+            "émet des identifiants de base de données"
+        ),
+        "ecr:GetAuthorizationToken": "émet un jeton d'accès au registre",
+        "ecr-public:GetAuthorizationToken": "émet un jeton d'accès au registre",
+        "codeartifact:GetAuthorizationToken": "émet un jeton d'accès au dépôt",
+        "lightsail:GetRelationalDatabaseMasterUserPassword": (
+            "renvoie le mot de passe maître d'une base de données"
+        ),
+        "lightsail:GetInstanceAccessDetails": (
+            "renvoie des identifiants d'accès à une instance"
+        ),
+        "glue:GetConnection*": (
+            "renvoie les propriétés d'une connexion, dont son mot de passe"
+        ),
+        "apigateway:GetApiKey*": "renvoie des clés d'API",
+        "dynamodb:GetItem": "renvoie un élément d'une table : une donnée métier",
+        "kinesis:GetRecords": "renvoie les enregistrements d'un flux",
+        "codecommit:GetFile": "renvoie le contenu d'un fichier d'un dépôt",
+        "codecommit:GetBlob": "renvoie le contenu d'un fichier d'un dépôt",
+        "glacier:GetJobOutput": "renvoie le contenu d'une archive",
     }
 )
 """Lectures AWS refusées malgré leur préfixe : elles renvoient un secret ou du
-contenu, pas une configuration."""
+contenu, émettent des identifiants ou créent un objet. Liste de refus, donc
+incomplète par nature : le collecteur AWS (#95) nommera ses services."""
+
+_CONTENU = "contenu d'une boîte aux lettres ou d'un espace de fichiers"
+HTTP_DENIED: Final[tuple[HttpDenied, ...]] = (
+    HttpDenied(
+        "graph",
+        ("deviceLocalCredentials",),
+        "renvoie les mots de passe d'administrateur local (LAPS)",
+    ),
+    HttpDenied(
+        "graph", ("recoveryKeys",), "renvoie les clés de récupération BitLocker"
+    ),
+    HttpDenied("graph", ("messages",), _CONTENU),
+    HttpDenied("graph", ("mailFolders",), _CONTENU),
+    HttpDenied("graph", ("drive",), _CONTENU),
+    HttpDenied("graph", ("drives",), _CONTENU),
+    HttpDenied(
+        "splunk",
+        ("jobs", "export"),
+        "lance une recherche SPL par un simple GET, hors de l'opt-in "
+        "`splunk-search-job`",
+    ),
+)
+"""Chemins HTTP refusés malgré la règle ``GET /**`` : ils renvoient un secret
+ou du contenu, ou lancent une recherche. Liste de refus, incomplète par
+nature : chaque collecteur (#112, #113) nommera ses endpoints."""
 
 LDAP_FORBIDDEN: Final = ("modify", "add", "delete", "modrdn", "modify_dn")
 """Opérations LDAP d'écriture, citées par la documentation ; toute méthode hors
@@ -379,6 +510,9 @@ NEVER_ALLOWED: Final[Mapping[str, str]] = MappingProxyType(
         "wevtutil qe": "lit le contenu des événements, pas une configuration",
         "wevtutil epl": "écrit un fichier d'export sur la cible",
         "reg add, delete, import": "modifient le registre",
+        "reg query sur les ruches SAM et SECURITY": (
+            "lit la base des comptes locaux et les secrets LSA"
+        ),
         "reg export": "écrit un fichier sur la cible",
         "w32tm /config, /resync": "modifient ou forcent la synchronisation",
     }
@@ -386,7 +520,14 @@ NEVER_ALLOWED: Final[Mapping[str, str]] = MappingProxyType(
 """Formes d'exécutables qui n'entreront jamais dans l'allowlist, et pourquoi."""
 
 _T = TypeVar(
-    "_T", Executable, PsCommand, PsMethod, LdapOperation, AwsOperation, HttpEndpoint
+    "_T",
+    Executable,
+    PsCommand,
+    PsMethod,
+    PsType,
+    LdapOperation,
+    AwsOperation,
+    HttpEndpoint,
 )
 
 
@@ -509,12 +650,34 @@ def load_script(
     return contenu.replace(b"\r\n", b"\n").decode("utf-8-sig")
 
 
-def _commande_ps(nom: object) -> str | None:
+def _parametres_ps(element: Mapping[str, Any]) -> str | None:
+    """Motif du refus des paramètres d'une cmdlet admise."""
+    parametres, etale = element.get("parameters"), element.get("splat")
+    if (
+        not isinstance(parametres, list)
+        or not all(isinstance(p, str) and p for p in parametres)
+        or not isinstance(etale, bool)
+    ):
+        return "élément d'inventaire inconnu"
+    if etale:
+        return "paramètres étalés (@variable), hors de vue de l'analyse"
+    for parametre in parametres:
+        # PowerShell admet tout debut non ambigu d'un nom de parametre
+        if any(
+            interdit.lower().startswith(parametre.lower())
+            for interdit in PS_FORBIDDEN_PARAMETERS
+        ):
+            return f"paramètre qui joint un autre hôte : -{parametre}"
+    return None
+
+
+def _commande_ps(element: Mapping[str, Any]) -> str | None:
+    nom = element.get("name")
     if not isinstance(nom, str) or not nom:
         return "commande au nom calculé à l'exécution"
     admises = {op.name.lower() for op in _operations("windows", PsCommand)}
     if nom.lower() in admises:
-        return None
+        return _parametres_ps(element)
     if nom.lower() in {c.lower() for c in PS_FORBIDDEN_COMMANDS}:
         return f"cmdlet interdite : {nom}"
     verbe, tiret, _ = nom.partition("-")
@@ -547,13 +710,23 @@ def _methode_ps(element: Mapping[str, Any]) -> str | None:
     return f"méthode hors allowlist : .{nom}()"
 
 
+def _type_ps(nom: object) -> str | None:
+    if not isinstance(nom, str) or not nom:
+        return "type calculé à l'exécution"
+    if nom.lower() in {op.name.lower() for op in _operations("windows", PsType)}:
+        return None
+    return f"type hors allowlist : [{nom}]"
+
+
 def _element_ps(element: Mapping[str, Any]) -> str | None:
     """Motif du refus d'un élément de l'inventaire, ``None`` s'il est admis."""
     genre = element.get("kind")
     if genre == "command":
-        return _commande_ps(element.get("name"))
+        return _commande_ps(element)
     if genre == "method":
         return _methode_ps(element)
+    if genre == "type":
+        return _type_ps(element.get("name"))
     if genre == "assignment":
         # $objet.Propriete = ... peut ecrire sur la cible (EventLog.MaximumKilobytes),
         # ${C:\fichier} = ... ecrit un fichier : seule une variable simple est admise
@@ -577,8 +750,9 @@ def check_script_inventory(inventory: Mapping[str, Any]) -> list[str]:
     """Écarts d'un script PowerShell à l'allowlist, d'après l'inventaire de son AST.
 
     ``inventory`` est une entrée de la sortie de ``scripts/inventaire_ps.ps1`` :
-    ``errors`` (erreurs d'analyse) et ``items`` (commandes, appels de méthodes,
-    affectations, redirections, ``using``). Rend un message par écart, liste
+    ``errors`` (erreurs d'analyse) et ``items`` (commandes et leurs paramètres,
+    appels de méthodes, types, affectations, redirections, ``using``). Rend un
+    message par écart, liste
     vide si le script ne fait que des lectures admises. Tout ce qui n'est pas
     reconnu est un écart.
     """
@@ -683,12 +857,19 @@ def aws_guard(*, opt_in: Collection[str] = ()) -> Callable[..., None]:
 def protect_aws_client(client: Any, *, opt_in: Collection[str] = ()) -> None:
     """Branche ``aws_guard()`` sur un client boto3 ou botocore (#95).
 
-    À appeler sur chaque client créé. botocore émet ``before-call`` jusqu'à la
-    première réponse, en commençant par les crochets les plus spécifiques : la
-    garde est posée en tête du niveau ``before-call.*.*`` pour passer avant un
-    crochet de même niveau qui répondrait à la place du service (un bouchon de
-    test, par exemple).
+    À appeler sur chaque client créé, avant tout autre crochet. botocore émet
+    ``before-call`` jusqu'à la première réponse, en commençant par les crochets
+    les plus spécifiques ; ``register_first`` place la garde avant les crochets
+    ordinaires du niveau ``before-call.*.*``, mais après un crochet déjà posé
+    par ``register_first`` ou sur un événement plus spécifique. Un tel crochet
+    qui répond à la place du service passe avant la garde : aucune requête ne
+    part alors vers AWS.
+
+    Le dernier appel fait foi : protéger de nouveau un client remplace la
+    garde et ses ``opt_in``, au lieu de laisser les anciens actifs en silence.
     """
+    # botocore ignore un second enregistrement sous le meme unique_id
+    client.meta.events.unregister(AWS_EVENT, unique_id="amnesia-readonly")
     client.meta.events.register_first(
         AWS_EVENT, aws_guard(opt_in=opt_in), unique_id="amnesia-readonly"
     )
@@ -743,14 +924,29 @@ def _chemin_conforme(gabarit: str, segments: tuple[str, ...]) -> bool:
     )
 
 
+def _chemin_refuse(api: str, segments: tuple[str, ...]) -> HttpDenied | None:
+    """Règle de ``HTTP_DENIED`` que le chemin enfreint, ``None`` sinon."""
+    # le serveur decode « %6d » en « m » et lit users('x') comme users/x :
+    # comparaison sur le nom decode du segment, sans casse ni cle accolee
+    noms = tuple(unquote(s).partition("(")[0].lower() for s in segments)
+    for refus in HTTP_DENIED:
+        attendus = tuple(s.lower() for s in refus.segments)
+        if refus.api == api and any(
+            noms[i : i + len(attendus)] == attendus for i in range(len(noms))
+        ):
+            return refus
+    return None
+
+
 class HttpGuard:
     """Garde d'un client HTTP : allowlist par verbe et par chemin, pour une API.
 
     ``api`` nomme l'API (``graph``, ``log-analytics``, ``splunk``) et
     ``base_url`` l'adresse que le collecteur a le droit de joindre : toute
     requête vers un autre hôte, un autre port ou hors du chemin de base est
-    refusée, comme tout verbe autre que GET hors des endpoints nommés. Une
-    exception désactivée par défaut ne passe qu'avec son ``opt_in``.
+    refusée, comme tout verbe autre que GET hors des endpoints nommés et tout
+    chemin de ``HTTP_DENIED``, quel que soit le verbe. Une exception désactivée
+    par défaut ne passe qu'avec son ``opt_in``.
 
     L'instance est appelable avec un objet requête (``.method``, ``.url``) :
     elle se branche comme crochet d'avant-envoi d'un client HTTP (#95, #112,
@@ -784,6 +980,13 @@ class HttpGuard:
             )
         verbe = method.upper() if isinstance(method, str) else ""
         relatifs = segments[len(base_segments) :]
+        # chemin entier : une adresse de base ne met pas un chemin refuse a l'abri
+        refus = _chemin_refuse(self.api, segments)
+        if refus is not None:
+            raise ReadOnlyViolation(
+                f"requête HTTP refusée ({self.api}) : {refus.label} "
+                "(secret, contenu ou recherche)"
+            )
         for endpoint in self._endpoints:
             if endpoint.method != verbe or not _chemin_conforme(
                 endpoint.path, relatifs
@@ -889,10 +1092,12 @@ def render_markdown() -> str:
         lignes += ["Aucun script n'est encore livré (collecteur PowerShell : #48).", ""]
     lignes += [
         "La CI analyse l'AST de chaque script (`Parser::ParseFile`) et refuse",
-        "toute commande ou méthode .NET absente des deux tables ci-dessous, tout",
+        "toute commande, méthode .NET ou type absent des tables ci-dessous, tout",
         "alias (seul le nom complet d'une cmdlet est admis), toute commande au nom",
         "calculé à l'exécution, toute affectation à autre chose qu'une variable",
-        "simple et toute redirection vers un fichier.",
+        "simple et toute redirection vers un fichier. Un type compte autant",
+        "qu'une méthode : une conversion (`[Type]$valeur`, `[Type]@{...}`,",
+        "`-as`) appelle un constructeur ou des accesseurs.",
         "",
     ]
     lignes += _table(
@@ -906,6 +1111,10 @@ def render_markdown() -> str:
         ("Méthode .NET", "Usage"),
         [(_code(op.label), op.reads) for op in _operations("windows", PsMethod)],
     )
+    lignes += _table(
+        ("Type", "Usage"),
+        [(_code(op.label), op.reads) for op in _operations("windows", PsType)],
+    )
     lignes += [
         "Verbes interdits, sauf exception nommée ci-dessus : "
         + ", ".join(f"`{v}-`" for v in PS_FORBIDDEN_VERBS)
@@ -914,6 +1123,12 @@ def render_markdown() -> str:
         "Cmdlets interdites : "
         + ", ".join(_code(c) for c in PS_FORBIDDEN_COMMANDS)
         + ".",
+        "",
+        "Paramètres interdits sur toute cmdlet, abréviations comprises, parce",
+        "qu'ils joignent un autre hôte que la cible : "
+        + ", ".join(_code(f"-{p}") for p in PS_FORBIDDEN_PARAMETERS)
+        + ". Des paramètres étalés (`@variable`) sont refusés : l'analyse ne les",
+        "voit pas.",
         "",
         "## LDAP",
         "",
@@ -941,7 +1156,11 @@ def render_markdown() -> str:
             for op in _operations("aws", AwsOperation)
         ],
     )
-    lignes += ["Lectures refusées malgré leur préfixe :", ""]
+    lignes += [
+        "Lectures refusées malgré leur préfixe (liste de refus, incomplète par",
+        "nature : le collecteur AWS nommera ses services, #95) :",
+        "",
+    ]
     lignes += _table(
         ("Opérations", "Pourquoi"),
         [(_code(motif), raison) for motif, raison in AWS_DENIED.items()],
@@ -960,6 +1179,15 @@ def render_markdown() -> str:
             (_code(op.api), _code(op.label), op.reads, _opt_in(op))
             for op in _operations("http", HttpEndpoint)
         ],
+    )
+    lignes += [
+        "Chemins refusés quel que soit le verbe, où qu'ils se trouvent dans",
+        "l'URL (`**` vaut tout préfixe ou toute suite) :",
+        "",
+    ]
+    lignes += _table(
+        ("API", "Chemin", "Pourquoi"),
+        [(_code(r.api), _code(r.label), r.reason) for r in HTTP_DENIED],
     )
     lignes += [
         "## Exceptions désactivées par défaut",

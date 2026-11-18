@@ -4,8 +4,9 @@
 """Scripts PowerShell analyses par le vrai pwsh : garantie de lecture seule (#39).
 
 scripts/inventaire_ps.ps1 dresse l'inventaire de l'AST de chaque script
-(Parser::ParseFile : commandes, appels de methodes .NET, affectations,
-redirections) ; amnesia.readonly.check_script_inventory rend le verdict. Les
+(Parser::ParseFile : commandes et parametres, appels de methodes .NET, types,
+affectations, redirections) ; amnesia.readonly.check_script_inventory rend le
+verdict. Les
 scripts fixtures qui ecrivent sur la cible doivent chacun etre refuses, le
 script fixture conforme et les scripts reels de src/amnesia/ps/ acceptes.
 
@@ -54,6 +55,13 @@ REFUSES = {
     "redirection_fichier.ps1": "redirection vers un fichier",
     "commande_dynamique.ps1": "commande au nom calculé à l'exécution",
     "executable_externe.ps1": "alias ou exécutable",
+    # revue adversariale : conversions de type, autre hote, classe CIM
+    "conversion_fichier.ps1": "type hors allowlist : [System.IO.StreamWriter]",
+    "conversion_par_nom.ps1": "type calculé à l'exécution",
+    "hote_distant.ps1": "paramètre qui joint un autre hôte : -Computer",
+    "parametres_etales.ps1": "paramètres étalés (@variable)",
+    "cim_win32_product.ps1": "commande hors allowlist : Get-CimInstance",
+    "variable_de_boucle.ps1": "affectation à autre chose qu'une variable simple",
 }
 CONFORME = "lecture_conforme.ps1"
 # element que pwsh doit inventorier dans chaque script refuse : verifie sans
@@ -79,6 +87,31 @@ TEMOINS: dict[str, dict[str, Any]] = {
     },
     "commande_dynamique.ps1": {"kind": "command", "name": None},
     "executable_externe.ps1": {"kind": "command", "name": "wevtutil.exe"},
+    "conversion_fichier.ps1": {"kind": "type", "name": "System.IO.StreamWriter"},
+    "conversion_par_nom.ps1": {"kind": "type", "name": None},
+    "hote_distant.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": ["ListLog", "Computer"],
+        "splat": False,
+    },
+    "parametres_etales.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": [],
+        "splat": True,
+    },
+    "cim_win32_product.ps1": {
+        "kind": "command",
+        "name": "Get-CimInstance",
+        "parameters": ["ClassName"],
+        "splat": False,
+    },
+    "variable_de_boucle.ps1": {
+        "kind": "assignment",
+        "target": "VariableExpressionAst",
+        "drive": True,
+    },
 }
 
 
@@ -139,9 +172,32 @@ def test_script_de_lecture_accepte(inventaires: dict[str, dict[str, Any]]) -> No
     assert check_script_inventory(inventaire) == []
     # l'inventaire a bien vu le script : commandes, methodes, affectations
     genres = {element["kind"] for element in inventaire["items"]}
-    assert genres == {"command", "method", "assignment", "redirection"}
+    assert genres == {"command", "method", "assignment", "redirection", "type"}
     commandes = {e["name"] for e in inventaire["items"] if e["kind"] == "command"}
     assert {"Get-WinEvent", "Get-ItemProperty", "Set-StrictMode"} <= commandes
+    # ... leurs parametres, et les types des conversions
+    parametres = {
+        parametre
+        for e in inventaire["items"]
+        if e["kind"] == "command"
+        for parametre in e["parameters"]
+    }
+    assert {"ListLog", "LiteralPath", "Compress"} <= parametres
+    assert not [e for e in inventaire["items"] if e.get("splat")]
+    types = {e["name"] for e in inventaire["items"] if e["kind"] == "type"}
+    assert types == {"ordered", "System.Security.Principal.WindowsIdentity"}
+
+
+@sans_pwsh
+def test_temoin_inventorie_par_pwsh(inventaires: dict[str, dict[str, Any]]) -> None:
+    # le temoin de chaque script refuse est bien ce que pwsh inventorie : les
+    # tests sans pwsh jugent donc le meme element que la CI
+    for script, temoin in TEMOINS.items():
+        elements = [
+            {cle: element.get(cle) for cle in temoin}
+            for element in inventaires[script]["items"]
+        ]
+        assert temoin in elements, (script, inventaires[script]["items"])
 
 
 @sans_pwsh

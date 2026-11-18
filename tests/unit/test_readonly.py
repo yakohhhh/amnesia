@@ -26,6 +26,7 @@ from amnesia.readonly import (
     ALLOWED_OPERATIONS,
     AWS_DENIED,
     AWS_EVENT,
+    HTTP_DENIED,
     OPT_INS,
     PS_FORBIDDEN_COMMANDS,
     PS_FORBIDDEN_VERBS,
@@ -38,6 +39,7 @@ from amnesia.readonly import (
     Param,
     PsCommand,
     PsMethod,
+    PsType,
     ReadOnlyLdap,
     ReadOnlyViolation,
     aws_guard,
@@ -57,11 +59,15 @@ SYSTEM32 = "C:\\Windows\\System32\\"
 # valeur d'exemple de chaque argument variable (donnees fictives)
 EXEMPLES = {
     "canal": "Microsoft-Windows-Sysmon/Operational",
-    "clé": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell",
+    "clé": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+    "clé de configuration": (
+        "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell"
+    ),
     "valeur": "EnableScriptBlockLogging",
     "service": "Sysmon64",
 }
 GUID = "00000000-0000-0000-0000-000000000000"
+WINLOGON = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
 
 
 def _toutes() -> list[readonly.Operation]:
@@ -223,11 +229,45 @@ def test_canal_wevtutil_borne(arguments: list[str]) -> None:
         ["query", "HKLM\\SOFTWARE", "/v"],
         ["query", "HKLM\\SOFTWARE", "/v", "/s"],
         ["query", "HKLM\\SOFTWARE", "/s"],
+        # cle lue en entier hors des racines de configuration : elle peut
+        # porter un secret parmi ses valeurs (DefaultPassword de Winlogon)
+        ["query", "HKLM\\SOFTWARE"],
+        ["query", WINLOGON],
+        ["query", "HKLM\\SOFTWARE\\PoliciesX\\Exemple"],
+        ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\LsaX"],
+        # valeur secrete, quelle que soit la casse
+        ["query", WINLOGON, "/v", "DefaultPassword"],
+        ["query", WINLOGON, "/v", "defaultpassword"],
+        # ruches SAM et SECURITY : comptes locaux et secrets LSA
+        ["query", "HKLM\\SAM", "/v", "C"],
+        ["query", "HKLM\\SAM\\SAM\\Domains\\Account\\Users", "/v", "Names"],
+        ["query", "HKLM\\sam\\SAM\\Domains\\Account", "/v", "F"],
+        ["query", "HKLM\\SECURITY\\Policy\\Secrets", "/v", "CurrVal"],
+        ["query", "HKEY_LOCAL_MACHINE\\Security\\Policy", "/v", "PolAdtEv"],
+        ["query", "HKLM\\SECURITY\\Policy\\Secrets"],
     ],
 )
 def test_cle_de_registre_bornee(arguments: list[str]) -> None:
     with pytest.raises(ReadOnlyViolation):
         check_command([SYSTEM32 + "reg.exe", *arguments])
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["query", "HKLM\\SOFTWARE\\Policies"],
+        ["query", "HKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Windows"],
+        ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa"],
+        ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Services\\EventLog\\Security"],
+        # hors de ces racines, une valeur nommee a la fois
+        ["query", WINLOGON, "/v", "AutoAdminLogon"],
+        ["query", "HKLM\\SOFTWARE\\SAMPLE\\Exemple", "/v", "Version"],
+        ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SamSs", "/v", "Start"],
+    ],
+)
+def test_cle_de_registre_admise(arguments: list[str]) -> None:
+    argv = [SYSTEM32 + "reg.exe", *arguments]
+    assert check_command(argv) == tuple(argv)
 
 
 @pytest.mark.parametrize(
@@ -378,8 +418,14 @@ def _ecarts(*elements: dict[str, Any]) -> list[str]:
     return check_script_inventory({"errors": [], "items": list(elements)})
 
 
-def _commande(nom: str | None) -> dict[str, Any]:
-    return {"kind": "command", "name": nom, "line": 2}
+def _commande(nom: str | None, *parametres: str, splat: bool = False) -> dict[str, Any]:
+    return {
+        "kind": "command",
+        "name": nom,
+        "parameters": list(parametres),
+        "splat": splat,
+        "line": 2,
+    }
 
 
 def _methode(nom: str | None, type_: str | None = None) -> dict[str, Any]:
@@ -396,8 +442,16 @@ def test_inventaire_d_un_script_conforme() -> None:
     assert (
         _ecarts(
             _commande("Set-StrictMode"),
-            _commande("Get-WinEvent"),
-            _commande("get-itemproperty"),
+            _commande("Get-WinEvent", "ListLog"),
+            _commande("get-itemproperty", "LiteralPath"),
+            _commande("ConvertTo-Json", "InputObject", "Depth", "Compress"),
+            {"kind": "type", "name": "ordered", "line": 6},
+            {"kind": "type", "name": "String", "line": 6},
+            {
+                "kind": "type",
+                "name": "System.Security.Principal.WindowsIdentity",
+                "line": 6,
+            },
             _methode("ToXml"),
             _methode("GetCurrent", "System.Security.Principal.WindowsIdentity"),
             {
@@ -425,6 +479,41 @@ def test_inventaire_d_un_script_conforme() -> None:
         (_commande("Add-Type"), "verbe interdit (Add-)"),
         (_commande("ForEach-Object"), "commande hors allowlist"),
         (_commande("Get-Content"), "commande hors allowlist"),
+        # Win32_Product declenche une reparation Windows Installer : la cmdlet
+        # reviendra avec une liste de classes, pas avant (#48)
+        (_commande("Get-CimInstance", "ClassName"), "commande hors allowlist"),
+        # parametres qui joignent un autre hote, abreviations comprises
+        (_commande("Get-WinEvent", "ListLog", "ComputerName"), "-ComputerName"),
+        (_commande("Get-WinEvent", "computername"), "autre hôte"),
+        (_commande("Get-Service", "Comp"), "autre hôte : -Comp"),
+        (_commande("Get-Service", "C"), "autre hôte"),
+        (_commande("Get-Service", "Cn"), "autre hôte"),
+        (_commande("Get-Item", "CimSession"), "autre hôte"),
+        (_commande("Get-Service", splat=True), "paramètres étalés"),
+        ({"kind": "command", "name": "Get-Service"}, "inconnu"),
+        (
+            {"kind": "command", "name": "Get-Service", "parameters": [None]},
+            "inconnu",
+        ),
+        (
+            {"kind": "command", "name": "Get-Service", "parameters": [""]},
+            "inconnu",
+        ),
+        (
+            {"kind": "command", "name": "Get-Service", "parameters": []},
+            "inconnu",
+        ),
+        # une conversion appelle un constructeur ou des accesseurs
+        (
+            {"kind": "type", "name": "System.IO.StreamWriter"},
+            "type hors allowlist : [System.IO.StreamWriter]",
+        ),
+        ({"kind": "type", "name": "adsi"}, "type hors allowlist"),
+        ({"kind": "type", "name": "wmi"}, "type hors allowlist"),
+        ({"kind": "type", "name": "xml"}, "type hors allowlist"),
+        ({"kind": "type", "name": "string[]"}, "type hors allowlist"),
+        ({"kind": "type", "name": None}, "type calculé à l'exécution"),
+        ({"kind": "type"}, "type calculé à l'exécution"),
         (_commande("wevtutil.exe"), "alias ou exécutable"),
         (_commande("%"), "alias ou exécutable"),
         (_commande(None), "nom calculé à l'exécution"),
@@ -491,6 +580,17 @@ def test_allowlist_powershell_coherente() -> None:
     assert "foreach-object" not in {op.name.lower() for op in commandes}
     methodes = {op.name for op in _toutes() if isinstance(op, PsMethod)}
     assert not methodes & {"ClearLog", "Clear", "SaveChanges", "Delete", "Invoke"}
+    # chaque methode statique admise a son type dans l'allowlist des types
+    types = {op.name.lower() for op in _toutes() if isinstance(op, PsType)}
+    statiques = {
+        op.type.lower()
+        for op in _toutes()
+        if isinstance(op, PsMethod) and op.type is not None
+    }
+    assert statiques <= types
+    # types qui ecrivent ou joignent un hote par leur seul constructeur
+    assert not types & {"adsi", "wmi", "xml", "scriptblock", "io.streamwriter"}
+    assert not [nom for nom in types if nom.startswith("system.io.")]
 
 
 # --- LDAP -----------------------------------------------------------------------
@@ -553,7 +653,8 @@ def test_ldap_enveloppe_figee() -> None:
 
 class _Evenements:
     """Émetteur factice, à la façon de botocore : ``before-call`` s'arrête à la
-    première réponse, crochets ``register_first`` d'abord."""
+    première réponse, crochets ``register_first`` d'abord, dans l'ordre de leur
+    enregistrement ; un ``unique_id`` déjà enregistré est ignoré."""
 
     def __init__(self) -> None:
         self.premiers: list[tuple[str, Callable[..., Any], str | None]] = []
@@ -562,12 +663,21 @@ class _Evenements:
     def register_first(
         self, nom: str, crochet: Callable[..., Any], unique_id: str | None = None
     ) -> None:
-        self.premiers.insert(0, (nom, crochet, unique_id))
+        if unique_id is None or unique_id not in self._identifiants():
+            self.premiers.append((nom, crochet, unique_id))
 
     def register(
         self, nom: str, crochet: Callable[..., Any], unique_id: str | None = None
     ) -> None:
-        self.suivants.append((nom, crochet, unique_id))
+        if unique_id is None or unique_id not in self._identifiants():
+            self.suivants.append((nom, crochet, unique_id))
+
+    def unregister(self, nom: str, unique_id: str | None = None) -> None:
+        self.premiers = [c for c in self.premiers if c[2] != unique_id]
+        self.suivants = [c for c in self.suivants if c[2] != unique_id]
+
+    def _identifiants(self) -> set[str | None]:
+        return {c[2] for c in [*self.premiers, *self.suivants]}
 
     def emit_until_response(self, evenement: str, **arguments: Any) -> Any:
         for motif, crochet, _ in [*self.premiers, *self.suivants]:
@@ -644,6 +754,29 @@ def test_aws_lecture_admise(service: str, operation: str) -> None:
         ("ssm", "GetParameter"),
         ("ssm", "GetParameters"),
         ("ssm", "GetParametersByPath"),
+        # lectures qui emettent des identifiants ou creent un objet
+        ("sts", "GetSessionToken"),
+        ("sts", "GetFederationToken"),
+        ("sso", "GetRoleCredentials"),
+        ("cognito-identity", "GetId"),
+        ("cognito-identity", "GetCredentialsForIdentity"),
+        ("redshift", "GetClusterCredentials"),
+        ("redshift", "GetClusterCredentialsWithIAM"),
+        ("redshift-serverless", "GetCredentials"),
+        ("ecr", "GetAuthorizationToken"),
+        ("ecr-public", "GetAuthorizationToken"),
+        ("codeartifact", "GetAuthorizationToken"),
+        ("lightsail", "GetRelationalDatabaseMasterUserPassword"),
+        ("lightsail", "GetInstanceAccessDetails"),
+        ("glue", "GetConnection"),
+        ("glue", "GetConnections"),
+        ("apigateway", "GetApiKey"),
+        ("apigateway", "GetApiKeys"),
+        ("dynamodb", "GetItem"),
+        ("kinesis", "GetRecords"),
+        ("codecommit", "GetFile"),
+        ("codecommit", "GetBlob"),
+        ("glacier", "GetJobOutput"),
     ],
 )
 def test_aws_ecriture_ou_secret_refuse_sans_requete(
@@ -657,7 +790,9 @@ def test_aws_ecriture_ou_secret_refuse_sans_requete(
 
 def test_aws_garde_posee_avant_un_crochet_qui_repond() -> None:
     # un bouchon (Stubber de botocore) repond a la place du service : la garde
-    # doit passer avant lui, sinon l'emission s'arrete sans l'avoir appelee
+    # doit passer avant lui, sinon l'emission s'arrete sans l'avoir appelee.
+    # Elle ne passe pas avant un crochet register_first pose plus tot : s'il
+    # repond, aucune requete ne part (voir protect_aws_client)
     client = _ClientAws("s3")
     bouchon: list[str] = []
 
@@ -668,7 +803,7 @@ def test_aws_garde_posee_avant_un_crochet_qui_repond() -> None:
     client.meta.events.register(AWS_EVENT, repondre)
     client.meta.events.register_first(AWS_EVENT, lambda **_: None)
     protect_aws_client(client)
-    nom, _, identifiant = client.meta.events.premiers[0]
+    nom, _, identifiant = client.meta.events.premiers[-1]
     assert (nom, identifiant) == ("before-call.*.*", "amnesia-readonly")
     with pytest.raises(ReadOnlyViolation):
         client.appeler("PutBucketPolicy")
@@ -676,6 +811,20 @@ def test_aws_garde_posee_avant_un_crochet_qui_repond() -> None:
     client.appeler("GetBucketPolicyStatus")
     assert bouchon == ["before-call.s3.GetBucketPolicyStatus"]
     assert client.envoyees == []
+
+
+def test_aws_derniere_protection_fait_foi() -> None:
+    # botocore ignore un second enregistrement sous le meme unique_id : sans
+    # desinscription, l'opt-in du premier appel resterait actif en silence
+    client = _client_protege("sts", opt_in={"aws-assume-role"})
+    protect_aws_client(client)
+    assert len(client.meta.events.premiers) == 1
+    with pytest.raises(ReadOnlyViolation):
+        client.appeler("AssumeRole")
+    assert client.envoyees == []
+    protect_aws_client(client, opt_in={"aws-assume-role"})
+    client.appeler("AssumeRole")
+    assert client.envoyees == ["AssumeRole"]
 
 
 def test_aws_assume_role_seulement_avec_opt_in() -> None:
@@ -731,6 +880,12 @@ def test_aws_refus_sont_des_lectures_par_leur_prefixe() -> None:
 GRAPH = "https://graph.microsoft.com"
 JOURNAUX = "https://api.loganalytics.io"
 SPLUNK = "https://splunk.exemple.invalid:8089"
+RECHERCHE = (
+    "/services/search/jobs/export"
+    "?search=search%20index%3D*%20%7C%20outputlookup%20exemple.csv"
+)
+LAPS = f"/v1.0/directory/deviceLocalCredentials/{GUID}"
+BITLOCKER = f"/v1.0/informationProtection/bitlocker/recoveryKeys/{GUID}"
 
 
 class _ClientHttp:
@@ -768,6 +923,9 @@ class _Url:
         ("log-analytics", JOURNAUX, "POST", f"/v1/workspaces/{GUID}/query"),
         ("log-analytics", JOURNAUX, "GET", f"/v1/workspaces/{GUID}/metadata"),
         ("splunk", SPLUNK, "GET", "/services/data/indexes?output_mode=json"),
+        ("splunk", SPLUNK, "GET", "/services/search/jobs"),
+        ("graph", GRAPH, "GET", "/v1.0/users/exemple/mailboxSettings"),
+        ("graph", GRAPH, "GET", "/v1.0/deviceManagement/managedDevices"),
     ],
 )
 def test_http_lecture_admise(api: str, base: str, methode: str, chemin: str) -> None:
@@ -792,6 +950,27 @@ def test_http_lecture_admise(api: str, base: str, methode: str, chemin: str) -> 
         ("log-analytics", JOURNAUX, "POST", JOURNAUX + f"/v1/workspaces/{GUID}"),
         ("log-analytics", JOURNAUX, "POST", JOURNAUX + "/v1/workspaces/a/b/query"),
         ("log-analytics", JOURNAUX, "POST", JOURNAUX + "/v1/workspaces/%41/query"),
+        # GET qui lance une recherche SPL, hors de l'opt-in splunk-search-job
+        ("splunk", SPLUNK, "GET", SPLUNK + "/services/search/jobs/export"),
+        ("splunk", SPLUNK, "GET", SPLUNK + RECHERCHE),
+        ("splunk", SPLUNK, "GET", SPLUNK + "/services/search/v2/jobs/export"),
+        ("splunk", SPLUNK, "POST", SPLUNK + "/services/search/jobs/export"),
+        ("splunk", SPLUNK, "GET", SPLUNK + "/servicesNS/a/b/search/jobs/export"),
+        ("splunk", SPLUNK, "GET", SPLUNK + "/servicesNS/a/b/search/v2/jobs/export"),
+        ("splunk", SPLUNK, "GET", SPLUNK + "/services/search/jobs/EXPORT/"),
+        ("splunk", SPLUNK, "GET", SPLUNK + "/services/search/jobs/%65xport"),
+        # GET qui renvoie un secret ou du contenu
+        ("graph", GRAPH, "GET", GRAPH + LAPS + "?$select=credentials"),
+        ("graph", GRAPH, "GET", GRAPH + "/beta/directory/devicelocalcredentials"),
+        ("graph", GRAPH, "GET", GRAPH + BITLOCKER + "?$select=key"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/users/exemple/messages"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/users/exemple/messages?$top=1"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/users/exemple/%6dessages"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/me/mailFolders/inbox"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/me/mailFolders('inbox')/messages"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/drives/exemple/root/children"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/drives('exemple')/root"),
+        ("graph", GRAPH, "GET", GRAPH + "/v1.0/users/exemple/drive/root"),
         # autre hote, autre port, autre schema : hors de la cible designee
         ("graph", GRAPH, "GET", "https://graph.microsoft.com.exemple.invalid/v1.0/"),
         ("graph", GRAPH, "GET", "https://exemple.invalid/v1.0/users"),
@@ -841,11 +1020,32 @@ def test_http_requete_d_audit_graph_seulement_avec_opt_in() -> None:
 def test_http_job_de_recherche_splunk_seulement_avec_opt_in() -> None:
     garde = HttpGuard("splunk", SPLUNK + "/fr-FR/", opt_in={"splunk-search-job"})
     garde.check("POST", SPLUNK + "/fr-FR/services/search/jobs")
+    # l'opt-in n'ouvre pas la recherche par GET : un seul chemin, journalise
+    with pytest.raises(ReadOnlyViolation, match=r"\*\*/jobs/export/\*\*"):
+        garde.check("GET", SPLUNK + "/fr-FR/services/search/jobs/export")
     # hors du chemin de base, meme hote
     with pytest.raises(ReadOnlyViolation, match="adresse de base"):
         garde.check("POST", SPLUNK + "/services/search/jobs")
     with pytest.raises(ReadOnlyViolation, match="adresse de base"):
         garde.check("GET", SPLUNK + "/services/data/indexes")
+
+
+def test_http_refus_ne_visent_que_des_api_connues() -> None:
+    apis = {op.api for op in _toutes() if isinstance(op, HttpEndpoint)}
+    assert {refus.api for refus in HTTP_DENIED} <= apis
+    assert all(refus.segments and refus.reason.strip() for refus in HTTP_DENIED)
+    # un opt-in n'ouvre aucun chemin refuse
+    for refus in HTTP_DENIED:
+        base = GRAPH if refus.api == "graph" else SPLUNK
+        opt_in = {
+            op.opt_in
+            for op in _toutes()
+            if isinstance(op, HttpEndpoint) and op.api == refus.api and op.opt_in
+        }
+        garde = HttpGuard(refus.api, base, opt_in=opt_in)
+        for verbe in ("GET", "POST"):
+            with pytest.raises(ReadOnlyViolation):
+                garde.check(verbe, base + "/v1.0/" + "/".join(refus.segments))
 
 
 def test_http_configuration_invalide_est_une_erreur() -> None:
@@ -889,6 +1089,10 @@ def test_document_cite_chaque_operation() -> None:
         assert f"`{op.label}`" in document, op.label
     for nom in (*OPT_INS, *AWS_DENIED, *PS_FORBIDDEN_COMMANDS):
         assert f"`{nom}`" in document
+    for refus in HTTP_DENIED:
+        assert f"`{refus.label}`" in document
+    for parametre in readonly.PS_FORBIDDEN_PARAMETERS:
+        assert f"`-{parametre}`" in document
     assert document.endswith("|\n")
     assert "adr/0006-garantie-lecture-seule.md" in document
 

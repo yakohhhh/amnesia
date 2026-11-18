@@ -7,9 +7,11 @@ Inventaire statique de scripts PowerShell, lu sur leur AST sans rien executer.
 
 .DESCRIPTION
 Pour chaque script recu en argument, rend en JSON ses erreurs d'analyse et la
-liste de ses commandes (CommandAst), de ses appels de methodes .NET
-(InvokeMemberExpressionAst), de ses affectations, de ses redirections vers un
-fichier et de ses instructions using. Ce script ne decide rien : le verdict
+liste de ses commandes (CommandAst) avec le nom de leurs parametres, de ses
+appels de methodes .NET (InvokeMemberExpressionAst), des types qu'il nomme
+(conversions, contraintes, attributs, operateur -as), de ses affectations, de
+ses redirections vers un fichier et de ses instructions using. Ce script ne
+decide rien : le verdict
 revient a amnesia.readonly.check_script_inventory, appele par
 tests/integration/test_scripts_powershell.py (garantie de lecture seule, #39).
 
@@ -52,11 +54,27 @@ function Get-Inventaire {
     foreach ($noeud in $ast.FindAll({ $true }, $true)) {
         $ligne = $noeud.Extent.StartLineNumber
         if ($noeud -is [System.Management.Automation.Language.CommandAst]) {
+            # nom des parametres (-ComputerName joint un autre hote) ; des
+            # parametres etales (@variable) sont hors de vue de l'analyse
+            $parametres = [System.Collections.Generic.List[string]]::new()
+            $etale = $false
+            foreach ($argument in $noeud.CommandElements) {
+                if ($argument -is [System.Management.Automation.Language.CommandParameterAst]) {
+                    $parametres.Add($argument.ParameterName)
+                }
+                elseif ($argument -is [System.Management.Automation.Language.VariableExpressionAst]) {
+                    if ($argument.Splatted) {
+                        $etale = $true
+                    }
+                }
+            }
             # GetCommandName() rend $null pour un nom calcule a l'execution
             $elements.Add([ordered]@{
-                    kind = 'command'
-                    name = $noeud.GetCommandName()
-                    line = $ligne
+                    kind       = 'command'
+                    name       = $noeud.GetCommandName()
+                    parameters = $parametres
+                    splat      = $etale
+                    line       = $ligne
                 })
         }
         elseif ($noeud -is [System.Management.Automation.Language.InvokeMemberExpressionAst]) {
@@ -75,6 +93,30 @@ function Get-Inventaire {
                     type   = $type
                     line   = $ligne
                 })
+        }
+        elseif (($noeud -is [System.Management.Automation.Language.TypeExpressionAst]) -or ($noeud -is [System.Management.Automation.Language.AttributeBaseAst])) {
+            # une conversion ([Type]$valeur, [Type]@{...}, -as [Type]) appelle un
+            # constructeur ou des accesseurs : le type compte autant qu'une
+            # methode. AttributeBaseAst couvre contraintes de type et attributs
+            $elements.Add([ordered]@{
+                    kind = 'type'
+                    name = $noeud.TypeName.FullName
+                    line = $ligne
+                })
+        }
+        elseif ($noeud -is [System.Management.Automation.Language.BinaryExpressionAst]) {
+            # -as 'Nom.De.Type' : type nomme par une chaine ou calcule
+            if (($noeud.Operator.ToString() -eq 'As') -and ($noeud.Right -isnot [System.Management.Automation.Language.TypeExpressionAst])) {
+                $elements.Add([ordered]@{
+                        kind = 'type'
+                        name = $null
+                        line = $ligne
+                    })
+            }
+        }
+        elseif ($noeud -is [System.Management.Automation.Language.ForEachStatementAst]) {
+            # la variable d'iteration est affectee a chaque tour
+            $elements.Add((Get-Affectation -Cible $noeud.Variable -Ligne $ligne))
         }
         elseif ($noeud -is [System.Management.Automation.Language.AssignmentStatementAst]) {
             $elements.Add((Get-Affectation -Cible $noeud.Left -Ligne $ligne))

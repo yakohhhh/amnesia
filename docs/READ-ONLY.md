@@ -31,7 +31,7 @@ argument de plus, de moins ou différent est refusé.
 | `w32tm.exe /query /status` | état de la synchronisation NTP |
 | `w32tm.exe /query /configuration` | configuration du service de temps |
 | `w32tm.exe /query /source` | source de temps courante |
-| `reg.exe query <clé>` | valeurs d'une clé de registre HKLM |
+| `reg.exe query <clé de configuration>` | valeurs d'une clé de configuration du registre HKLM |
 | `reg.exe query <clé> /v <valeur>` | une valeur d'une clé de registre |
 | `sc.exe query <service>` | état d'un service |
 | `sc.exe qc <service>` | configuration d'un service |
@@ -39,8 +39,9 @@ argument de plus, de moins ou différent est refusé.
 Valeurs admises pour les arguments variables :
 
 - `<canal>` : `[A-Za-z0-9][A-Za-z0-9 _./-]{0,254}`
-- `<clé>` : `(?:HKLM|HKEY_LOCAL_MACHINE)(?:\\[A-Za-z0-9 _.{}()-]{1,255}){1,32}`
-- `<valeur>` : `[A-Za-z0-9][A-Za-z0-9 _.-]{0,254}`
+- `<clé de configuration>` : `(?:HKLM|HKEY_LOCAL_MACHINE)\\(?i:SOFTWARE\\Policies|SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies|SYSTEM\\CurrentControlSet\\Services\\EventLog|SYSTEM\\CurrentControlSet\\Control\\Lsa)(?:\\[A-Za-z0-9 _.{}()-]{1,255}){0,28}`
+- `<clé>` : `(?:HKLM|HKEY_LOCAL_MACHINE)(?!\\(?i:SAM|SECURITY)(?:\\|$))(?:\\[A-Za-z0-9 _.{}()-]{1,255}){1,32}`
+- `<valeur>` : `(?!(?i:DefaultPassword)$)[A-Za-z0-9][A-Za-z0-9 _.-]{0,254}`
 - `<service>` : `[A-Za-z0-9][A-Za-z0-9_.$-]{0,255}`
 
 Formes qui n'entreront jamais dans l'allowlist :
@@ -53,6 +54,7 @@ Formes qui n'entreront jamais dans l'allowlist :
 | `wevtutil qe` | lit le contenu des événements, pas une configuration |
 | `wevtutil epl` | écrit un fichier d'export sur la cible |
 | `reg add, delete, import` | modifient le registre |
+| `reg query sur les ruches SAM et SECURITY` | lit la base des comptes locaux et les secrets LSA |
 | `reg export` | écrit un fichier sur la cible |
 | `w32tm /config, /resync` | modifient ou forcent la synchronisation |
 
@@ -65,10 +67,12 @@ empreinte SHA-256 : un script inconnu ou modifié est refusé.
 Aucun script n'est encore livré (collecteur PowerShell : #48).
 
 La CI analyse l'AST de chaque script (`Parser::ParseFile`) et refuse
-toute commande ou méthode .NET absente des deux tables ci-dessous, tout
+toute commande, méthode .NET ou type absent des tables ci-dessous, tout
 alias (seul le nom complet d'une cmdlet est admis), toute commande au nom
 calculé à l'exécution, toute affectation à autre chose qu'une variable
-simple et toute redirection vers un fichier.
+simple et toute redirection vers un fichier. Un type compte autant
+qu'une méthode : une conversion (`[Type]$valeur`, `[Type]@{...}`,
+`-as`) appelle un constructeur ou des accesseurs.
 
 | Cmdlet | Usage | Exception |
 |---|---|---|
@@ -79,7 +83,6 @@ simple et toute redirection vers un fichier.
 | `Get-ChildItem` | énumération de sous-clés de registre |  |
 | `Test-Path` | existence d'une clé de registre ou d'un fichier |  |
 | `Get-Service` | état et mode de démarrage des services |  |
-| `Get-CimInstance` | lecture d'instances CIM (version du système...) |  |
 | `Get-Date` | horodatage de la collecte |  |
 | `Where-Object` | filtrage en mémoire |  |
 | `Select-Object` | projection en mémoire |  |
@@ -95,9 +98,24 @@ simple et toute redirection vers un fichier.
 | `.ToXml()` | XML d'un événement (EventData), indépendant de la langue |
 | `[System.Security.Principal.WindowsIdentity]::GetCurrent()` | identité du compte d'audit, pour nommer un privilège manquant |
 
+| Type | Usage |
+|---|---|
+| `[ordered]` | dictionnaire ordonné de la sortie, en mémoire |
+| `[pscustomobject]` | objet de sortie, en mémoire |
+| `[string]` | conversion en texte |
+| `[int]` | conversion en entier |
+| `[long]` | conversion en entier long |
+| `[bool]` | conversion en booléen |
+| `[datetime]` | conversion en horodatage |
+| `[System.Security.Principal.WindowsIdentity]` | type de la méthode statique `GetCurrent()` ci-dessus |
+
 Verbes interdits, sauf exception nommée ci-dessus : `Set-`, `New-`, `Remove-`, `Clear-`, `Add-`, `Enable-`, `Disable-`, `Start-`, `Stop-`, `Restart-`, `Register-`.
 
 Cmdlets interdites : `Limit-EventLog`, `Invoke-Expression`, `Invoke-Command`, `Invoke-CimMethod`, `Invoke-WmiMethod`, `Start-Process`, `Write-EventLog`, `Clear-EventLog`.
+
+Paramètres interdits sur toute cmdlet, abréviations comprises, parce
+qu'ils joignent un autre hôte que la cible : `-ComputerName`, `-Cn`, `-CimSession`. Des paramètres étalés (`@variable`) sont refusés : l'analyse ne les
+voit pas.
 
 ## LDAP
 
@@ -122,7 +140,8 @@ une opération qui ne correspond à aucun de ces motifs
 | `*:LookupEvents*` | recherche d'événements CloudTrail | admis par défaut |
 | `sts:AssumeRole` | rôle d'audit d'un autre compte de l'organisation (#109) | opt-in `aws-assume-role` |
 
-Lectures refusées malgré leur préfixe :
+Lectures refusées malgré leur préfixe (liste de refus, incomplète par
+nature : le collecteur AWS nommera ses services, #95) :
 
 | Opérations | Pourquoi |
 |---|---|
@@ -130,6 +149,24 @@ Lectures refusées malgré leur préfixe :
 | `s3:GetObject` | renvoie le contenu d'un objet : une donnée métier |
 | `ssm:GetParameter*` | renvoie des paramètres, dont des secrets déchiffrés |
 | `ec2:GetPasswordData` | renvoie le mot de passe administrateur d'une instance |
+| `sts:GetSessionToken` | émet des identifiants temporaires |
+| `sts:GetFederationToken` | émet des identifiants temporaires |
+| `sso:GetRoleCredentials` | émet des identifiants temporaires |
+| `cognito-identity:Get*` | crée une identité (`GetId`) ou émet des identifiants et des jetons |
+| `redshift:GetClusterCredentials*` | émet des identifiants de base de données et peut créer l'utilisateur (`AutoCreate`) |
+| `redshift-serverless:GetCredentials` | émet des identifiants de base de données |
+| `ecr:GetAuthorizationToken` | émet un jeton d'accès au registre |
+| `ecr-public:GetAuthorizationToken` | émet un jeton d'accès au registre |
+| `codeartifact:GetAuthorizationToken` | émet un jeton d'accès au dépôt |
+| `lightsail:GetRelationalDatabaseMasterUserPassword` | renvoie le mot de passe maître d'une base de données |
+| `lightsail:GetInstanceAccessDetails` | renvoie des identifiants d'accès à une instance |
+| `glue:GetConnection*` | renvoie les propriétés d'une connexion, dont son mot de passe |
+| `apigateway:GetApiKey*` | renvoie des clés d'API |
+| `dynamodb:GetItem` | renvoie un élément d'une table : une donnée métier |
+| `kinesis:GetRecords` | renvoie les enregistrements d'un flux |
+| `codecommit:GetFile` | renvoie le contenu d'un fichier d'un dépôt |
+| `codecommit:GetBlob` | renvoie le contenu d'un fichier d'un dépôt |
+| `glacier:GetJobOutput` | renvoie le contenu d'une archive |
 
 ## HTTP (Microsoft Graph, Log Analytics, Splunk)
 
@@ -145,6 +182,19 @@ nommé ici.
 | `log-analytics` | `POST /v1/workspaces/{id}/query` | requête KQL : un POST qui ne fait que lire | admis par défaut |
 | `splunk` | `GET /**` | lecture de la configuration et des index | admis par défaut |
 | `splunk` | `POST /services/search/jobs` | recherche SPL | opt-in `splunk-search-job` |
+
+Chemins refusés quel que soit le verbe, où qu'ils se trouvent dans
+l'URL (`**` vaut tout préfixe ou toute suite) :
+
+| API | Chemin | Pourquoi |
+|---|---|---|
+| `graph` | `**/deviceLocalCredentials/**` | renvoie les mots de passe d'administrateur local (LAPS) |
+| `graph` | `**/recoveryKeys/**` | renvoie les clés de récupération BitLocker |
+| `graph` | `**/messages/**` | contenu d'une boîte aux lettres ou d'un espace de fichiers |
+| `graph` | `**/mailFolders/**` | contenu d'une boîte aux lettres ou d'un espace de fichiers |
+| `graph` | `**/drive/**` | contenu d'une boîte aux lettres ou d'un espace de fichiers |
+| `graph` | `**/drives/**` | contenu d'une boîte aux lettres ou d'un espace de fichiers |
+| `splunk` | `**/jobs/export/**` | lance une recherche SPL par un simple GET, hors de l'opt-in `splunk-search-job` |
 
 ## Exceptions désactivées par défaut
 
