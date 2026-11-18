@@ -84,7 +84,9 @@ basses. De bas en haut :
 5. **moteur, rapport et rendus** : `amnesia.runner`, puis `amnesia.report`,
    puis `amnesia.render` (`base`, puis `text` et `markdown`) ; à côté,
    `amnesia.exitcodes` (codes de sortie, d'après les sévérités de
-   `amnesia.checks.base`) ;
+   `amnesia.checks.base`) et `amnesia.output` (écriture des livrables sur le
+   poste de l'auditeur, qui ne prend de la collecte que `subprocess_env()` pour
+   lancer `git check-ignore`) ;
 6. **entrée** : `amnesia.cli`, `amnesia.__main__`.
 
 Table des dépendances internes autorisées (imports exécutés au chargement ;
@@ -97,8 +99,9 @@ modules.
 |---|---|
 | `amnesia` | `amnesia.runner` |
 | `amnesia.__main__` | `amnesia.cli` |
-| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.exitcodes` | `amnesia.checks.base` |
+| `amnesia.output` | `amnesia.facts.collectors` |
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
 | `amnesia.render.markdown` | `amnesia.render.base` |
 | `amnesia.render.text` | `amnesia.render.base` |
@@ -170,7 +173,7 @@ redéfinit pas, il dit quelle étape du flux les traverse.
 |---|---|---|---|
 | Z1 → Z2, Z1 → Z3 (poste → cibles) | Transport | authentification, puis lecture de configurations | lecture seule ([ADR 0006](adr/0006-garantie-lecture-seule.md)), périmètre autorisé (#37), transports chiffrés et authentifiés ([ADR 0007](adr/0007-transports.md)) |
 | Z2 → Z1 (cibles → poste) | Collecte | sorties de commandes, fichiers, bundles : données d'une cible **peut-être compromise** (H4) | tout texte venu de la cible est caviardé et rendu imprimable avant d'entrer dans un résultat (`assainir`) ; valeurs figées et bornées (`Evidence`) ; bundle vérifié par empreintes (#52) ; aucune analyse de texte localisé |
-| Z1 → Z4 (poste → destinataires) | Rapport, rendus | le rapport : la carte des angles morts du client | déterminisme, caractères de contrôle échappés, `argv` expurgé ([`format-rapport.md`](format-rapport.md)) ; règles de remise dans `SECURITY.md` |
+| Z1 → Z4 (poste → destinataires) | Rapport, rendus | le rapport : la carte des angles morts du client | déterminisme, caractères de contrôle échappés, `argv` expurgé ([`format-rapport.md`](format-rapport.md)) ; fichier lisible du seul opérateur, écrit atomiquement, jamais à travers un lien ni par-dessus un fichier existant (`amnesia.output`) ; règles de remise dans `SECURITY.md` |
 | Z5 → Z1 (chaîne d'approvisionnement → poste) | installation | code d'amnesia et de ses dépendances | versions exactes, lock avec empreintes, délai de carence ([`dev/dependances.md`](dev/dependances.md)) |
 
 À l'intérieur de Z1, la frontière interne qui compte est celle entre la collecte
@@ -188,7 +191,7 @@ Ce que produit un audit, où cela vit et quand cela disparaît (minimisation :
 | Identifiants et jetons d'audit | transport | trousseau ou environnement du poste, jamais dans un fichier d'amnesia | hors d'amnesia ; jamais dans le rapport ni le journal (expurgation) |
 | Faits collectés (`FactSet`) | un audit | mémoire du processus (`CachingCollector`, une instance par audit) | fin du processus ; rien ne persiste entre deux audits |
 | Bundle hors ligne | mission | fichier remis par le client, lu par `bundle:<chemin>` | conservé selon les règles de `SECURITY.md` ; jamais commité (`raw/`, hooks) |
-| Rapport JSON | mission | `--out`, poste de l'auditeur | remis au client, puis conservé ou détruit selon `SECURITY.md` |
+| Rapport JSON | mission | `--out` (défaut : `amnesia-out/`, dossier en `0700` ignoré par git), créé en `0600` (ACL du seul compte courant sous Windows), poste de l'auditeur | remis au client, puis conservé ou détruit selon `SECURITY.md` |
 | Journal de diagnostic | une exécution | stderr, ou `--log-file` créé en `0600` | à la discrétion de l'auditeur ; ne contient aucun secret |
 
 ## Pour aller plus loin

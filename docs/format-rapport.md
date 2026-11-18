@@ -14,7 +14,9 @@ Schema et déterministe.
   sous Windows : `amnesia schema > report-v1.schema.json`).
 - Exemple complet : en fin de document ; il est validé par le schéma dans les
   tests, comme le golden `tests/golden/report.json`.
-- Écriture du fichier (`--out`, permissions) : #24 et #25.
+- Écriture du fichier (`--out`, `amnesia-out/` par défaut, 0600, écriture
+  atomique, refus des liens symboliques) : `amnesia.output`, section « Démarrer »
+  du README (#24, #25).
 
 ## Déterminisme
 
