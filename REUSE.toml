@@ -20,13 +20,15 @@ path = [
     ".gitattributes",
     ".gitignore",
     ".python-version",
-    # locks generes par uv
+    # locks generes par uv, identifiants publies du catalogue (ids.lock)
     "**.lock",
     # JSON (schemas du rapport, fixtures) : aucun commentaire possible
     "**.json",
-    # donnees du paquet : marqueur PEP 561, catalogue et gabarits de rapport
+    # donnees du paquet : marqueur PEP 561, version du catalogue (ses TOML et
+    # son ids.lock sont couverts plus haut, son code porte un en-tete SPDX) et
+    # gabarits de rapport
     "src/amnesia/py.typed",
-    "src/amnesia/catalog/**",
+    "src/amnesia/catalog/VERSION",
     "src/amnesia/templates/**",
     # fixtures anonymisees et sorties de reference des tests
     "tests/fixtures/**",

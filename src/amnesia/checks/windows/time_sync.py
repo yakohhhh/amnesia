@@ -24,3 +24,6 @@ class TimeSync(Check):
     version = 1
     default_severity = "medium"
     requires_facts = ("windows.w32time.config", "windows.w32time.status")
+    # questions du catalogue auxquelles ce check contribue ; chacune le
+    # liste dans son champ checks (amnesia catalog validate)
+    question_ids = ("Q-WIN-TIMELINE",)

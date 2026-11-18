@@ -122,6 +122,21 @@ def test_schema(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out.startswith("{")
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["catalog", "validate"],
+        ["catalog", "list"],
+        ["catalog", "show", "Q-WIN-RDP-LOGON"],
+        ["catalog", "show", "SRC-SEC-4624-T10"],
+    ],
+    ids=["validate", "list", "show-question", "show-source"],
+)
+def test_catalog(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(argv) == 0
+    assert capsys.readouterr().out
+
+
 @pytest.mark.parametrize("fmt", ["text", "md"])
 def test_render_fixture(
     fmt: str,

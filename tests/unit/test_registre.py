@@ -269,7 +269,12 @@ def test_prefixes_des_domaines() -> None:
         ("target_kinds", (Kind.WINDOWS_HOST, Kind.WINDOWS_HOST)),
         ("requires_facts", "windows.auditpol.backup"),
         ("requires_facts", ("",)),
-        ("question_ids", ("q.rdp", "q.rdp")),
+        ("question_ids", ("Q-WIN-RDP-LOGON", "Q-WIN-RDP-LOGON")),
+        # forme du catalogue (#46) : Q-<DOMAINE>-<SUJET>
+        ("question_ids", ("q.rdp",)),
+        ("question_ids", ("Q-WIN",)),
+        ("question_ids", ("Q-WIN-RDP-LOGON\n",)),
+        ("question_ids", "Q-WIN-RDP-LOGON"),
     ],
 )
 def test_metadonnee_invalide_refusee(attribut: str, valeur: object) -> None:
@@ -294,7 +299,7 @@ def test_meta_figee_et_complete() -> None:
     registre.register(
         _classe(
             requires_facts=("windows.auditpol.backup",),
-            question_ids=("q.logon",),
+            question_ids=("Q-WIN-NETWORK-LOGON",),
             version=3,
             default_severity="critical",
         )
@@ -309,7 +314,7 @@ def test_meta_figee_et_complete() -> None:
         version=3,
         default_severity="critical",
         requires_facts=("windows.auditpol.backup",),
-        question_ids=("q.logon",),
+        question_ids=("Q-WIN-NETWORK-LOGON",),
         requires_extra=None,
         implemented=False,
         module=__name__,

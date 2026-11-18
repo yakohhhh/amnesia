@@ -393,6 +393,7 @@ def test_garde_fou_des_checks_voit_les_contournements_connus() -> None:
         "from ..base import subprocess, Check\n"
         "from .. import base\n"
         "from ...target import Kind, Path\n"
+        "from ...catalog import loader, tomllib\n"
         "from typing import TYPE_CHECKING\n"
         "if TYPE_CHECKING:\n"
         "    import shutil\n"
@@ -417,6 +418,8 @@ def test_garde_fou_des_checks_voit_les_contournements_connus() -> None:
         "from amnesia.checks.base import subprocess",
         "from amnesia.checks import base",
         "from amnesia.target import Path",
+        "from amnesia.catalog import loader",
+        "from amnesia.catalog import tomllib",
         "open",
         "__import__",
         "eval",
@@ -434,6 +437,8 @@ def test_garde_fou_des_checks_voit_les_contournements_connus() -> None:
         "from ...target import Kind\n"
         "from ..base import Check\n"
         "from ..registry import Domain, register\n"
+        # du catalogue, un check ne prend que des noms publics (render_question)
+        "from ...catalog import render_question\n"
     )
     assert not _ecarts_de_check(
         "amnesia.checks.windows.ordinaire", ordinaire, paquet=False, modules=_modules()

@@ -256,6 +256,27 @@ def test_schemas_json_dans_le_wheel(wheel: zipfile.ZipFile) -> None:
         )
 
 
+def test_catalogue_dans_le_wheel(wheel: zipfile.ZipFile) -> None:
+    # equivalent de « unzip -l » : chaque fichier du catalogue du depot est
+    # dans le wheel, octet pour octet (#46)
+    catalogue = RACINE / "src" / "amnesia" / "catalog"
+    donnees = sorted(
+        chemin.relative_to(catalogue).as_posix()
+        for chemin in catalogue.rglob("*")
+        if chemin.is_file()
+        and chemin.suffix != ".py"
+        and "__pycache__" not in chemin.parts
+    )
+    assert {"VERSION", "ids.lock"} < set(donnees)
+    for dossier in ("questions", "sources"):
+        for domaine in ("windows", "ad"):
+            assert f"{dossier}/{domaine}.toml" in donnees
+    contenu = set(wheel.namelist())
+    for nom in donnees:
+        assert f"amnesia/catalog/{nom}" in contenu, nom
+        assert wheel.read(f"amnesia/catalog/{nom}") == (catalogue / nom).read_bytes()
+
+
 def test_setuptools_des_tests_aligne_sur_le_backend_fige() -> None:
     dev = [d for d in PYPROJECT["dependency-groups"]["dev"] if "setuptools" in d]
     contraintes = PYPROJECT["tool"]["uv"]["build-constraint-dependencies"]

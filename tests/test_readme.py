@@ -14,6 +14,7 @@ Ce qu'un test ne peut pas rejouer hors ligne (``git clone``, ``uv sync``,
 ``pip install -e .``, syntaxe PowerShell) est vérifié à la main dans la PR.
 """
 
+import argparse
 import os
 import re
 import shutil
@@ -26,8 +27,9 @@ import pytest
 import yaml
 
 from amnesia import exitcodes
+from amnesia.catalog import load_catalog
 from amnesia.checks import default_checks
-from amnesia.cli import main
+from amnesia.cli import build_parser, main
 
 RACINE = Path(__file__).resolve().parent.parent
 README = RACINE / "README.md"
@@ -299,6 +301,40 @@ def test_etat_decrit_les_checks_enregistres(capsys: pytest.CaptureFixture[str]) 
         f"se termine en code {exitcodes.INCOMPLETE} sous Windows, "
         f"{exitcodes.OK} sous Linux et macOS" in _section(README, "Démarrer")
     )
+
+
+def _sous_commandes(parser: argparse.ArgumentParser) -> list[str]:
+    (action,) = (
+        a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+    )
+    return sorted(action.choices)
+
+
+def test_etat_cite_chaque_sous_commande() -> None:
+    # a mettre a jour avec le README des qu'une sous-commande est ajoutee
+    etat = _section(README, "État")
+    parser = build_parser()
+    commandes = _sous_commandes(parser)
+    assert {"audit", "catalog", "list-checks", "render", "schema"} <= set(commandes)
+    for commande in commandes:
+        assert f"`{commande}`" in etat, commande
+    # les commandes hors ligne de « Confidentialité » aussi
+    confidentialite = _section(README, "Confidentialité")
+    for commande in commandes:
+        assert f"`{commande}" in confidentialite, commande
+
+
+def test_etat_decrit_le_catalogue_embarque() -> None:
+    # a mettre a jour avec le README des que le catalogue change de taille
+    etat = " ".join(_section(README, "État").split())
+    assert f"{len(load_catalog())} questions (Windows et Active Directory)" in etat
+    for commande in (
+        "`amnesia catalog list`",
+        "`amnesia catalog show <id>`",
+        "`amnesia catalog validate`",
+    ):
+        assert commande in etat, commande
+    assert f"]({BLOB}docs/catalogue.md)" in etat
 
 
 def test_etat_renvoie_vers_les_milestones() -> None:

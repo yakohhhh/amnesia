@@ -173,6 +173,10 @@ class MonCheck(Check):
 
 - `requires_facts` : tuple de clés, sans doublon ; il sera repris dans les
   métadonnées du registre (#17).
+- `question_ids` : questions du catalogue auxquelles le check contribue
+  ([`docs/catalogue.md`](../catalogue.md)). Chaque Gap porte un `question_id`,
+  et son texte vient de `render_question()` : un check n'écrit jamais une
+  question en dur (un test analyse le code des checks pour le vérifier).
 - `evaluate(facts, ctx)` est une fonction pure : ni processus, ni réseau, ni
   fichier, ni horloge système. `ctx` (`Context`) regroupe la cible, la
   configuration en lecture seule, l'horloge (`ctx.clock()`, UTC) et le logger
@@ -230,6 +234,7 @@ Le check et ses tests, `tests/unit/test_exemple_faits.py` :
 from collections.abc import Mapping
 from pathlib import Path
 
+from amnesia.catalog import render_question
 from amnesia.checks import Check, Gap
 from amnesia.checks.base import (
     CheckResult,
@@ -245,6 +250,7 @@ from amnesia.target import Target
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "facts" / "exemple.json"
 TAILLE_MIN = 1024**3  # 1 Gio
+RECUL_JOURS = 21  # profondeur d'historique attendue (seuils : #47)
 
 
 class RetentionSecurity(Check):
@@ -253,6 +259,7 @@ class RetentionSecurity(Check):
     id = "win.exemple_retention"
     title = "Taille du journal Security (exemple)"
     requires_facts = ("windows.eventlog.config:Security",)
+    question_ids = ("Q-WIN-RDP-LOGON",)
 
     def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
         # fonction pure : uniquement les faits et le contexte, aucune I/O
@@ -265,7 +272,13 @@ class RetentionSecurity(Check):
             check_id=self.id,
             target=ctx.target.id,
             resource=nom.split(":", 1)[1],  # journal : Security
-            question="Qui s'est connecté sur cet hôte il y a trois semaines ?",
+            # question du catalogue : identifiant stable, texte jamais écrit ici
+            question_id=self.question_ids[0],
+            question=render_question(
+                self.question_ids[0],
+                host=ctx.target.address or ctx.target.id,
+                lookback_days=RECUL_JOURS,
+            ),
             reason=f"Journal limité à {taille} octets : écrasé en quelques jours.",
             severity=Severity.HIGH,
             evidence=Evidence(
