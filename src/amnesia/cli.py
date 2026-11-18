@@ -15,6 +15,7 @@ import io
 import logging
 import os
 import sys
+import traceback
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,7 +47,7 @@ from .exitcodes import (
     table_text,
 )
 from .facts import Collector, Fact, FactSet, LocalCollector, UnavailableReason
-from .log import FORMATS, setup_logging
+from .log import FORMATS, redact, setup_logging
 from .output import (
     UnsafeDestinationError,
     check_destination,
@@ -406,24 +407,40 @@ def _collecteur(target: Target) -> Collector:
 OPTION_FICHIER_MOT_DE_PASSE = "--password-file"
 
 
-def _option_abregee(argv: Sequence[str]) -> bool:
-    """Vrai si ``--password-file`` est abrégée (``--password``, ``--pass``...).
+# fragments de nom d'option qui annoncent une valeur secrete
+_NOMS_SENSIBLES = ("pass", "pwd", "secret", "token", "cred", "key")
 
-    argparse accepterait ``--password VALEUR`` comme un chemin : l'opérateur
-    croirait passer le mot de passe, et le message « fichier introuvable » le
-    recopierait sur stderr.
+
+def _option_a_valeur_secrete(argv: Sequence[str]) -> str | None:
+    """Désignation de la première option qui semble porter un secret, ou ``None``.
+
+    Couvre ``-p``, toute abréviation de ``--password-file`` (argparse prendrait
+    ``--password VALEUR`` pour un chemin) et toute option au nom sensible
+    (``--passwd``, ``--token``, ``--client-secret``...), où qu'elle soit avant
+    ``--``. Une option en ``-file`` désigne un fichier et reste admise. Le texte
+    rendu ne reprend jamais la saisie : un nom collé à sa valeur
+    (``--tokenVALEUR``) n'est cité que par son fragment sensible.
     """
     for argument in argv:
         if argument == "--":
             break
         option = argument.partition("=")[0]
-        if (
-            len(option) > 2
-            and option != OPTION_FICHIER_MOT_DE_PASSE
-            and OPTION_FICHIER_MOT_DE_PASSE.startswith(option)
-        ):
-            return True
-    return False
+        if not option.startswith("--"):
+            # -p VALEUR ou -pVALEUR : la suite serait la valeur
+            if option.startswith("-p"):
+                return "-p"
+            continue
+        if option == OPTION_FICHIER_MOT_DE_PASSE:
+            continue
+        if len(option) > 2 and OPTION_FICHIER_MOT_DE_PASSE.startswith(option):
+            return option
+        nom = option[2:].lower()
+        if nom.endswith("-file"):
+            continue
+        for fragment in _NOMS_SENSIBLES:
+            if fragment in nom:
+                return f"option en « {fragment} »"
+    return None
 
 
 def _mot_de_passe(
@@ -439,12 +456,6 @@ def _mot_de_passe(
     """
     transport = args.target.transport
     fichier: Path | None = args.password_file
-    if fichier is not None and _option_abregee(argv):
-        # sans echo de la valeur : ce peut etre le mot de passe lui-meme
-        parser.error(
-            f"{OPTION_FICHIER_MOT_DE_PASSE} s'écrit en entier et désigne un "
-            "fichier : aucune option ne prend le mot de passe lui-même"
-        )
     if transport is not Transport.WINRM:
         if fichier is not None:
             parser.error(
@@ -832,6 +843,15 @@ def main(argv: list[str] | None = None) -> int:
     _proteger_sorties()
     parser = build_parser()
     arguments = list(sys.argv[1:] if argv is None else argv)
+    option = _option_a_valeur_secrete(arguments)
+    if option is not None:
+        # avant argparse, qui recopierait la valeur (« unrecognized arguments »,
+        # « invalid choice ») sur stderr, donc dans les journaux de CI
+        parser.error(
+            f"{option} : aucune option ne prend de valeur secrète ; le mot de "
+            f"passe se lit d'un fichier ({OPTION_FICHIER_MOT_DE_PASSE}, "
+            "docs/SECRETS.md)"
+        )
     args = parser.parse_args(arguments)
     # verifie apres coup : -q et -v peuvent etre de part et d'autre de la sous-commande
     if args.quiet and (args.verbose or args.debug):
@@ -859,5 +879,8 @@ def main(argv: list[str] | None = None) -> int:
         info = ErrorInfo.from_exception(exc)
         logger.error("erreur fatale : %s : %s", info.type, info.message)
         if args.debug:
-            logger.debug("trace de l'erreur fatale", exc_info=exc)
+            # trace caviardee AVANT le journal : un handler pose par l'hote sur
+            # le logger racine ne recoit jamais l'exception brute
+            trace = "".join(traceback.format_exception(exc))
+            logger.debug("trace de l'erreur fatale :\n%s", redact(trace))
         return FATAL

@@ -285,6 +285,82 @@ def test_variable_d_un_environnement_fourni() -> None:
     assert environ == {"AUTRE": "x"}
 
 
+@pytest.mark.parametrize("fin", ["\n", "\r\n"])
+def test_variable_fin_de_ligne_finale_retiree(fin: str) -> None:
+    # secret de CI ou fichier monte dans une variable : meme valeur que from_file
+    secret = secrets.from_env(VARIABLE, {VARIABLE: FACTICE + fin})
+    assert secret is not None
+    assert secret.reveal() == FACTICE
+    assert log.MASQUE in assainir(f"401 avec {FACTICE} (refus)")
+
+
+@pytest.mark.parametrize(
+    ("valeur", "motif"),
+    [
+        # octet non UTF-8 de l'environnement, vu par Python comme un surrogate
+        ("x\udce9y", "UTF-8 attendu"),
+        ("a\nb", "une seule ligne"),
+        ("a\x00b", "une seule ligne"),
+        ("\n", "vide"),
+    ],
+)
+def test_variable_invalide_refusee_sans_citer_la_valeur(
+    valeur: str, motif: str
+) -> None:
+    environ = {VARIABLE: valeur}
+    with pytest.raises(SecretError, match=motif) as exc:
+        secrets.from_env(VARIABLE, environ)
+    assert valeur not in str(exc.value)
+    assert "udce9" not in str(exc.value)
+    # l'exception d'origine (UnicodeEncodeError) citerait le caractere
+    assert exc.value.__context__ is None or exc.value.__suppress_context__
+    assert environ == {}
+
+
+def test_enregistrement_d_un_surrogate_sans_exception() -> None:
+    log.register_secret("x\udce9y-factice")
+    assert log.mask_secrets("a x\udce9y-factice b") == f"a {log.MASQUE} b"
+
+
+@pytest.mark.parametrize(
+    "valeur",
+    [
+        "Fa\\ctice-9x",
+        'Fa"ctice-9x',
+        "Fa'ctice-9x",
+        "Fa'ct\"ice-9x",
+        "Facticé-9x",
+        "Fa\tctice-9x",
+    ],
+)
+def test_formes_echappees_du_secret_masquees(valeur: str) -> None:
+    # repr(), ascii() et JSON : les formes d'une chaine dans un message
+    # d'exception (requests, urllib3, SDK) ou dans un corps de reponse
+    Secret(valeur)
+    exc = RuntimeError(f"logon failure {valeur}")
+    formes = [
+        f"échec avec {valeur}",
+        f"échec avec {valeur!r}",
+        f"échec avec {valeur!a}",
+        repr(exc),
+        ascii(exc),
+        repr(KeyError(valeur)),
+        repr({"p": valeur, "q": 'l\'autre "champ"'}),
+        json.dumps(valeur),
+        json.dumps({"p": valeur}),
+        json.dumps({"p": valeur}, ensure_ascii=False),
+    ]
+    for forme in formes:
+        for masque in (log.mask_secrets, log.redact, assainir):
+            rendu = masque(forme)
+            assert log.MASQUE in rendu, forme
+            assert "Fa" not in rendu, forme
+            assert "-9x" not in rendu, forme
+    message = ErrorInfo.from_exception(KeyError(valeur)).message
+    assert "Fa" not in message
+    assert "-9x" not in message
+
+
 # --- trousseau ---
 
 

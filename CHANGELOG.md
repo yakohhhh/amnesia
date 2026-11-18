@@ -94,8 +94,10 @@ la première version sera la 0.1.0 (milestone M0).
 - Secrets d'authentification : option `--password-file` de `amnesia audit`
   (fichier d'une ligne, refusé avec le code 2 s'il est lisible par d'autres
   comptes), variable `AMNESIA_WINRM_PASSWORD` retirée de l'environnement dès
-  sa lecture, saisie au terminal sans écho ; sources, ordre de priorité et
-  limites dans `docs/SECRETS.md` (#38).
+  sa lecture ; une option au nom sensible (`--password`, `-p`, `--token`...)
+  est refusée avec le code 2 sans que sa valeur soit affichée. La saisie au
+  terminal sans écho sera active avec le collecteur WinRM (#63). Sources,
+  ordre de priorité et limites dans `docs/SECRETS.md` (#38).
 
 ### Modifié
 

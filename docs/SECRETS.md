@@ -19,7 +19,13 @@ Seules sont admises les options qui **désignent une source**, comme
 `--password-file CHEMIN`. Cette option s'écrit en entier : son abréviation
 `--password`, qu'argparse accepterait, est refusée (code 2) sans que la valeur
 soit lue ni affichée, pour qu'un mot de passe tapé par erreur ne soit pas pris
-pour un chemin. Un test parcourt toutes les options de toutes les
+pour un chemin. Le même refus, prononcé avant l'analyse de la ligne de
+commande, vaut pour `-p` et pour toute option dont le nom contient `pass`,
+`pwd`, `secret`, `token`, `cred` ou `key` sans finir par `-file` (`--passwd`,
+`--token`, `--api-key`...), où qu'elle soit placée : le message ne cite que
+l'option, jamais ce qui la suit. Une valeur passée à une option sans rapport
+(`--out VALEUR`) ou en argument nu reste recopiée par les messages d'usage.
+Un test parcourt toutes les options de toutes les
 sous-commandes et refuse celle dont le nom contient `password`, `secret`,
 `token` ou `key` et qui prend une valeur, sauf si elle finit par `-file` et
 désigne un chemin (`tests/unit/test_cli_secrets.py`).
@@ -55,9 +61,13 @@ $ amnesia audit --target winrm://<hôte> --password-file ~/.config/amnesia/winrm
   droits sont lus sur le fichier ouvert, liens symboliques suivis.
 - Sous Windows, le mode ne décrit pas l'ACL : amnesia avertit de vérifier que
   seul ton compte peut lire le fichier (`icacls <fichier>`). La lecture de
-  l'ACL elle-même n'est pas encore faite.
+  l'ACL elle-même n'est pas encore faite, et cet avertissement est le seul
+  garde-fou : `-q` le fait taire, un fichier lisible par tous est alors
+  accepté sans aucun signal.
 - La fin de ligne finale (`\n` ou `\r\n`) et un BOM UTF-8 sont retirés ; les
-  espaces sont gardés.
+  espaces sont gardés. La même règle vaut pour les autres sources : fin de
+  ligne finale retirée, valeur sur plusieurs lignes, avec un octet nul ou hors
+  UTF-8 refusée (code 2) sans être citée.
 - Dans le rapport, `run.argv` ne garde que le nom du fichier, pas son
   répertoire.
 
@@ -118,6 +128,11 @@ la fonction `amnesia.secrets.from_keyring()` est prête.
 En dernier recours, quand un mot de passe est requis et qu'aucune autre source
 ne le fournit, amnesia le demande par `getpass`, sans écho.
 
+`amnesia audit` ne demande pas encore de mot de passe : l'invite sera active
+quand le collecteur WinRM (#63) déclarera son transport ; la fonction
+`amnesia.secrets.from_prompt()` est prête. Le comportement décrit ci-dessous
+est celui qu'elle garantit.
+
 - Sans terminal (CI, tube, tâche planifiée), la commande échoue tout de suite,
   code 2, avec la liste des sources consultées : elle n'attend jamais une
   saisie qui ne viendra pas.
@@ -135,18 +150,26 @@ partagé) et se capture par un enregistreur de frappe (RR1).
   `dataclasses.asdict` échouent. Seule `reveal()` rend la valeur, au moment de
   la remettre au transport.
 - Chaque secret lu est enregistré auprès du filtre d'expurgation
-  (`amnesia.log`) : sa valeur, brute ou encodée dans une URL, est remplacée par
-  `***` dans les journaux, dans les messages d'erreur et dans toute chaîne du
-  rapport JSON.
+  (`amnesia.log`) : sa valeur, brute, encodée dans une URL ou échappée par
+  `repr()`, `ascii()` ou JSON (barre oblique inverse, guillemets, caractères
+  non ASCII), est remplacée par `***` dans les journaux, dans les messages
+  d'erreur et dans le texte libre du rapport JSON (messages, motifs,
+  ressources, preuves, clés comprises, traces, `run.argv`).
+- Les champs structurels du rapport (sévérité, statut, confiance, unité,
+  identifiants, horodatages, bloc `tool`, bloc `summary`) ne sont jamais
+  masqués : ils sont écrits par amnesia, pas par la cible, et un mot de passe
+  égal à `high` ne doit ni invalider le rapport ni changer le code de sortie.
 - Aucun secret n'est écrit dans le rapport, dans les faits collectés ni dans
   `run.argv`.
 
 **Limites communes** : le secret vit en clair dans la mémoire du processus le
 temps de l'audit, et Python ne permet pas de l'effacer de façon fiable (RR4).
-Le masquage porte sur la valeur exacte : une forme transformée par un tiers
-(hachée, encodée en base64) n'est reconnue que par les motifs génériques du
-journal. Un mot de passe très court, ou égal à un mot courant du rapport,
-serait masqué partout où ce mot apparaît : c'est une raison de plus d'en
+Le masquage porte sur la valeur exacte et sur ses formes échappées citées plus
+haut : toute autre forme transformée par un tiers (hachée, encodée en base64,
+en UTF-16, découpée sur plusieurs lignes, échappée autrement, comme `\x5c` ou
+une entité HTML) n'est reconnue que par les motifs génériques du journal. Un
+mot de passe très court, ou égal à un mot courant du rapport, serait masqué
+partout où ce mot apparaît dans le texte libre : c'est une raison de plus d'en
 choisir un long. Sur un poste compromis, aucune de ces mesures ne tient (RR1).
 
 ## Pour qui ajoute un transport ou un connecteur

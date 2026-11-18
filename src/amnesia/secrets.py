@@ -186,12 +186,29 @@ def from_file(path: Path) -> Secret:
     except UnicodeDecodeError:
         # from None : l'exception d'origine porte les octets lus
         raise SecretError(f"fichier de secret {path} : UTF-8 attendu") from None
+    return Secret(_normaliser(texte, f"fichier de secret {path}"))
+
+
+def _normaliser(texte: str, source: str) -> str:
+    """Valeur d'un secret d'une ligne, la même quelle que soit la source.
+
+    Retire la fin de ligne finale (secret de CI, fichier monté dans une
+    variable) : gardée, elle fausserait le mot de passe envoyé et empêcherait
+    son masquage. Lève ``SecretError``, sans citer la valeur, si elle est vide,
+    tient sur plusieurs lignes, porte un octet nul ou n'est pas de l'UTF-8
+    (octet brut de l'environnement, vu par Python comme un surrogate isolé).
+    """
     texte = texte.removesuffix("\n").removesuffix("\r")
     if not texte:
-        raise SecretError(f"fichier de secret {path} : vide")
+        raise SecretError(f"{source} : vide")
     if any(c in texte for c in "\r\n\x00"):
-        raise SecretError(f"fichier de secret {path} : une seule ligne attendue")
-    return Secret(texte)
+        raise SecretError(f"{source} : une seule ligne attendue")
+    try:
+        texte.encode("utf-8")
+    except UnicodeEncodeError:
+        # from None : l'exception d'origine cite le caractere et sa position
+        raise SecretError(f"{source} : UTF-8 attendu") from None
+    return texte
 
 
 def from_env(
@@ -201,15 +218,15 @@ def from_env(
 
     ``None`` si la variable est absente. Présente, elle est supprimée de
     ``os.environ`` (donc de l'environnement du processus) avant le retour :
-    aucun processus enfant n'en hérite. Lève ``SecretError`` si elle est vide.
+    aucun processus enfant n'en hérite. La fin de ligne finale est retirée,
+    comme pour un fichier. Lève ``SecretError`` si elle est vide, sur plusieurs
+    lignes ou pas en UTF-8, sans jamais citer la valeur.
     """
     env = os.environ if environ is None else environ
     valeur = env.pop(name, None)
     if valeur is None:
         return None
-    if not valeur:
-        raise SecretError(f"variable d'environnement {name} : vide")
-    return Secret(valeur)
+    return Secret(_normaliser(valeur, f"variable d'environnement {name}"))
 
 
 def _nom_de_classe(backend: Any) -> str:
@@ -292,7 +309,7 @@ def from_keyring(mission: str, name: str) -> Secret | None:
         return None
     if not isinstance(valeur, str) or not valeur:
         raise SecretError(f"trousseau du système : entrée {entree} vide ou invalide")
-    return Secret(valeur)
+    return Secret(_normaliser(valeur, f"trousseau du système : entrée {entree}"))
 
 
 def from_prompt(prompt: str) -> Secret:
@@ -315,9 +332,7 @@ def from_prompt(prompt: str) -> Secret:
         ) from None
     except EOFError:
         raise SecretError("saisie du secret interrompue") from None
-    if not valeur:
-        raise SecretError("saisie du secret : vide")
-    return Secret(valeur)
+    return Secret(_normaliser(valeur, "saisie du secret"))
 
 
 def resolve(

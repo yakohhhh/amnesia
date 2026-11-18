@@ -14,6 +14,7 @@ import os
 import sys
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -132,14 +133,34 @@ def test_option_password_file_texte_refusee_par_le_parcours() -> None:
     assert _options_a_valeur_secrete(parser) == ["--password-file"]
 
 
-@pytest.mark.parametrize("option", ["--token", "--secret", "--client-secret"])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["audit", "--target", CIBLE, "--token", CONNU],
+        ["audit", "--target", CIBLE, "--secret", CONNU],
+        ["audit", "--target", CIBLE, f"--secret={CONNU}"],
+        ["audit", "--target", CIBLE, "--client-secret", CONNU],
+        ["audit", "--target", CIBLE, "--passwd", CONNU],
+        ["audit", "--target", CIBLE, "--api-key", CONNU],
+        ["audit", "--target", CIBLE, "-p", CONNU],
+        ["audit", "--target", CIBLE, f"-p{CONNU}"],
+        ["audit", "--target", CIBLE, f"--token{CONNU}"],
+        ["--pass", CONNU, "audit"],
+        ["--password", CONNU, "audit", "--target", CIBLE],
+        ["--token", CONNU, "audit"],
+    ],
+)
 def test_option_a_valeur_secrete_inconnue_de_la_cli(
-    option: str, capsys: pytest.CaptureFixture[str]
+    arguments: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # argparse recopierait la valeur (« unrecognized arguments », « invalid
+    # choice ») sur stderr : le refus tombe avant, sans la citer
     with pytest.raises(SystemExit) as exc:
-        main(["audit", "--target", CIBLE, option, CONNU])
+        main(arguments)
     assert exc.value.code == USAGE
-    assert "hunter2" not in capsys.readouterr().out
+    sorties = capsys.readouterr()
+    assert "aucune option ne prend de valeur secrète" in sorties.err
+    assert "hunter2" not in sorties.out + sorties.err
 
 
 @pytest.mark.parametrize(
@@ -169,18 +190,22 @@ def test_password_file_abregee_refusee_sans_echo(
         main(["audit", "--target", cible, *arguments])
     assert exc.value.code == USAGE
     sorties = capsys.readouterr()
-    assert "--password-file s'écrit en entier" in sorties.err
+    assert "aucune option ne prend de valeur secrète" in sorties.err
+    assert "--password-file" in sorties.err
     assert "hunter2" not in sorties.out + sorties.err
 
 
-def test_option_abregee_reconnue() -> None:
-    assert cli._option_abregee(["audit", "--password", "x"])
-    assert cli._option_abregee(["--pa=x"])
-    assert not cli._option_abregee(["audit", "--password-file", "x", "--out", "-"])
-    assert not cli._option_abregee(["audit", "--password-file=x"])
-    # apres « -- », ce ne sont plus des options
-    assert not cli._option_abregee(["audit", "--", "--password"])
-    assert not cli._option_abregee(["--", "-"])
+def test_option_a_valeur_secrete_reconnue() -> None:
+    reconnue = cli._option_a_valeur_secrete
+    assert reconnue(["audit", "--password", "x"]) == "--password"
+    assert reconnue(["--pa=x"]) == "--pa"
+    assert reconnue(["audit", "-p", "x"]) == "-p"
+    assert reconnue(["audit", "--Client-Secret", "x"]) == "option en « secret »"
+    assert reconnue(["audit", "--password-file", "x", "--out", "-"]) is None
+    assert reconnue(["audit", "--password-file=x"]) is None
+    assert reconnue(["audit", "--log-file", "token.log", "-q", "-v"]) is None
+    assert reconnue(["audit", "--", "--password"]) is None
+    assert reconnue(["--", "-"]) is None
 
 
 # --- --password-file ---
@@ -428,20 +453,115 @@ def test_erreur_fatale_sans_fuite(
     assert ("Traceback" in sorties.err) is debug
     assert CONNU not in sorties.out + sorties.err
     assert all(CONNU not in r.getMessage() for r in caplog.records)
-    if not debug:
-        # en --debug, la trace part en exc_info : les handlers d'amnesia la
-        # masquent (stderr ci-dessus), pas un handler pose avant eux par l'hote
-        assert CONNU not in caplog.text
+    # en --debug aussi : la trace est caviardee avant d'atteindre le journal,
+    # un handler pose par l'hote (caplog) ne recoit jamais l'exception brute
+    assert CONNU not in caplog.text
+    assert all(CONNU not in str(r.__dict__) for r in caplog.records)
 
 
 def test_secret_masque_partout_dans_le_rapport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # dernier filet : une valeur de secret arrivee dans un champ quelconque
+    # dernier filet : une valeur de secret arrivee dans un champ quelconque,
+    # cle d'une preuve ou d'un bloc inconnu comprise
     from amnesia.report import dumps_report
 
     secrets.Secret(CONNU)
-    rapport = {"results": [{"message": f"vu {CONNU}", "evidence": [CONNU, 3]}]}
+    rapport = {
+        "results": [{"message": f"vu {CONNU}", "evidence": [CONNU, 3]}],
+        "gaps": [
+            {
+                "resource": CONNU,
+                "evidence": {
+                    "source": f"cmd {CONNU}",
+                    "details": {f"user={CONNU}": True, "v": {CONNU: [CONNU]}},
+                },
+            }
+        ],
+        "inconnu": {CONNU: 1, "k": CONNU},
+    }
     texte = dumps_report(rapport)
     assert CONNU not in texte
-    assert json.loads(texte)["results"][0]["evidence"] == [log.MASQUE, 3]
+    relu = json.loads(texte)
+    assert relu["results"][0]["evidence"] == [log.MASQUE, 3]
+    assert relu["inconnu"] == {log.MASQUE: 1, "k": log.MASQUE}
+    preuve = relu["gaps"][0]["evidence"]
+    assert preuve["details"] == {
+        f"user={log.MASQUE}": True,
+        "v": {log.MASQUE: [log.MASQUE]},
+    }
+
+
+@pytest.mark.parametrize("mot_de_passe", ["high", "igh", "amnesia", "days"])
+def test_mot_de_passe_egal_a_une_valeur_du_schema(
+    mot_de_passe: str,
+    tmp_path: Path,
+    registre_factice: list[Check],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # le masquage ne doit ni invalider le rapport ni changer le code de sortie
+    import jsonschema
+
+    from amnesia.exitcodes import GAPS
+    from amnesia.report import load_schema
+
+    chemin = _fichier(tmp_path, contenu=mot_de_passe)
+    out = tmp_path / "rapport.json"
+    argv = ["audit", "--target", CIBLE, "--password-file", str(chemin)]
+    assert main([*argv, "--out", str(out)]) == GAPS
+    rapport = json.loads(out.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator(load_schema()).validate(rapport)
+    assert rapport["gaps"][0]["severity"] == "high"
+    assert rapport["tool"]["name"] == "amnesia"
+    assert rapport["gaps"][0]["evidence"]["unit"] == "days"
+    assert "fatale" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mot_de_passe", ["high", "igh", "amnesia", "days", "fail"])
+def test_champs_structurels_jamais_masques(mot_de_passe: str) -> None:
+    # un mot de passe egal a une valeur d'enumeration ne doit ni invalider le
+    # rapport ni servir d'oracle (« severity » : « h*** »)
+    from amnesia.report import _sans_surrogates
+
+    secrets.Secret(mot_de_passe)
+    rapport: dict[str, Any] = {
+        "schema_version": "1.0",
+        "tool": {"name": "amnesia", "version": "0.1", "catalog_version": "1"},
+        "run": {"id": "high", "started_at": "high", "argv": ["high"]},
+        "targets": [{"id": "x", "kind": "high", "transport": "high"}],
+        "results": [
+            {
+                "check_id": "win.high",
+                "status": "fail",
+                "reason": "high",
+                "message": "high days fail amnesia",
+                "error": {"type": "high", "message": "high days fail amnesia"},
+            }
+        ],
+        "gaps": [
+            {
+                "check_id": "win.high",
+                "severity": "high",
+                "reason": "high days fail amnesia",
+                "evidence": {"unit": "days", "confidence": "high"},
+                "references": [{"kind": "attack", "id": "high"}],
+            }
+        ],
+        "summary": {"by_severity": {"high": 1}, "by_status": {"fail": 1}},
+    }
+    rendu = _sans_surrogates(rapport)
+    assert rendu["tool"] == rapport["tool"]
+    assert rendu["summary"] == rapport["summary"]
+    assert rendu["run"]["id"] == "high"
+    assert rendu["targets"][0]["kind"] == "high"
+    assert rendu["results"][0]["status"] == "fail"
+    assert rendu["results"][0]["reason"] == "high"
+    assert rendu["results"][0]["error"]["type"] == "high"
+    assert rendu["gaps"][0]["severity"] == "high"
+    assert rendu["gaps"][0]["evidence"] == rapport["gaps"][0]["evidence"]
+    assert rendu["gaps"][0]["references"] == rapport["gaps"][0]["references"]
+    # le texte libre, lui, reste masque
+    assert mot_de_passe not in rendu["results"][0]["message"]
+    assert mot_de_passe not in rendu["results"][0]["error"]["message"]
+    assert mot_de_passe not in rendu["gaps"][0]["reason"]
+    assert mot_de_passe not in rendu["run"]["argv"][0]

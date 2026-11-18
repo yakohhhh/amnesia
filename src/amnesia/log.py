@@ -111,13 +111,31 @@ _MOTIFS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 def register_secret(valeur: str | None) -> None:
-    """Enregistre une valeur à masquer dans tous les journaux (alimenté par #38)."""
+    """Enregistre une valeur à masquer dans tous les journaux (alimenté par #38).
+
+    Formes reconnues : la valeur brute, sa forme encodée dans une URL et ses
+    formes échappées par ``repr()``, ``ascii()`` et JSON. Une forme hachée,
+    encodée en base64 ou découpée ne l'est pas.
+    """
     if not valeur:
         return
+    formes = {
+        valeur,
+        # forme encodee dans une URL ou un corps de formulaire (surrogatepass :
+        # ne leve jamais, meme sur un octet non UTF-8 venu de l'environnement)
+        quote(valeur, safe="", errors="surrogatepass"),
+        # formes echappees par Python et JSON, celles d'un message d'exception :
+        # repr() et %r, apostrophe echappee dans une chaine englobante,
+        # ascii() et %a, json.dumps() avec et sans ensure_ascii
+        repr(valeur)[1:-1],
+        valeur.replace("\\", "\\\\").replace("'", "\\'"),
+        valeur.encode("unicode_escape").decode("ascii"),
+        ascii(valeur)[1:-1],
+        json.dumps(valeur)[1:-1],
+        json.dumps(valeur, ensure_ascii=False)[1:-1],
+    }
     with _verrou:
-        _secrets.add(valeur)
-        # forme encodee dans une URL ou un corps de formulaire
-        _secrets.add(quote(valeur, safe=""))
+        _secrets.update(forme for forme in formes if forme)
 
 
 def mask_secrets(texte: str) -> str:
