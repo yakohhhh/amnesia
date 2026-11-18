@@ -105,16 +105,18 @@ def test_readme_licence_alignee() -> None:
     assert "REUSE" in licence
 
 
-def test_readme_vendable_aligne_sur_l_adr() -> None:
-    vendable = _section(_texte(RACINE / "README.md"), "Vendable")
-    assert "**open core**" in vendable
-    assert f"]({DEPOT}/{ADR})" in vendable
-    assert "licence MIT" in vendable
-    assert "licence propriétaire" in vendable
-    assert "hors de ce dépôt" in vendable
+def test_readme_modele_open_core_aligne_sur_l_adr() -> None:
+    # le modele est decrit dans « Licence » depuis le retrait de la section
+    # « Vendable » (#32) : l'argumentaire commercial n'est pas dans le README
+    readme = _texte(RACINE / "README.md")
+    licence = " ".join(_section(readme, "Licence").split())
+    assert "**open core**" in licence
+    assert f"]({DEPOT}/{ADR})" in licence
+    assert "le cœur, ce dépôt, reste sous licence MIT" in licence
+    assert "licence propriétaire" in licence
+    assert "hors de ce dépôt" in licence
     # l'ancienne promesse contredisait la licence MIT
-    assert "licence aux\nMSP" not in vendable
-    assert "licence aux MSP" not in " ".join(vendable.split())
+    assert "licence aux MSP" not in " ".join(readme.split())
 
 
 # En-tetes SPDX et REUSE.toml
