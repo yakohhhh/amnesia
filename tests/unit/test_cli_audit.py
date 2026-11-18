@@ -273,13 +273,18 @@ def test_out_fichier_json_valide_un_resultat_par_check(
     assert "JSON" not in sortie.err
 
 
-def test_out_par_defaut_dans_le_repertoire_courant(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_out_par_defaut_dans_amnesia_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _registre(monkeypatch, conforme())
     assert main(["audit"]) == exitcodes.OK
-    assert [p.name for p in tmp_path.iterdir()] == [cli.DEFAULT_OUT]
+    assert cli.DEFAULT_OUT == "amnesia-out/amnesia-report.json"
+    # rien dans le repertoire courant hors du dossier de sortie
+    assert [p.name for p in tmp_path.iterdir()] == ["amnesia-out"]
     _rapport(tmp_path / cli.DEFAULT_OUT)
+    sortie = capsys.readouterr()
+    assert f"Rapport JSON : {Path(cli.DEFAULT_OUT)}" in sortie.out
+    assert sortie.err == ""
 
 
 def test_out_tiret_json_sur_stdout_texte_sur_stderr(
@@ -333,8 +338,12 @@ def test_fichier_existant_refuse_sans_overwrite(
     assert _rapport(rapport)["summary"]["total"] == 1
 
 
-def test_lien_symbolique_refuse(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("overwrite", [[], ["--overwrite"]], ids=["", "overwrite"])
+def test_lien_symbolique_casse_refuse(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    overwrite: list[str],
 ) -> None:
     _registre(monkeypatch, conforme())
     lien = tmp_path / "r.json"
@@ -343,13 +352,17 @@ def test_lien_symbolique_refuse(
         lien.symlink_to(cible)
     except (OSError, NotImplementedError):
         pytest.skip("liens symboliques indisponibles")
-    # lien casse : exists() est faux, mais le mode x refuse de le suivre
-    assert main(["audit", "--out", str(lien)]) == exitcodes.FATAL
+    # lien casse : exists() est faux, mais le lien est refuse avant l'audit
+    with pytest.raises(SystemExit) as exc:
+        main(["audit", "--out", str(lien), *overwrite])
+    assert exc.value.code == exitcodes.USAGE
+    assert "lien symbolique refusé" in capsys.readouterr().err
     assert not cible.exists()
+    assert lien.is_symlink()
 
 
-def test_lien_symbolique_avec_overwrite_cible_intacte(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_lien_symbolique_refuse_meme_avec_overwrite(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _registre(monkeypatch, conforme())
     cible = tmp_path / "victime.txt"
@@ -359,11 +372,13 @@ def test_lien_symbolique_avec_overwrite_cible_intacte(
         lien.symlink_to(cible)
     except (OSError, NotImplementedError):
         pytest.skip("liens symboliques indisponibles")
-    # --overwrite remplace le lien lui-meme, jamais ce qu'il pointe (CWE-59)
-    assert main(["audit", "--out", str(lien), "--overwrite"]) == exitcodes.OK
+    # ni la cible du lien (CWE-59) ni le lien lui-meme ne sont touches (#25)
+    with pytest.raises(SystemExit) as exc:
+        main(["audit", "--out", str(lien), "--overwrite"])
+    assert exc.value.code == exitcodes.USAGE
+    assert "lien symbolique refusé, même avec --overwrite" in capsys.readouterr().err
     assert cible.read_text(encoding="utf-8") == "SECRET\n"
-    assert not lien.is_symlink()
-    assert _rapport(lien)["summary"]["total"] == 1
+    assert lien.is_symlink()
 
 
 def test_lien_physique_avec_overwrite_cible_intacte(
@@ -382,16 +397,19 @@ def test_lien_physique_avec_overwrite_cible_intacte(
     assert _rapport(lien)["summary"]["total"] == 1
 
 
-def test_overwrite_sur_un_repertoire_code_4(
+def test_overwrite_sur_un_repertoire_code_2(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _registre(monkeypatch, conforme())
     dossier = tmp_path / "r.json"
     dossier.mkdir()
     (dossier / "temoin").write_text("", encoding="utf-8")
-    assert main(["audit", "--out", str(dossier), "--overwrite"]) == exitcodes.FATAL
+    # refuse avant l'audit : seul un fichier ordinaire peut etre remplace
+    with pytest.raises(SystemExit) as exc:
+        main(["audit", "--out", str(dossier), "--overwrite"])
+    assert exc.value.code == exitcodes.USAGE
     assert (dossier / "temoin").exists()
-    assert "écriture impossible" in capsys.readouterr().err
+    assert "pas un fichier ordinaire" in capsys.readouterr().err
 
 
 # nom d'ESC et de BEL : NTFS refuse les controles C0 dans un nom de fichier

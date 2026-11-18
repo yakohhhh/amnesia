@@ -189,7 +189,7 @@ def pytest_runtest_teardown(item: pytest.Item) -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def _repertoire_courant_isole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # le rapport par defaut (amnesia-report.json) est relatif au repertoire
+    # le rapport par defaut (amnesia-out/amnesia-report.json) est relatif au repertoire
     # courant : aucun test ne doit pouvoir l'ecrire dans le depot
     monkeypatch.chdir(tmp_path)
 

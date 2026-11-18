@@ -187,7 +187,8 @@ contiennent les mêmes données et suivent les mêmes règles.
   hors mandat est un accès non autorisé. Menace [M10][menaces].
 - **Stockage.** Rapports, collectes, bundles et journaux d'exécution ne sont
   stockés que sur un disque chiffré, dans le répertoire de la mission, lisibles du
-  seul opérateur (fichiers en 0600, dossiers en 0700, #25) ; jamais sur un support
+  seul opérateur (fichiers en 0600, dossiers en 0700 : amnesia crée ainsi ses
+  rapports, #25) ; jamais sur un support
   amovible non chiffré, un partage ouvert ou un service de synchronisation
   personnel. Menace [M15][menaces].
 - **Jamais dans git.** Aucune sortie d'amnesia n'est commitée, dans ce dépôt ou
