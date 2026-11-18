@@ -33,6 +33,13 @@ la première version sera la 0.1.0 (milestone M0).
   strict : un caractère impossible à encoder ne fait pas planter la commande
   (#182).
 - Annotations de type publiées avec le paquet (marqueur `py.typed`) (#177).
+- Catalogue des questions d'enquête, embarqué dans le paquet : 31 questions
+  Windows et Active Directory à identifiant stable (`Q-WIN-RDP-LOGON`) et les
+  sources de télémétrie qui permettent d'y répondre (journaux, Event IDs,
+  prérequis d'audit). Commandes `amnesia catalog list`, `amnesia catalog show
+  <id>` et `amnesia catalog validate` ; le rapport JSON porte la version du
+  catalogue (`tool.catalog_version`) et un `question_id` pour chaque angle mort
+  (#218).
 - Moteur d'audit, utilisable comme API Python (`from amnesia import run_audit,
   AuditResult`) : faits collectés une fois par audit, délai par check (120 s par
   défaut), un check en échec ou bloqué n'arrête pas les autres, résultats triés

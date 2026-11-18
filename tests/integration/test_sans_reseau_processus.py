@@ -47,11 +47,25 @@ def _amnesia(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         ("--version",),
         ("list-checks",),
         ("schema",),
+        ("catalog", "validate"),
+        ("catalog", "list"),
+        ("catalog", "show", "Q-WIN-RDP-LOGON"),
         ("render", str(FIXTURE)),
         ("render", str(FIXTURE), "--format", "md"),
         ("audit", "--target", "local", "--out", "rapport.json"),
     ],
-    ids=["help", "version", "list-checks", "schema", "render", "render-md", "audit"],
+    ids=[
+        "help",
+        "version",
+        "list-checks",
+        "schema",
+        "catalog-validate",
+        "catalog-list",
+        "catalog-show",
+        "render",
+        "render-md",
+        "audit",
+    ],
 )
 def test_commande_sans_connexion(tmp_path: Path, args: tuple[str, ...]) -> None:
     sortie = _amnesia(tmp_path, *args)

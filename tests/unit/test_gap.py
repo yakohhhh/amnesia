@@ -55,6 +55,7 @@ def _gap(**champs: Any) -> Gap:
         "check_id": "win.event_log_retention",
         "target": "winrm://srv-file",
         "resource": "Security",
+        "question_id": "Q-WIN-RDP-LOGON",
         "question": "Qui s'est connecte en RDP sur SRV-FILE il y a trois semaines ?",
         "reason": "Le journal Security fait 20 Mo et a ete ecrase il y a 4 jours.",
         "severity": Severity.HIGH,
@@ -268,7 +269,7 @@ def test_to_dict_cles_stables() -> None:
         "source",
         "details",
     ]
-    assert d["question_id"] is None
+    assert d["question_id"] == "Q-WIN-RDP-LOGON"
     assert d["references"] == []
     assert d["compromise_indicator"] is False
     assert type(d["severity"]) is str
@@ -627,6 +628,16 @@ def test_empreinte_change_avec_l_identite(champs: dict[str, Any]) -> None:
     assert _gap(**champs).fingerprint != _gap().fingerprint
 
 
+def test_question_id_obligatoire() -> None:
+    # un Gap se rattache toujours a une question du catalogue (#46)
+    champs = _gap().to_dict()
+    del champs["question_id"], champs["fingerprint"]
+    champs["evidence"] = _preuve()
+    champs["references"] = ()
+    with pytest.raises(TypeError, match="question_id"):
+        Gap(**champs)
+
+
 def test_empreinte_sans_ambiguite_de_separateur() -> None:
     a = _gap(target="winrm://a", resource="b|c")
     b = _gap(target="winrm://a|b", resource="c")
@@ -644,6 +655,12 @@ def test_empreinte_sans_ambiguite_de_separateur() -> None:
         ({"resource": "Security\u202e"}, ValueError),
         ({"resource": None}, TypeError),
         ({"question_id": ""}, ValueError),
+        # obligatoire depuis le catalogue (#46), et dans sa forme : Q-<...>
+        ({"question_id": None}, TypeError),
+        ({"question_id": "q-win-rdp-logon"}, ValueError),
+        ({"question_id": "Q-WIN"}, ValueError),
+        ({"question_id": "Q-WIN-RDP-LOGON\n"}, ValueError),
+        ({"question_id": "win.audit_policy"}, ValueError),
         ({"remediation_id": "\x1b[31m"}, ValueError),
         ({"question": "   "}, ValueError),
         ({"reason": None}, TypeError),
@@ -768,8 +785,8 @@ def test_check_result_porte_les_gaps_de_son_check_et_de_sa_cible() -> None:
 
 
 def test_check_result_refuse_deux_gaps_de_meme_empreinte() -> None:
-    # sans question_id, deux questions sur la meme ressource partagent une
-    # empreinte : un dedoublonnage (#67, #142) en perdrait une sans bruit
+    # meme question_id et meme ressource : les deux constats partagent une
+    # empreinte, un dedoublonnage (#67, #142) en perdrait un sans bruit
     rdp = _gap(question="Qui s'est connecte en RDP ?")
     processus = _gap(question="Quels processus ont ete lances ?")
     assert rdp.fingerprint == processus.fingerprint

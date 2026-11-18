@@ -24,3 +24,13 @@ class SysmonPresent(Check):
     version = 1
     default_severity = "medium"
     requires_facts = ("windows.sysmon.service", "windows.sysmon.config")
+    # questions du catalogue auxquelles ce check contribue ; chacune le
+    # liste dans son champ checks (amnesia catalog validate)
+    question_ids = (
+        "Q-WIN-AUTORUN",
+        "Q-WIN-DNS",
+        "Q-WIN-OUTBOUND",
+        "Q-WIN-PROCESS-CMDLINE",
+        "Q-WIN-SHADOW-DELETE",
+        "Q-WIN-WMI-PERSIST",
+    )

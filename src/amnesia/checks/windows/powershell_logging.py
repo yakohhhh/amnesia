@@ -24,3 +24,6 @@ class WindowsPowerShellLogging(Check):
     version = 1
     default_severity = "high"
     requires_facts = ("windows.powershell.logging_policy",)
+    # questions du catalogue auxquelles ce check contribue ; chacune le
+    # liste dans son champ checks (amnesia catalog validate)
+    question_ids = ("Q-WIN-POWERSHELL",)

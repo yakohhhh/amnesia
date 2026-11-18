@@ -31,6 +31,10 @@ lève une autre exception                 ``error`` / ``internal_error`` : type
                                          seulement avec ``debug=True``
 rend autre chose que son propre          ``error`` / ``internal_error``
 résultat sur cette cible
+rend un Gap dont ``question_id`` est     ``error`` / ``internal_error``
+inconnu du catalogue
+rend un Gap dont ``question_id`` est     ``error`` / ``internal_error``
+absent de ses ``question_ids``
 dépasse le délai                         ``error`` / ``timeout``
 lève ``KeyboardInterrupt``               arrêt : ``AuditResult`` partiel,
                                          ``interrupted=True``
@@ -76,6 +80,7 @@ from types import MappingProxyType
 from typing import Any
 
 from . import __version__
+from .catalog import load_catalog
 from .checks.base import (
     Check,
     CheckResult,
@@ -183,6 +188,10 @@ class AuditSummary:
         )
 
 
+def _version_du_catalogue() -> str:
+    return load_catalog().version
+
+
 def _nouvel_id() -> str:
     return str(uuid.uuid4())
 
@@ -198,10 +207,14 @@ class AuditResult:
     interrompu (``interrupted``, résultats partiels).
 
     ``operator`` est le compte local qui a lancé amnesia (surchargeable) ;
-    ``started_at`` et ``finished_at`` sont en UTC ISO 8601.
+    ``started_at`` et ``finished_at`` sont en UTC ISO 8601. ``catalog_version``
+    est la version du catalogue de questions contre lequel les Gaps ont été
+    vérifiés (``tool.catalog_version`` du rapport) : par défaut, celle du
+    catalogue embarqué.
     """
 
     amnesia_version: str = __version__
+    catalog_version: str = field(default_factory=_version_du_catalogue)
     run_id: str = field(default_factory=_nouvel_id)
     started_at: str
     finished_at: str
@@ -250,16 +263,33 @@ class _Executeur:
             self._pool = None
 
 
-def _verifier_resultat(resultat: object, check_id: str, cible: str) -> CheckResult:
+def _verifier_resultat(resultat: object, check: Check, cible: str) -> CheckResult:
     if not isinstance(resultat, CheckResult):
         raise TypeError(
             f"evaluate() doit rendre un CheckResult, reçu {type(resultat).__name__}"
         )
-    if (resultat.check_id, resultat.target) != (check_id, cible):
+    if (resultat.check_id, resultat.target) != (check.id, cible):
         raise ValueError(
             f"evaluate() a rendu le résultat de {resultat.check_id!r} "
             f"sur {resultat.target!r}"
         )
+    # le rapport annonce la version du catalogue (tool.catalog_version) : un
+    # Gap n'y entre qu'avec une question que ce catalogue definit
+    catalogue = load_catalog()
+    for gap in resultat.gaps:
+        if gap.question_id not in catalogue:
+            raise ValueError(
+                f"evaluate() a rendu un Gap dont question_id est inconnu du "
+                f"catalogue {catalogue.version} : {gap.question_id!r}"
+            )
+        # le lien checks / question_ids que valide « catalog validate » vaut
+        # aussi a l'execution : un check ne repond que des questions qu'il
+        # declare, donc jamais d'une question planned ou deprecated
+        if gap.question_id not in check.question_ids:
+            raise ValueError(
+                f"evaluate() de {check.id} a rendu un Gap sur la question "
+                f"{gap.question_id}, absente de ses question_ids"
+            )
     return resultat
 
 
@@ -305,7 +335,7 @@ def _evaluer_brut(
         impose = resolve(check.id, cible.id, check.requires_facts, faits)
         if impose is not None:
             return impose
-        return _verifier_resultat(check.evaluate(faits, contexte), check.id, cible.id)
+        return _verifier_resultat(check.evaluate(faits, contexte), check, cible.id)
     except MissingExtra as exc:
         # levee par le moteur ou par un collecteur (import paresseux) : non
         # evalue, le message donne la commande d'installation ; aucune ErrorInfo,
@@ -451,9 +481,13 @@ def run_audit(
     partiel est rendu avec ``interrupted=True``.
 
     Lève ``ValueError`` si ``timeout`` n'est pas un nombre de secondes > 0 ou si
-    l'horloge rend un instant sans fuseau.
+    l'horloge rend un instant sans fuseau, et ``CatalogError`` si le catalogue
+    embarqué est invalide (paquet altéré).
     """
     _verifier_timeout(timeout)
+    # catalogue lu et valide avant le premier check, dans ce thread : evaluate()
+    # et render_question() ne font ensuite plus aucune I/O
+    load_catalog()
     horloge = _maintenant if clock is None else clock
     operateur = _operateur() if operator is None else operator
     # instances neuves : aucun etat ne passe d'un audit a l'autre (#17)

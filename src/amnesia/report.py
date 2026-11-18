@@ -12,7 +12,7 @@ draft 2020-12 embarqué dans le paquet : ``amnesia/schemas/report-v1.schema.json
 Structure :
 
 - ``schema_version`` : SemVer du format (``1.0.0``) ;
-- ``tool`` : nom, version d'amnesia, version du catalogue (``null`` avant #46) ;
+- ``tool`` : nom, version d'amnesia, version du catalogue de questions (#46) ;
 - ``run`` : identifiant (UUID4), horodatages RFC 3339 en UTC (suffixe ``Z``),
   durée, ``complete``, ``interrupted``, profil (``null`` avant #47) et
   arguments de la ligne de commande, valeurs sensibles masquées ;
@@ -294,7 +294,7 @@ def build_report(
         "tool": {
             "name": TOOL_NAME,
             "version": audit.amnesia_version,
-            "catalog_version": None,
+            "catalog_version": audit.catalog_version,
         },
         "run": {
             # forme canonique (minuscules) ; ValueError si ce n'est pas un UUID
