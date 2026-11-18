@@ -148,9 +148,11 @@ Ce que la table interdit, et pourquoi :
 - **un format importé ne se lit que par `amnesia.inputs`** : configuration
   Sysmon, sauvegarde de GPO, bundle ou fichier de mission viennent peut-être
   d'un SI compromis (H4). Aucun autre module n'importe `xml.etree`, `xml.dom`,
-  `xml.sax`, `xml.parsers.expat`, `zipfile` ni `tarfile`, même sous
-  `if TYPE_CHECKING:` ou par `importlib` (un élément XML s'annote avec
-  `amnesia.inputs.XmlElement`), ni n'appelle `shutil.unpack_archive`. Le module
+  `xml.sax`, `xml.parsers.expat`, `zipfile` ni `tarfile`, ni les modules qui
+  donnent le même analyseur sous un autre nom (`pyexpat`, `_elementtree`,
+  `plistlib`, `xmlrpc`, `zipimport`), même sous `if TYPE_CHECKING:` ou par
+  `importlib` (un élément XML s'annote avec `amnesia.inputs.XmlElement`), ni
+  n'appelle `shutil.unpack_archive`. Le module
   plafonne les octets lus, la profondeur et le nombre d'enregistrements, refuse
   DTD et entités XML, chemins piégés et bombes de décompression, et lève
   `UnsafeInputError`, dont le message ne reprend jamais le contenu du fichier

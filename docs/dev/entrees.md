@@ -59,10 +59,10 @@ Communs à tous les formats :
 
 | Format | Refus propres au format |
 |---|---|
-| XML | toute déclaration `DOCTYPE`, donc toute DTD, entité ou référence externe (XXE, *billion laughs*) ; UTF-16 sans BOM ; plus de `max_depth` niveaux ou de `max_records` éléments |
-| ZIP | chemin absolu, `..`, lecteur ou flux Windows (`C:`, `fichier:flux`), nom de périphérique Windows, caractère de contrôle ; lien symbolique et fichier spécial ; nom en double (casse et forme Unicode confondues) ; entrée chiffrée, compression autre que *stored* ou *deflate*, ZIP64, archive en plusieurs volumes ; plus de `max_entries` entrées, de `max_bytes` par entrée, de `max_total_bytes` au total ou un ratio de compression supérieur à `max_ratio` |
-| JSON | plus de `max_depth` niveaux (comptés avant l'analyse : jamais de `RecursionError`), clé en double, `NaN` et `Infinity`, plus de `max_records` objets et tableaux |
-| TOML | plus de `max_depth` niveaux ou de `max_records` tables et tableaux |
+| XML | toute déclaration `DOCTYPE`, donc toute DTD, entité ou référence externe (XXE, *billion laughs*) ; UTF-16 sans BOM ; plus de `max_depth` niveaux, ou de `max_records` éléments et attributs (un attribut compte comme un élément) |
+| ZIP | chemin absolu, `..`, lecteur ou flux Windows (`C:`, `fichier:flux`), nom de périphérique Windows (règle de `ntpath.isreserved` : `NUL .txt`, `COM¹`), caractère de contrôle, chemin de plus de `max_depth` composants ; lien symbolique et fichier spécial ; nom en double (casse et forme Unicode confondues) ; entrée chiffrée, compression autre que *stored* ou *deflate*, ZIP64, archive en plusieurs volumes, octets après la fin de répertoire, entrées superposées ; plus de `max_entries` fichiers et dossiers (entrées déclarées et dossiers intermédiaires qu'elles impliquent), de `max_bytes` par entrée, de `max_total_bytes` au total ou un ratio de compression supérieur à `max_ratio` |
+| JSON | plus de `max_depth` niveaux (comptés avant l'analyse : jamais de `RecursionError`), clé en double, `NaN`, `Infinity` et tout nombre non fini (`1e999`), plus de `max_records` objets et tableaux |
+| TOML | plus de `max_toml_bytes` octets (1 Mio, tenu avant l'analyse : `tomllib` construit tout le document, de l'ordre de cent fois la taille du texte, avant qu'un conteneur soit compté) ; plus de `max_depth` niveaux ou de `max_records` tables et tableaux ; `inf` et `nan` |
 | CSV | champ de plus de `max_field_chars` caractères (`csv.field_size_limit`, posé puis remis en place), nombre de colonnes différent de `columns` ou de celui de la première ligne, plus de `max_columns` colonnes ou de `max_records` lignes |
 | Registry.pol | signature autre que `PReg`, version autre que 1, entrée tronquée, longueur annoncée supérieure aux octets restants, plus de `max_records` entrées |
 
@@ -71,6 +71,13 @@ entrée piégée fait refuser toute l'archive, et rien n'est extrait. Les plafon
 d'une archive portent sur les octets réellement décompressés ; les tailles
 annoncées par les en-têtes, qui peuvent mentir, ne servent qu'à refuser plus
 tôt.
+
+Les plafonds par défaut sont larges (200 Mio par fichier). `max_records` borne
+ce que l'analyse construit, pas la mémoire que l'analyseur occupe pendant
+qu'il lit : expat remet tous les attributs d'un élément d'un seul coup, avant
+que le module puisse les compter. Un appelant qui connaît son format passe
+donc un `Limits(max_bytes=...)` serré : quelques Mio suffisent à une
+configuration Sysmon ou à un `gpreport.xml`.
 
 TAR n'est pas pris en charge. Il ne le sera que si le format de bundle (#52)
 l'exige : avec `tarfile` et `filter="data"` (PEP 706), dans `amnesia.inputs`,
@@ -89,13 +96,14 @@ passe pas.
 | Champ | Défaut | Porte sur |
 |---|---|---|
 | `max_bytes` | 200 Mio | octets lus par fichier, et écrits par entrée d'archive |
-| `max_records` | 1 000 000 | éléments XML, objets et tableaux JSON ou TOML, lignes CSV, entrées de Registry.pol |
-| `max_depth` | 64 | imbrication XML, JSON, TOML |
+| `max_records` | 1 000 000 | éléments et attributs XML, objets et tableaux JSON ou TOML, lignes CSV, entrées de Registry.pol |
+| `max_depth` | 64 | imbrication XML, JSON, TOML ; composants du chemin d'une entrée d'archive |
 | `max_columns` | 256 | colonnes d'une ligne CSV |
 | `max_field_chars` | 131 072 | caractères d'un champ CSV |
-| `max_entries` | 10 000 | entrées d'une archive |
+| `max_entries` | 10 000 | fichiers et dossiers créés par une archive : entrées déclarées et dossiers intermédiaires que leurs chemins impliquent |
 | `max_total_bytes` | 1 Gio | octets décompressés par archive |
 | `max_ratio` | 100 | octets décompressés par octet d'archive, au-delà de 1 Mio |
+| `max_toml_bytes` | 1 Mio | octets d'un document TOML, en plus de `max_bytes` |
 
 Un format plus petit se lit avec des plafonds plus serrés :
 

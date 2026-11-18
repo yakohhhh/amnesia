@@ -454,7 +454,18 @@ def test_interdictions_documentees() -> None:
 # n'importe les analyseurs XML ni les modules d'archives de la bibliotheque
 # standard. « xml » couvre xml.etree, xml.dom, xml.sax et xml.parsers.expat.
 MODULE_D_ENTREE = "amnesia.inputs"
-FORMATS_RESERVES = ("xml", "zipfile", "tarfile")
+# pyexpat et _elementtree sont l'analyseur de xml.parsers.expat et de xml.etree
+# sous un autre nom ; plistlib et xmlrpc l'appellent, zipimport lit une archive
+FORMATS_RESERVES = (
+    "xml",
+    "pyexpat",
+    "_elementtree",
+    "plistlib",
+    "xmlrpc",
+    "zipfile",
+    "zipimport",
+    "tarfile",
+)
 # fonctions qui chargent un module par son nom, ou qui extraient une archive en
 # appelant zipfile et tarfile a la place de l'appelant
 CHARGEMENT_PAR_NOM = frozenset({"import_module", "__import__"})
@@ -530,6 +541,12 @@ def test_formats_importes_reserves_a_amnesia_inputs() -> None:
         ("import xml.sax\n", "xml.sax"),
         ("from xml.parsers import expat\n", "xml.parsers"),
         ("import xml.parsers.expat\n", "xml.parsers.expat"),
+        ("import pyexpat\n", "pyexpat"),
+        ("from pyexpat import ParserCreate\n", "pyexpat"),
+        ("import _elementtree\n", "_elementtree"),
+        ("import plistlib\n", "plistlib"),
+        ("import xmlrpc.client\n", "xmlrpc.client"),
+        ("import zipimport\n", "zipimport"),
         ("import zipfile\n", "zipfile"),
         ("from zipfile import ZipFile\n", "zipfile"),
         ("import os, tarfile\n", "tarfile"),
@@ -565,7 +582,8 @@ def test_formats_reserves_documentes() -> None:
     texte = _texte(ARCHITECTURE)
     for nom in ("xml.etree", "xml.dom", "xml.sax", "xml.parsers.expat", "zipfile"):
         assert f"`{nom}`" in texte, nom
-    assert "`tarfile`" in texte
+    for nom in ("tarfile", "pyexpat", "plistlib", "xmlrpc", "zipimport"):
+        assert f"`{nom}`" in texte, nom
     assert "`amnesia.inputs.XmlElement`" in texte
 
 

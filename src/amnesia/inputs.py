@@ -71,6 +71,7 @@ import csv
 import functools
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -83,7 +84,7 @@ import unicodedata
 import zipfile
 import zlib
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, BinaryIO, ParamSpec, TypeAlias, TypeVar
@@ -136,11 +137,12 @@ class Limits:
     """Octets lus par fichier, et écrits par entrée d'archive (200 Mio)."""
 
     max_records: int = 1_000_000
-    """Enregistrements : éléments XML, objets et tableaux JSON ou TOML, lignes
-    CSV, entrées de Registry.pol."""
+    """Enregistrements : éléments et attributs XML, objets et tableaux JSON ou
+    TOML, lignes CSV, entrées de Registry.pol."""
 
     max_depth: int = 64
-    """Profondeur d'imbrication : XML, JSON, TOML."""
+    """Profondeur d'imbrication : XML, JSON, TOML, et nombre de composants du
+    chemin d'une entrée d'archive."""
 
     max_columns: int = 256
     """Colonnes d'une ligne CSV."""
@@ -149,13 +151,19 @@ class Limits:
     """Caractères d'un champ CSV (``csv.field_size_limit``)."""
 
     max_entries: int = 10_000
-    """Entrées d'une archive, dossiers compris."""
+    """Fichiers et dossiers créés par une archive : entrées déclarées et
+    dossiers intermédiaires que leurs chemins impliquent."""
 
     max_total_bytes: int = 1024 * _MIO
     """Octets décompressés par archive, toutes entrées confondues (1 Gio)."""
 
     max_ratio: int = 100
     """Octets décompressés par octet d'archive, au-delà de 1 Mio décompressé."""
+
+    max_toml_bytes: int = _MIO
+    """Octets d'un document TOML (1 Mio), en plus de ``max_bytes`` : ``tomllib``
+    construit tout le document avant qu'un seul conteneur puisse être compté,
+    et occupe de l'ordre de cent fois la taille du texte."""
 
     def __post_init__(self) -> None:
         for champ in fields(self):
@@ -314,12 +322,20 @@ def _ouvrir_ordinaire(path: Chemin, plafond: int) -> Iterator[tuple[BinaryIO, in
     chemin qui précède ne sert qu'à ne pas ouvrir un périphérique, ce qui peut
     déjà agir sur lui.
     """
+    fd = -1
     try:
-        if not stat.S_ISREG(Path(path).stat().st_mode):
-            raise _pas_ordinaire()
-        fd = os.open(path, _DRAPEAUX_LECTURE)
+        ordinaire = stat.S_ISREG(Path(path).stat().st_mode)
+        if ordinaire:
+            fd = os.open(path, _DRAPEAUX_LECTURE)
     except OSError as exc:
         raise _illisible(exc) from None
+    except ValueError:
+        # octet NUL dans le chemin : ValueError de l'interpreteur, pas OSError
+        raise UnsafeInputError(
+            Rejection.UNREADABLE, "lecture impossible : chemin invalide"
+        ) from None
+    if not ordinaire:
+        raise _pas_ordinaire()
     try:
         # avant os.fdopen, qui leve sa propre erreur sur un dossier
         etat = os.fstat(fd)
@@ -460,12 +476,15 @@ class _ConstructeurXml:
         self._profondeur = 0
 
     def debut(self, nom: str, attributs: list[str]) -> None:
-        self._elements += 1
+        # un attribut coute autant qu'un element : meme budget, sinon un seul
+        # element en porterait des millions
+        self._elements += 1 + len(attributs) // 2
         self._profondeur += 1
         if self._elements > self._limits.max_records:
             raise UnsafeInputError(
                 Rejection.TOO_MANY,
-                f"XML de plus de {self._limits.max_records} éléments refusé",
+                f"XML de plus de {self._limits.max_records} éléments et attributs "
+                "refusé",
             )
         if self._profondeur > self._limits.max_depth:
             raise UnsafeInputError(
@@ -581,6 +600,24 @@ def _constante_refusee(nom: str) -> Any:
     )
 
 
+def _flottant_fini(format_: str) -> Callable[[str], float]:
+    """Conversion des nombres à virgule d'un format, valeurs non finies refusées.
+
+    ``parse_constant`` ne voit que les littéraux ``NaN`` et ``Infinity`` : un
+    nombre qui déborde (``1e999``) devient ``inf`` sans passer par lui.
+    """
+
+    def convertir(texte: str) -> float:
+        valeur = float(texte)
+        if not math.isfinite(valeur):
+            raise UnsafeInputError(
+                Rejection.MALFORMED, f"{format_} invalide : valeur non finie refusée"
+            )
+        return valeur
+
+    return convertir
+
+
 def _sans_doublon(paires: list[tuple[str, Any]]) -> dict[str, Any]:
     # json.loads garde silencieusement la derniere de deux cles identiques :
     # deux lecteurs du meme fichier n'y verraient pas la meme valeur
@@ -595,13 +632,17 @@ def loads_json(data: bytes, *, limits: Limits = DEFAULT_LIMITS) -> Any:
     """Valeur d'un document JSON hostile ; lève ``UnsafeInputError``.
 
     UTF-8 (BOM toléré) ou UTF-16 avec BOM. Refusés : imbrication au-delà de
-    ``limits.max_depth``, clés en double, ``NaN`` et ``Infinity``.
+    ``limits.max_depth``, clés en double, ``NaN``, ``Infinity`` et tout nombre
+    qui déborde en valeur non finie (``1e999``).
     """
     texte = _decoder(_plafonner(data, limits))
     _verifier_imbrication_json(texte, limits)
     try:
         return json.loads(
-            texte, object_pairs_hook=_sans_doublon, parse_constant=_constante_refusee
+            texte,
+            object_pairs_hook=_sans_doublon,
+            parse_constant=_constante_refusee,
+            parse_float=_flottant_fini("JSON"),
         )
     except json.JSONDecodeError as exc:
         raise UnsafeInputError(
@@ -646,6 +687,10 @@ def _verifier_structure(valeur: object, format_: str, limits: Limits) -> None:
         pile.extend((enfant, profondeur + 1) for enfant in enfants)
 
 
+def _limites_toml(limits: Limits) -> Limits:
+    return replace(limits, max_bytes=min(limits.max_bytes, limits.max_toml_bytes))
+
+
 @_sans_chainage
 def loads_toml(data: bytes, *, limits: Limits = DEFAULT_LIMITS) -> dict[str, Any]:
     """Table d'un document TOML hostile ; lève ``UnsafeInputError``.
@@ -654,13 +699,18 @@ def loads_toml(data: bytes, *, limits: Limits = DEFAULT_LIMITS) -> dict[str, Any
 
     ``tomllib`` est écrit en Python : une imbrication qui épuise sa récursion
     lève un ``RecursionError`` propre, traduit ici ; la profondeur du résultat
-    est ensuite bornée par ``limits.max_depth``.
+    est ensuite bornée par ``limits.max_depth``. Il construit aussi tout le
+    document avant qu'un conteneur puisse être compté : le texte est donc borné
+    à ``limits.max_toml_bytes`` avant l'analyse. ``inf`` et ``nan``, que la
+    syntaxe admet, sont refusés comme en JSON.
     """
-    texte = _decoder(_plafonner(data, limits))
+    texte = _decoder(_plafonner(data, _limites_toml(limits)))
     try:
-        document = tomllib.loads(texte)
+        document = tomllib.loads(texte, parse_float=_flottant_fini("TOML"))
     except RecursionError:
         raise _trop_imbrique("TOML", limits) from None
+    except UnsafeInputError:
+        raise
     except ValueError:
         # TOMLDecodeError : son message peut citer une cle ou un caractere
         raise UnsafeInputError(Rejection.MALFORMED, "TOML invalide") from None
@@ -671,7 +721,8 @@ def loads_toml(data: bytes, *, limits: Limits = DEFAULT_LIMITS) -> dict[str, Any
 @_sans_chainage
 def load_toml(path: Chemin, *, limits: Limits = DEFAULT_LIMITS) -> dict[str, Any]:
     """Table du fichier TOML ``path`` : voir ``loads_toml``."""
-    return loads_toml(read_bytes(path, limits=limits), limits=limits)
+    # plafond du format des la lecture : un fichier trop gros n'est pas lu
+    return loads_toml(read_bytes(path, limits=_limites_toml(limits)), limits=limits)
 
 
 # --- CSV ----------------------------------------------------------------------
@@ -906,7 +957,9 @@ _ZIP_FIN = struct.Struct("<4s4H2LH")
 _ZIP_SIGNATURE_FIN = b"PK\x05\x06"
 _ZIP_LOCALISATEUR_64 = b"PK\x06\x07"
 _ZIP_TAILLE_LOCALISATEUR_64 = 20
-_ZIP_COMMENTAIRE_MAX = 0xFFFF
+# zipfile cherche la fin de repertoire sur 65 535 octets de commentaire, et
+# sur 65 536 sous Python 3.11 : la fenetre lue couvre le plus large des deux
+_ZIP_RECHERCHE_FIN = 1 << 16
 # octets du repertoire central admis par entree, en moyenne : 46 d'en-tete, le
 # nom et les champs supplementaires ; au-dela, le catalogue est demesure
 _ZIP_CATALOGUE_PAR_ENTREE = 1024
@@ -920,10 +973,10 @@ _ZIP_DOSSIER_DOS = 0x10
 _ZIP_NOM_MAX = 4096
 _ZIP_COMPOSANT_MAX = 255
 # noms de peripheriques que Windows ouvre quel que soit le dossier
+# (meme regle que ntpath.isreserved : chiffres en exposant compris)
 _PERIPHERIQUES_WINDOWS = frozenset(
     {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
-    | {f"COM{n}" for n in range(1, 10)}
-    | {f"LPT{n}" for n in range(1, 10)}
+    | {f"{port}{n}" for port in ("COM", "LPT") for n in "123456789\xb9\xb2\xb3"}
 )
 _ERREURS_ZIP = (
     zipfile.BadZipFile,
@@ -933,6 +986,9 @@ _ERREURS_ZIP = (
     # methode de compression, chiffrement, RecursionError
     RuntimeError,
     struct.error,
+    # avertissement de zipfile (3.12+) converti en erreur par -W error : son
+    # message peut citer un nom d'entree
+    Warning,
     # noms non decodables, positions negatives
     ValueError,
     OverflowError,
@@ -953,9 +1009,14 @@ def _zip_verifier_fin(flux: BinaryIO, taille: int, limits: Limits) -> None:
     entrée puisse être comptée : son volume est donc borné ici, sur les octets
     lus en queue de fichier. ZIP64 est refusé : les plafonds tiennent dans le
     format classique (65 535 entrées, 4 Gio).
+
+    La fin de répertoire et son commentaire doivent terminer le fichier, à
+    l'octet près : la fin retenue ici est alors celle que ``zipfile`` retient,
+    quelle que soit sa fenêtre de recherche, et les 20 octets qui la précèdent,
+    où se loge le localisateur ZIP64, sont toujours parmi ceux lus ici.
     """
     fenetre = min(
-        taille, _ZIP_FIN.size + _ZIP_COMMENTAIRE_MAX + _ZIP_TAILLE_LOCALISATEUR_64
+        taille, _ZIP_FIN.size + _ZIP_RECHERCHE_FIN + _ZIP_TAILLE_LOCALISATEUR_64
     )
     flux.seek(taille - fenetre)
     queue = flux.read(fenetre)
@@ -973,10 +1034,28 @@ def _zip_verifier_fin(flux: BinaryIO, taille: int, limits: Limits) -> None:
         raise UnsafeInputError(
             Rejection.MALFORMED, "archive ZIP invalide : fin de répertoire absente"
         )
-    _, disque, disque_central, sur_disque, entrees, taille_centrale, debut, _ = (
-        _ZIP_FIN.unpack_from(queue, position)
-    )
+    (
+        _,
+        disque,
+        disque_central,
+        sur_disque,
+        entrees,
+        taille_centrale,
+        debut,
+        commentaire,
+    ) = _ZIP_FIN.unpack_from(queue, position)
+    if position + _ZIP_FIN.size + commentaire != len(queue):
+        # octets apres le commentaire, ou commentaire tronque : zipfile et ce
+        # controle pourraient ne pas lire la meme fin de repertoire
+        raise UnsafeInputError(
+            Rejection.MALFORMED,
+            "archive ZIP invalide : octets après la fin de répertoire",
+        )
     localisateur = position - _ZIP_TAILLE_LOCALISATEUR_64
+    if localisateur < 0 and taille > len(queue):
+        # jamais atteint : la fin termine le fichier, donc position >= 21 dans
+        # une fenetre pleine ; filet si la fenetre venait a retrecir
+        raise UnsafeInputError(Rejection.UNSUPPORTED, "archive ZIP64 refusée")
     if (
         0xFFFF in (sur_disque, entrees)
         or 0xFFFFFFFF in (taille_centrale, debut)
@@ -997,11 +1076,14 @@ def _zip_verifier_fin(flux: BinaryIO, taille: int, limits: Limits) -> None:
 def _trop_d_entrees(limits: Limits) -> UnsafeInputError:
     return UnsafeInputError(
         Rejection.TOO_MANY,
-        f"archive ZIP de plus de {limits.max_entries} entrées refusée",
+        f"archive ZIP de plus de {limits.max_entries} entrées refusée "
+        "(fichiers et dossiers, dossiers intermédiaires compris)",
     )
 
 
-def _zip_parties(numero: int, info: zipfile.ZipInfo) -> tuple[tuple[str, ...], bool]:
+def _zip_parties(
+    numero: int, info: zipfile.ZipInfo, limits: Limits
+) -> tuple[tuple[str, ...], bool]:
     """Composants sûrs du chemin d'une entrée, et s'il s'agit d'un dossier.
 
     Le nom d'origine est contrôlé, pas celui que ``zipfile`` a déjà nettoyé.
@@ -1023,6 +1105,10 @@ def _zip_parties(numero: int, info: zipfile.ZipInfo) -> tuple[tuple[str, ...], b
         or bool(info.external_attr & _ZIP_DOSSIER_DOS)
     )
     parties = tuple(nom.rstrip("/").split("/"))
+    if len(parties) > limits.max_depth:
+        # chaque composant est un dossier a creer : sans plafond, quelques
+        # entrees vides creent des millions de dossiers
+        raise _chemin_refuse(numero, f"chemin de plus de {limits.max_depth} composants")
     for partie in parties:
         if partie == "..":
             raise _chemin_refuse(numero, "chemin qui remonte par « .. »")
@@ -1034,7 +1120,7 @@ def _zip_parties(numero: int, info: zipfile.ZipInfo) -> tuple[tuple[str, ...], b
         if partie.endswith((" ", ".")):
             # Windows retire ces fins de nom : deux entrees se confondraient
             raise _chemin_refuse(numero, "nom terminé par un point ou une espace")
-        if partie.split(".", 1)[0].upper() in _PERIPHERIQUES_WINDOWS:
+        if partie.split(".", 1)[0].rstrip(" ").upper() in _PERIPHERIQUES_WINDOWS:
             raise _chemin_refuse(numero, "nom de périphérique Windows")
         if len(partie.encode("utf-8", "surrogatepass")) > _ZIP_COMPOSANT_MAX:
             raise _chemin_refuse(numero, "nom vide ou trop long")
@@ -1063,47 +1149,78 @@ def _zip_parties(numero: int, info: zipfile.ZipInfo) -> tuple[tuple[str, ...], b
     return parties, dossier
 
 
-def _cle_de_nom(parties: tuple[str, ...]) -> str:
+def _cle_de_nom(partie: str) -> str:
     # NTFS, APFS et HFS+ confondent la casse et les formes Unicode
-    return unicodedata.normalize("NFC", "/".join(parties)).casefold()
+    return unicodedata.normalize("NFC", partie).casefold()
+
+
+@dataclass(slots=True)
+class _NoeudZip:
+    """Fichier ou dossier du plan d'extraction, rangé par composant de chemin."""
+
+    fichier: bool
+    declare: bool = False
+    """Dossier déclaré par une entrée, et non seulement impliqué par un chemin."""
+    enfants: dict[str, _NoeudZip] = field(default_factory=dict)
+
+
+def _zip_doublon(numero: int, motif: str) -> UnsafeInputError:
+    return UnsafeInputError(
+        Rejection.DUPLICATE, f"archive ZIP refusée : entrée n° {numero}, {motif}"
+    )
 
 
 def _zip_plan(
     archive: zipfile.ZipFile, limits: Limits
 ) -> list[tuple[tuple[str, ...], bool, zipfile.ZipInfo]]:
-    """Entrées contrôlées, toutes, avant la première écriture."""
+    """Entrées contrôlées, toutes, avant la première écriture.
+
+    Les noms sont rangés dans un arbre de composants : sa taille est celle de
+    ce qui sera créé, fichiers et dossiers, et elle est bornée par
+    ``limits.max_entries``, dossiers intermédiaires compris.
+    """
     infos = archive.infolist()
     if len(infos) > limits.max_entries:
         raise _trop_d_entrees(limits)
     plan: list[tuple[tuple[str, ...], bool, zipfile.ZipInfo]] = []
-    fichiers: set[str] = set()
-    dossiers: set[str] = set()
-    parents: set[str] = set()
+    racine = _NoeudZip(fichier=False)
+    noeuds = 0
+    positions: set[int] = set()
     annonce = 0
     for numero, info in enumerate(infos, start=1):
-        parties, dossier = _zip_parties(numero, info)
-        cle = _cle_de_nom(parties)
-        if cle in fichiers or cle in dossiers:
+        parties, dossier = _zip_parties(numero, info, limits)
+        if info.header_offset in positions:
+            # deux entrees sur les memes octets : zipfile (3.12+) n'emet alors
+            # qu'un avertissement, qui cite le nom de l'entree
             raise UnsafeInputError(
-                Rejection.DUPLICATE,
-                f"archive ZIP refusée : entrée n° {numero}, nom en double",
+                Rejection.MALFORMED,
+                f"archive ZIP invalide : entrée n° {numero} superposée à une autre",
             )
-        (dossiers if dossier else fichiers).add(cle)
-        parents.update(
-            _cle_de_nom(parties[:longueur]) for longueur in range(1, len(parties))
-        )
+        positions.add(info.header_offset)
+        noeud = racine
+        for rang, partie in enumerate(parties, start=1):
+            derniere = rang == len(parties)
+            cle = _cle_de_nom(partie)
+            enfant = noeud.enfants.get(cle)
+            if enfant is None:
+                noeuds += 1
+                if noeuds > limits.max_entries:
+                    raise _trop_d_entrees(limits)
+                enfant = _NoeudZip(fichier=derniere and not dossier)
+                noeud.enfants[cle] = enfant
+            elif derniere and (enfant.declare or (enfant.fichier and not dossier)):
+                raise _zip_doublon(numero, "nom en double")
+            elif enfant.fichier or (derniere and not dossier):
+                raise _zip_doublon(numero, "un nom désigne un fichier et un dossier")
+            noeud = enfant
+        if dossier:
+            noeud.declare = True
         # refus precoce sur les tailles annoncees ; elles peuvent mentir, les
         # plafonds sont donc tenus sur les octets decompresses, a l'extraction
         annonce += info.file_size
         if info.file_size > limits.max_bytes or annonce > limits.max_total_bytes:
             raise _zip_trop_gros(limits)
         plan.append((parties, dossier, info))
-    if fichiers & parents:
-        # un meme nom pour un fichier et pour un dossier
-        raise UnsafeInputError(
-            Rejection.DUPLICATE,
-            "archive ZIP refusée : un nom désigne un fichier et un dossier",
-        )
     return plan
 
 
@@ -1178,11 +1295,13 @@ def extract_zip(path: Chemin, *, limits: Limits = DEFAULT_LIMITS) -> Iterator[Pa
     fichiers en 0600) et le supprime en sortie, extraction réussie ou non.
 
     Toutes les entrées sont contrôlées avant la première écriture : chemin
-    absolu, ``..``, lien symbolique, fichier spécial, nom en double, entrée
-    chiffrée ou ZIP64 font refuser l'archive entière. Les plafonds (entrées,
-    octets par entrée et au total, ratio de compression) portent sur les octets
-    réellement décompressés : les tailles annoncées par les en-têtes ne
-    servent qu'à refuser plus tôt. Lève ``UnsafeInputError``.
+    absolu, ``..``, chemin trop profond, lien symbolique, fichier spécial, nom
+    en double, entrée chiffrée ou ZIP64 font refuser l'archive entière. Le
+    plafond d'entrées compte tout ce qui serait créé, dossiers intermédiaires
+    compris. Les plafonds d'octets (par entrée et au total, ratio de
+    compression) portent sur les octets réellement décompressés : les tailles
+    annoncées par les en-têtes ne servent qu'à refuser plus tôt. Lève
+    ``UnsafeInputError``.
     """
     try:
         racine = Path(tempfile.mkdtemp(prefix="amnesia-"))

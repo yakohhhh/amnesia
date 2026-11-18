@@ -21,8 +21,10 @@ import pickle
 import shutil
 import stat
 import struct
+import sys
 import tempfile
 import time
+import tomllib
 import traceback
 import zipfile
 import zlib
@@ -141,10 +143,30 @@ def test_lecture_exacte_au_plafond(tmp_path: Path) -> None:
     assert erreur.code is Rejection.TOO_LARGE
 
 
-@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO : POSIX seulement")
+def _fifo(chemin: Path) -> None:
+    # if et non skipif : mypy n'analyse os.mkfifo que hors Windows, ou
+    # l'attribut n'existe pas (mypy --platform win32, joue par nox-windows)
+    if sys.platform == "win32":
+        pytest.skip("FIFO : POSIX seulement")
+    else:
+        os.mkfifo(chemin)
+
+
+def test_chemin_avec_octet_nul_illisible() -> None:
+    # ValueError de l'interpreteur : traduite, comme un fichier absent
+    for appel in (
+        lambda: inputs.read_bytes("a\x00b"),
+        lambda: inputs.load_json("a\x00b"),
+        lambda: _extraire(Path("a\x00b.zip")),
+    ):
+        erreur = _refus(appel)
+        assert erreur.code is Rejection.UNREADABLE
+        assert erreur.__cause__ is None
+
+
 def test_fifo_refusee_sans_bloquer(tmp_path: Path) -> None:
     fifo = tmp_path / "tube"
-    os.mkfifo(fifo)
+    _fifo(fifo)
     debut = time.monotonic()
     assert _refus(lambda: inputs.read_bytes(fifo)).code is Rejection.NOT_REGULAR_FILE
     assert _refus(lambda: inputs.load_json(fifo)).code is Rejection.NOT_REGULAR_FILE
@@ -366,6 +388,13 @@ def test_xml_profondeur_et_nombre_d_elements() -> None:
         _refus(lambda: inputs.loads_xml(trop_profond, limits=limites)).code
         is Rejection.TOO_DEEP
     )
+    # les attributs entrent dans le meme budget que les elements
+    assert inputs.loads_xml(b"<a b='1' c='2' d='3' e='4'/>", limits=limites).tag == "a"
+    trop_d_attributs = b"<a b='1' c='2' d='3' e='4' f='5'/>"
+    assert (
+        _refus(lambda: inputs.loads_xml(trop_d_attributs, limits=limites)).code
+        is Rejection.TOO_MANY
+    )
     trop_large = b"<a><b/><b/><b/><b/><b/></a>"
     assert (
         _refus(lambda: inputs.loads_xml(trop_large, limits=limites)).code
@@ -447,6 +476,9 @@ def test_json_chaines_pathologiques_en_temps_lineaire(donnees: bytes) -> None:
         (b'[{"b": {"c": 1, "c": 1}}]', Rejection.DUPLICATE),
         (b"[NaN]", Rejection.MALFORMED),
         (b"[-Infinity]", Rejection.MALFORMED),
+        # nombre qui deborde : non fini sans passer par parse_constant
+        (b"[1e999]", Rejection.MALFORMED),
+        (b'{"a": -1e999}', Rejection.MALFORMED),
         (b"[" + b"9" * 5000 + b"]", Rejection.MALFORMED),
         (b"{", Rejection.MALFORMED),
         (b"", Rejection.MALFORMED),
@@ -521,6 +553,10 @@ def test_toml_imbrication() -> None:
     [
         (b"a = 1\na = 2\n", Rejection.MALFORMED),
         (b"a = \n", Rejection.MALFORMED),
+        (b"a = inf\n", Rejection.MALFORMED),
+        (b"a = -inf\n", Rejection.MALFORMED),
+        (b"a = nan\n", Rejection.MALFORMED),
+        (b"a = 1e999\n", Rejection.MALFORMED),
         (b"a = '\xe9'\n", Rejection.ENCODING),
         ("a = 1\n".encode("utf-16-le"), Rejection.MALFORMED),
     ],
@@ -535,6 +571,39 @@ def test_toml_trop_de_conteneurs() -> None:
         lambda: inputs.loads_toml(b"a = [[], [], []]\n", limits=Limits(max_records=3))
     )
     assert erreur.code is Rejection.TOO_MANY
+
+
+def test_toml_borne_avant_l_analyse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # tomllib construit tout le document avant qu'un conteneur soit compte :
+    # le plafond d'octets propre au format est tenu avant de l'appeler
+    assert DEFAULT_LIMITS.max_toml_bytes == MIO
+    appels: list[int] = []
+    vrai = tomllib.loads
+
+    def espion(texte: str, **options: Any) -> dict[str, Any]:
+        appels.append(len(texte))
+        return vrai(texte, **options)
+
+    monkeypatch.setattr(tomllib, "loads", espion)
+    limites = Limits(max_toml_bytes=64)
+    assert inputs.loads_toml(b"[a]\nb = 1.5\n", limits=limites) == {"a": {"b": 1.5}}
+    assert appels == [12]
+    tables = b"".join(b"[t%d]\n" % n for n in range(20))
+    assert _refus(lambda: inputs.loads_toml(tables, limits=limites)).code is (
+        Rejection.TOO_LARGE
+    )
+    fichier = _ecrire(tmp_path, "mission.toml", tables)
+    assert _refus(lambda: inputs.load_toml(fichier, limits=limites)).code is (
+        Rejection.TOO_LARGE
+    )
+    # max_bytes reste un plafond : le plus petit des deux s'applique
+    serre = Limits(max_bytes=8)
+    assert _refus(lambda: inputs.loads_toml(b"[a]\nb = 1\n", limits=serre)).code is (
+        Rejection.TOO_LARGE
+    )
+    assert appels == [12]
 
 
 # --- CSV ----------------------------------------------------------------------
@@ -928,6 +997,22 @@ ARCHIVES_PIEGEES = [
     ("lecteur-relatif", [Entree("C:evil.txt", b"x")], Rejection.UNSAFE_PATH),
     ("flux-ntfs", [Entree("a.txt:evil", b"x")], Rejection.UNSAFE_PATH),
     ("peripherique-windows", [Entree("dossier/NUL.txt", b"x")], Rejection.UNSAFE_PATH),
+    # meme regle que ntpath.isreserved : espaces avant le point, exposants
+    ("peripherique-espace", [Entree("NUL .txt", b"x")], Rejection.UNSAFE_PATH),
+    ("peripherique-casse", [Entree("d/con .log", b"x")], Rejection.UNSAFE_PATH),
+    ("peripherique-espaces", [Entree("aux  .x", b"x")], Rejection.UNSAFE_PATH),
+    ("peripherique-exposant", [Entree("COM\xb9", b"x")], Rejection.UNSAFE_PATH),
+    ("peripherique-lpt", [Entree("LPT\xb2.txt", b"x")], Rejection.UNSAFE_PATH),
+    (
+        "chemin-trop-profond",
+        [Entree("/".join(["a"] * (DEFAULT_LIMITS.max_depth + 1)))],
+        Rejection.UNSAFE_PATH,
+    ),
+    (
+        "bombe-de-dossiers",
+        [Entree(f"{n:04d}/" + "/".join(["a"] * 449) + "/f") for n in range(200)],
+        Rejection.UNSAFE_PATH,
+    ),
     ("point-final", [Entree("evil.txt.", b"x")], Rejection.UNSAFE_PATH),
     ("espace-finale", [Entree("evil.txt ", b"x")], Rejection.UNSAFE_PATH),
     ("composant-vide", [Entree("a//evil.txt", b"x")], Rejection.UNSAFE_PATH),
@@ -1128,6 +1213,121 @@ def test_zip_nombre_d_entrees(zone: Path) -> None:
     catalogue = _ecrire(zone, "catalogue.zip", _zip(Entree("a" * 5000)))
     erreur = _refus(lambda: _extraire(catalogue, Limits(max_entries=1)))
     assert erreur.code is Rejection.TOO_MANY
+
+
+def test_zip_dossiers_implicites_comptes(zone: Path) -> None:
+    # chaque composant d'un chemin est un dossier a creer : il compte
+    limites = Limits(max_entries=4)
+    juste = _ecrire(zone, "juste.zip", _zip(Entree("a/b/c.txt"), Entree("a/d.txt")))
+    assert sorted(_extraire(juste, limites)) == ["a/b/c.txt", "a/d.txt"]
+    # un dossier declare et implique n'est compte qu'une fois
+    declare = _ecrire(
+        zone, "declare.zip", _zip(Entree("a/"), Entree("a/b/"), Entree("a/b/c.txt"))
+    )
+    assert sorted(_extraire(declare, Limits(max_entries=3))) == ["a/b/c.txt"]
+    trop = _ecrire(zone, "trop.zip", _zip(Entree("a/b/c.txt"), Entree("d/e.txt")))
+    crees: list[str] = []
+    vrai = Path.mkdir
+
+    def mkdir(chemin: Path, *args: Any, **kwargs: Any) -> None:
+        crees.append(str(chemin))
+        vrai(chemin, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "mkdir", mkdir)
+        assert _refus(lambda: _extraire(trop, limites)).code is Rejection.TOO_MANY
+    assert crees == []
+
+
+def test_zip_chemins_profonds_refuses_vite(zone: Path) -> None:
+    # 2000 composants par nom : le plan ne garde aucun prefixe de chemin, et
+    # le refus tombe a la premiere entree
+    profond = "/".join(["a"] * 2000)
+    entrees = [Entree(f"{n:05d}/{profond}") for n in range(300)]
+    archive = _ecrire(zone, "profond.zip", _zip(*entrees))
+    debut = time.monotonic()
+    assert _refus(lambda: _extraire(archive)).code is Rejection.UNSAFE_PATH
+    assert time.monotonic() - debut < DELAI
+    assert _arbre(zone) == ["profond.zip", "tmp"]
+    # sous le plafond de profondeur, c'est le nombre de dossiers qui arrete
+    large = "/".join(["a"] * 60)
+    entrees = [Entree(f"{n:05d}/{large}") for n in range(300)]
+    archive = _ecrire(zone, "large.zip", _zip(*entrees))
+    debut = time.monotonic()
+    assert _refus(lambda: _extraire(archive)).code is Rejection.TOO_MANY
+    assert time.monotonic() - debut < DELAI
+    assert _arbre(zone) == ["large.zip", "profond.zip", "tmp"]
+
+
+def test_zip_entrees_superposees_refusees(zone: Path) -> None:
+    # deux entrees du repertoire central sur le meme en-tete local : zipfile
+    # (3.12+) n'emet qu'un avertissement, qui cite le nom de l'entree
+    contenu = bytearray(_zip(Entree(f"{MARQUEUR}.txt", b"x"), Entree("b.txt", b"y")))
+    seconde = contenu.rfind(b"PK\x01\x02")
+    contenu[seconde + 42 : seconde + 46] = struct.pack("<L", 0)
+    archive = _ecrire(zone, "superposee.zip", bytes(contenu))
+    erreur = _refus(lambda: _extraire(archive))
+    assert erreur.code is Rejection.MALFORMED
+    assert "superposée" in str(erreur)
+    assert MARQUEUR not in str(erreur)
+    assert _arbre(zone) == ["superposee.zip", "tmp"]
+
+
+def test_zip_avertissement_de_zipfile_jamais_propage(zone: Path) -> None:
+    # champ supplementaire 0x7075 vide : avertissement de zipfile a partir de
+    # Python 3.13, que la suite convertit en erreur (filterwarnings = error)
+    info = zipfile.ZipInfo("a.txt")
+    info.extra = struct.pack("<2H", 0x7075, 0)
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w") as ecrite:
+        ecrite.writestr(info, b"x")
+    archive = _ecrire(zone, "champ.zip", tampon.getvalue())
+    try:
+        assert _extraire(archive) == {"a.txt": b"x"}
+    except UnsafeInputError as exc:
+        assert exc.code is Rejection.MALFORMED
+        assert exc.__cause__ is None
+
+
+@pytest.mark.parametrize("queue", [1, 65_535, 65_536, 65_537])
+def test_zip64_refuse_quelle_que_soit_la_queue(
+    queue: int, zone: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # zipfile cherche la fin de repertoire plus loin sous Python 3.11 (65 536
+    # octets) que sous 3.12 : des octets apres la fin ne doivent jamais lui
+    # faire suivre un localisateur ZIP64 que le controle n'a pas vu
+    lus: list[int] = []
+    vrai = zipfile.ZipFile.infolist
+
+    def infolist(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+        infos = vrai(archive)
+        lus.append(len(infos))
+        return infos
+
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", infolist)
+    classique = _zip(Entree("a.txt", b"a"))
+    localisateur = b"PK\x06\x07" + b"\x00" * 16
+    for annonce in (0, min(queue, 0xFFFF)):
+        fin = classique[-22:-2] + struct.pack("<H", annonce)
+        contenu = classique[:-22] + localisateur + fin + b"\x00" * queue
+        zip64 = _ecrire(zone, "zip64.zip", contenu)
+        erreur = _refus(functools.partial(_extraire, zip64))
+        assert erreur.code in {Rejection.UNSUPPORTED, Rejection.MALFORMED}
+        # sans localisateur non plus : des octets en trop apres le commentaire
+        sans = classique[:-22] + fin + b"\x00" * (annonce + 1)
+        trainante = _ecrire(zone, "queue.zip", sans)
+        erreur = _refus(functools.partial(_extraire, trainante))
+        assert erreur.code is Rejection.MALFORMED
+    assert lus == []
+    # un commentaire qui termine le fichier reste accepte
+    fin = classique[-22:-2] + struct.pack("<H", 5)
+    commentee = _ecrire(zone, "commentee.zip", classique[:-22] + fin + b"salut")
+    assert _extraire(commentee) == {"a.txt": b"a"}
+    # filet : si les 20 octets qui precedent la fin sortaient de la fenetre
+    # lue, le localisateur serait inverifiable, donc l'archive refusee
+    monkeypatch.setattr(inputs, "_ZIP_RECHERCHE_FIN", 0)
+    assert _refus(lambda: _extraire(commentee)).code is Rejection.UNSUPPORTED
+    assert lus == [1]
 
 
 def test_zip64_et_multi_volumes_refuses(zone: Path) -> None:
