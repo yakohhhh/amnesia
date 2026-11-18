@@ -68,7 +68,10 @@ Ce qui n'existe pas encore :
 Un audit ne détecte donc **aucun angle mort** aujourd'hui, et son résultat ne
 dit rien de la télémétrie de la machine auditée : sous Windows, les cinq checks
 sont « non exécutés » et l'audit se termine en code 3 (audit incomplet) ; sous
-Linux et macOS, ils sont « sans objet » et le code est 0.
+Linux et macOS, ils sont « sans objet » et le code est 0. Ce code 0 n'est pas
+un audit réussi : le rendu annonce « tous les checks ont été évalués » alors
+qu'aucun ne l'a été, un défaut suivi par
+[#217](https://github.com/yakohhhh/amnesia/issues/217).
 
 L'avancement se lit dans les
 [milestones GitHub](https://github.com/yakohhhh/amnesia/milestones) : elles
@@ -157,11 +160,15 @@ sources, avec Python 3.11 ou plus récent.
 PYTHONPATH=src python3 -m amnesia --help
 ```
 
-Sous Windows PowerShell, la variable reste définie pour la session :
+Sous Windows PowerShell, la variable vaut pour toute la session : la retirer
+ensuite. Laissé en place, ce chemin relatif vaudrait pour tout Python lancé
+depuis un autre dossier : les modules d'un dossier `src` qui s'y trouverait
+passeraient avant ceux de la bibliothèque standard.
 
 ```powershell
 $env:PYTHONPATH = "src"
 py -m amnesia --help
+Remove-Item Env:PYTHONPATH
 ```
 
 ### Le rapport

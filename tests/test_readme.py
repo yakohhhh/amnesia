@@ -55,6 +55,9 @@ LANCEURS: tuple[tuple[str, ...], ...] = (
     ("amnesia",),
 )
 NOMBRES = {1: "un", 2: "deux", 3: "trois", 4: "quatre", 5: "cinq", 6: "six"}
+# audit sans aucun check applicable, rendu « tous les checks ont été évalués »
+# et code 0 : defaut cite par la section « État » tant qu'il n'est pas corrige
+TICKET_AUCUN_CHECK_APPLICABLE = 217
 
 
 def _texte(fichier: Path) -> str:
@@ -209,6 +212,61 @@ def test_sans_installation_depuis_les_sources() -> None:
     assert sortie.stdout.startswith("usage: amnesia")
 
 
+def test_pythonpath_jamais_laisse_dans_la_session() -> None:
+    # src est un chemin relatif : laisse dans l'environnement du shell, il
+    # s'appliquerait a tout Python lance ensuite depuis un autre dossier
+    # (test_pythonpath_relatif_passe_avant_la_bibliotheque_standard)
+    blocs = [
+        lignes
+        for _, lignes in _blocs(_texte(README))
+        if any("PYTHONPATH" in ligne for ligne in lignes)
+    ]
+    assert blocs
+    # prefixe de commande (bash), ou affectation retiree ensuite (PowerShell) ;
+    # ni « export PYTHONPATH », ni « set PYTHONPATH », ni setx
+    admises = {
+        "PYTHONPATH=src python3 -m amnesia --help",
+        '$env:PYTHONPATH = "src"',
+        "Remove-Item Env:PYTHONPATH",
+    }
+    affectations = 0
+    for lignes in blocs:
+        for ligne in lignes:
+            assert "PYTHONPATH" not in ligne or ligne in admises, ligne
+        if '$env:PYTHONPATH = "src"' in lignes:
+            affectations += 1
+            # retiree en fin de bloc, apres la commande qui s'en sert
+            assert lignes[-1] == "Remove-Item Env:PYTHONPATH", lignes
+            assert lignes.count("Remove-Item Env:PYTHONPATH") == 1, lignes
+    assert affectations == 1
+
+
+def test_pythonpath_relatif_passe_avant_la_bibliotheque_standard(
+    tmp_path: Path,
+) -> None:
+    # le risque que le README donne pour retirer la variable : depuis un autre
+    # dossier, PYTHONPATH=src designe le src de ce dossier, et un module qui s'y
+    # trouve masque celui de la bibliotheque standard
+    piege = tmp_path / "src"
+    piege.mkdir()
+    (piege / "colorsys.py").write_text(
+        'ORIGINE = "dossier courant"\n', encoding="utf-8"
+    )
+    sortie = subprocess.run(
+        # interpreteur courant et arguments constants, sans shell ; -S comme
+        # ci-dessus : aucun fichier .pth ne modifie le chemin de recherche
+        [sys.executable, "-S", "-c", "import colorsys; print(colorsys.ORIGINE)"],
+        capture_output=True,
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": "src", "PYTHONIOENCODING": "utf-8"},
+        encoding="utf-8",
+        check=False,
+        timeout=60,
+    )
+    assert sortie.returncode == 0, sortie.stderr
+    assert sortie.stdout.strip() == "dossier courant"
+
+
 # Etat annonce
 
 
@@ -231,6 +289,15 @@ def test_etat_decrit_les_checks_enregistres(capsys: pytest.CaptureFixture[str]) 
     assert (
         f"sous Linux et macOS, ils sont « sans objet » et le code est {exitcodes.OK}"
         in etat
+    )
+    # ce code 0 sans aucun check evalue est un defaut suivi par un ticket : le
+    # renvoi, et le code attendu hors Windows ci-dessus, partent avec lui
+    assert f"Ce code {exitcodes.OK} n'est pas un audit réussi" in etat
+    assert f"]({DEPOT}/issues/{TICKET_AUCUN_CHECK_APPLICABLE})" in etat
+    # « Démarrer » annonce les memes codes que « État »
+    assert (
+        f"se termine en code {exitcodes.INCOMPLETE} sous Windows, "
+        f"{exitcodes.OK} sous Linux et macOS" in _section(README, "Démarrer")
     )
 
 
