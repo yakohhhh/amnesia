@@ -62,7 +62,9 @@ jobs:
           version: ${{ env.UV_VERSION }}
           checksum: ${{ env.UV_SHA256_LINUX_X64 }}
           enable-cache: true
-      - run: uv sync --locked
+      # --all-extras : chaque SDK d'un extra, a la version de uv.lock (#44) ;
+      # uv sync seul n'installe aucun extra
+      - run: uv sync --locked --all-extras
       # mypy --strict sur src et tests, configure dans [tool.mypy]
       - run: uv run mypy
 
@@ -93,7 +95,8 @@ jobs:
           checksum: ${{ env.UV_SHA256_LINUX_X64 }}
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --locked
+      # --all-extras : les tests voient chaque SDK, a la version de uv.lock (#44)
+      - run: uv sync --locked --all-extras
       # seuil de couverture : [tool.coverage.report] fail_under dans pyproject
       - run: uv run pytest -q --cov --cov-report=term-missing
       # fichiers ignores compris : les sorties d'amnesia (amnesia-report*,
@@ -147,6 +150,27 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: uv run nox -s build
+
+  # Bornes basses des dependances d'execution (#44) : outils de dev depuis
+  # uv.lock, puis le projet et tous ses extras (.[all]) resolus en lowest-direct,
+  # suite de tests sur le plancher de Python (docs/dev/dependances.md)
+  lowest-direct:
+    name: lowest-direct
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          checksum: ${{ env.UV_SHA256_LINUX_X64 }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run nox -s lowest-direct
 
   workflow-lint:
     name: workflow-lint
@@ -404,6 +428,7 @@ jobs:
       - test
       - nox-windows
       - build
+      - lowest-direct
       - workflow-lint
       - gitleaks
       - pip-audit

@@ -13,7 +13,12 @@ Règles pour tout collecteur :
 - aucune analyse de texte localisé : uniquement des GUID, des valeurs
   numériques, le registre et l'EventData XML ;
 - un échec de collecte d'un fait donne un fait ``unavailable`` avec son motif,
-  pas une exception ; une clé de registre absente est une valeur ``None``.
+  pas une exception ; une clé de registre absente est une valeur ``None`` ;
+- seule exception à la règle précédente : un SDK tiers s'importe dans
+  ``collect()`` après ``amnesia.deps.require_extra()``, et la ``MissingExtra``
+  qu'il lève sans l'extra doit remonter, hors de tout ``except Exception`` :
+  le moteur la traduit en « non évalué » avec la commande d'installation
+  (docs/dev/dependances.md).
 
 Hors périmètre ici : collecteur PowerShell et schéma détaillé des faits Windows
 (#48), WinRM (#63), import de bundle (#52), collecteurs cloud (#95).
@@ -40,6 +45,10 @@ class Collector(Protocol):
     """Rend les faits ``names`` de ``target``, en ``timeout`` secondes au plus.
 
     Un fait demandé mais absent du ``FactSet`` rendu compte comme non collecté.
+    Un échec de collecte donne un fait ``unavailable``, pas une exception, sauf
+    ``MissingExtra`` (extra absent, ``amnesia.deps.require_extra``), à laisser
+    remonter : le moteur la traduit en « non évalué » avec la commande
+    d'installation.
     """
 
     def collect(

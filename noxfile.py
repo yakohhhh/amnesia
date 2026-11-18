@@ -4,7 +4,7 @@
 """Sessions nox : lint, typage, tests et build, installes depuis uv.lock.
 
 Lister les sessions : ``uv run nox -l``.
-Meme chose que la CI : ``uv run nox -s lint typecheck tests build``.
+Meme chose que la CI : ``uv run nox -s lint typecheck tests build lowest-direct``.
 """
 
 import shutil
@@ -50,20 +50,49 @@ def lint(session: nox.Session) -> None:
 
 @nox.session(python=PYTHONS[0])
 def typecheck(session: nox.Session) -> None:
-    _sync(session)
+    # --all-extras : chaque SDK d'un extra, a la version de uv.lock (#44)
+    _sync(session, "--all-extras")
     # sans argument : cibles et mode strict lus dans [tool.mypy] de pyproject.toml
     session.run("mypy", *session.posargs)
 
 
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
-    _sync(session)
+    _sync(session, "--all-extras")
     # sans argument, comme la CI : suite complete et seuil de couverture
     session.run(
         "pytest",
         *(session.posargs or ["--cov", "--cov-report=term-missing"]),
         env=ENV_TESTS,
     )
+
+
+@nox.session(name="lowest-direct", python=PYTHONS[0])
+def lowest_direct(session: nox.Session) -> None:
+    """Tests avec les bornes basses des dependances d'execution (extras, #44).
+
+    Outils de dev depuis uv.lock, puis le projet et tous ses extras resolus en
+    lowest-direct : chaque dependance directe a sa borne basse declaree, les
+    transitives au plus recent (delai de carence de [tool.uv] compris).
+    """
+    _sync(session)
+    # --upgrade : sans lui, une version deja installee (dependance d'un outil de
+    # dev) serait gardee au lieu de la borne basse
+    session.run_install(
+        "uv",
+        "pip",
+        "install",
+        f"--python={session.virtualenv.location}",
+        "--resolution=lowest-direct",
+        "--upgrade",
+        "--editable=.[all]",
+        external=True,
+    )
+    # bornes basses compatibles entre elles et avec les outils de dev
+    session.run(
+        "uv", "pip", "check", f"--python={session.virtualenv.location}", external=True
+    )
+    session.run("pytest", *(session.posargs or ["-q"]), env=ENV_TESTS)
 
 
 @nox.session(python=PYTHONS[0])
@@ -95,6 +124,24 @@ def build(session: nox.Session) -> None:
     session.run(
         "uv", "pip", "install", f"--python={python}", "--no-index", wheel, external=True
     )
+    # socle sans dependance tierce (#44) : le wheel seul, aucun autre paquet.
+    # --quiet : silent=True capture aussi stderr, ou uv nomme l'environnement
+    installes = session.run(
+        "uv",
+        "pip",
+        "freeze",
+        "--quiet",
+        f"--python={python}",
+        external=True,
+        silent=True,
+    )
+    noms = [
+        ligne.split(" @ ")[0].split("==")[0]
+        for ligne in installes.splitlines()
+        if ligne.strip()
+    ]
+    if noms != ["amnesia-dfr"]:
+        session.error(f"venv vierge : amnesia-dfr seul attendu, installes : {noms}")
     sources = str(Path("src").resolve())
     with session.chdir(tmp):
         attendue = session.run(
