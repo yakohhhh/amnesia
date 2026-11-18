@@ -52,7 +52,9 @@ not_implemented
 not_collected
     Le fait nécessaire est absent des données disponibles, ou ne peut pas être
     collecté faute de l'extra qui fournit son SDK (``MissingExtra``, #44 : le
-    message donne alors la commande d'installation).
+    message donne alors la commande d'installation), ou le fichier importé qui
+    le porte a été refusé (``UnsafeInputError``, #35 : hostile, démesuré ou mal
+    formé).
     Ex. : bundle hors ligne collecté sans la configuration Sysmon.
 
 Motifs de ``error`` (le check a échoué en cours d'exécution) :

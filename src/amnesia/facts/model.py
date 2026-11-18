@@ -49,7 +49,6 @@ True
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Iterable, Iterator, Mapping
@@ -59,6 +58,8 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TypeAlias
+
+from ..inputs import UnsafeInputError, load_json
 
 SCHEMA = "amnesia.facts/1"
 FACT_DOMAINS = ("windows", "ad", "m365", "aws", "siem")
@@ -135,8 +136,8 @@ def _figer(valeur: object, chemin: str, profondeur: int = 0) -> JSONValue:
         for cle, v in valeur.items():
             if not isinstance(cle, str):
                 raise FactsFormatError(f"{chemin} : clé non textuelle {cle!a}")
-            # cle lue d'un fichier : echappee et tronquee, comme dans
-            # _sans_doublon, pour qu'aucun message n'agisse sur un terminal
+            # cle lue d'un fichier : echappee et tronquee, pour qu'aucun
+            # message n'agisse sur un terminal
             copie[cle] = _figer(v, f"{chemin}.{ascii(cle)[:80]}", profondeur + 1)
         return MappingProxyType(copie)
     raise FactsFormatError(f"{chemin} : type non JSON {type(valeur).__name__}")
@@ -364,50 +365,21 @@ class FactSet(Mapping[str, Fact]):
         return cls(Fact.from_dict(nom, corps) for nom, corps in faits.items())
 
 
-def _sans_doublon(paires: list[tuple[str, Any]]) -> dict[str, Any]:
-    # json.loads garde silencieusement la derniere de deux cles identiques
-    resultat: dict[str, Any] = {}
-    for cle, valeur in paires:
-        if cle in resultat:
-            raise FactsFormatError(f"clé JSON en double : {ascii(cle)[:80]}")
-        resultat[cle] = valeur
-    return resultat
-
-
-def _constante_refusee(nom: str) -> Any:
-    raise FactsFormatError(f"constante {nom} hors JSON")
-
-
 def load_facts(path: Path) -> FactSet:
-    """Lit un fichier de faits JSON (UTF-8) ; lève FactsFormatError.
+    """Lit un fichier de faits JSON ; lève FactsFormatError.
 
-    Un BOM UTF-8 en tête (Windows PowerShell 5.1, ``Out-File -Encoding utf8``)
-    est accepté. Tout contenu invalide lève FactsFormatError, jamais une autre
-    exception : le fichier peut venir d'un client (import de bundle, #52).
+    Le fichier peut venir d'un client (import de bundle, #52) : il se lit par
+    ``amnesia.inputs``, qui plafonne sa taille et son imbrication et refuse les
+    clés en double et les valeurs non finies. UTF-8, avec ou sans BOM (Windows
+    PowerShell 5.1, ``Out-File -Encoding utf8``), ou UTF-16 avec BOM. Tout
+    fichier illisible ou invalide lève FactsFormatError, jamais une autre
+    exception.
     """
     try:
-        # utf-8-sig : UTF-8, avec ou sans BOM
-        texte = path.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        raise FactsFormatError(f"{path.name} : fichier non UTF-8") from None
-    try:
-        donnees = json.loads(
-            texte,
-            object_pairs_hook=_sans_doublon,
-            parse_constant=_constante_refusee,
-        )
-    except json.JSONDecodeError as exc:
-        raise FactsFormatError(
-            f"{path.name} : JSON invalide (ligne {exc.lineno}, colonne {exc.colno})"
-        ) from None
-    except FactsFormatError as exc:
+        donnees = load_json(path)
+    except UnsafeInputError as exc:
+        # message ecrit par amnesia.inputs : aucun contenu du fichier
         raise FactsFormatError(f"{path.name} : {exc}") from None
-    except RecursionError:
-        # imbrication qui epuise la pile de json, avant meme _PROFONDEUR_MAX
-        raise FactsFormatError(f"{path.name} : JSON trop imbriqué") from None
-    except ValueError:
-        # entier au-dela de sys.get_int_max_str_digits() (4300 chiffres)
-        raise FactsFormatError(f"{path.name} : nombre JSON hors limites") from None
     try:
         return FactSet.from_dict(donnees)
     except FactsFormatError as exc:

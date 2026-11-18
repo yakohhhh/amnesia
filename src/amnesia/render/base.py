@@ -20,7 +20,6 @@ relève de #45.
 from __future__ import annotations
 
 import codecs
-import json
 import math
 import re
 import unicodedata
@@ -31,6 +30,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from ..checks.base import Reason, Severity, Status
+from ..inputs import Limits, UnsafeInputError, load_json
 from ..report import SCHEMA_VERSION
 
 SUPPORTED_MAJOR = int(SCHEMA_VERSION.split(".", 1)[0])
@@ -390,36 +390,26 @@ def read_report(report: Mapping[str, Any]) -> ReportView:
     )
 
 
-def _constante_refusee(nom: str) -> Any:
-    raise ReportError(f"valeur non finie ({nom}) refusée")
+# un rapport imbrique ses preuves (64 niveaux au plus, amnesia.checks.base)
+# sous quelques niveaux d'enveloppe : results, gaps, evidence
+_LIMITES_DU_RAPPORT = Limits(max_depth=128)
 
 
 def load_report(path: Path) -> dict[str, Any]:
     """Rapport JSON lu dans ``path`` ; lève ``ReportError`` s'il est illisible.
 
+    Un rapport archivé est un fichier importé : il se lit par
+    ``amnesia.inputs`` (taille et imbrication plafonnées, clés en double et
+    valeurs non finies refusées). Le BOM qu'ajoutent certains éditeurs Windows
+    est toléré, comme l'UTF-16 d'une redirection PowerShell ; le rapport, lui,
+    est écrit en UTF-8 sans BOM (docs/format-rapport.md).
+
     Le contenu n'est pas encore validé : voir ``read_report()``.
     """
     try:
-        # utf-8-sig : tolere le BOM qu'ajoutent certains editeurs Windows ; le
-        # rapport est ecrit en UTF-8 sans BOM (docs/format-rapport.md)
-        texte = path.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        raise ReportError("le fichier n'est pas encodé en UTF-8") from None
-    except OSError as exc:
-        raise ReportError(f"lecture impossible : {exc.strerror or exc}") from None
-    try:
-        donnees = json.loads(texte, parse_constant=_constante_refusee)
-    except json.JSONDecodeError as exc:
-        raise ReportError(
-            f"JSON invalide (ligne {exc.lineno}, colonne {exc.colno})"
-        ) from None
-    except RecursionError:
-        raise ReportError("JSON trop profondément imbriqué") from None
-    except ReportError:
-        raise
-    except ValueError:
-        # entier de plus de 4300 chiffres (limite de conversion de Python)
-        raise ReportError("JSON invalide : nombre hors limites") from None
+        donnees = load_json(path, limits=_LIMITES_DU_RAPPORT)
+    except UnsafeInputError as exc:
+        raise ReportError(str(exc)) from None
     if not isinstance(donnees, dict):
         raise ReportError("le rapport doit être un objet JSON")
     return donnees
