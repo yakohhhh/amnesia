@@ -31,6 +31,10 @@ importe, au premier besoin, chaque paquet de domaine (``checks/windows/``,
 n'importe aucun SDK à son niveau (boto3, Graph, WinRM...) : les SDK relèvent des
 collecteurs (#20, #44), et ``list-checks`` doit fonctionner sans les extras.
 
+Un check qui a besoin d'un SDK quel que soit le transport (API cloud) le
+déclare dans ``requires_extra`` : l'extra doit figurer dans
+``amnesia.deps.EXTRAS``, et ``list-checks`` l'affiche.
+
 Chaque registre recueille les checks des modules qu'il charge : pendant
 l'import, ``@register`` enregistre dans le registre qui charge, et un module
 déjà importé est relu (classes décorées qu'il définit). Un module de check qui
@@ -69,6 +73,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, NoReturn, TypeVar
 
+from .. import deps
 from ..target import Kind
 from .base import Check, Severity
 
@@ -135,6 +140,7 @@ class CheckMeta:
 
     ``implemented`` est dérivé : vrai si la classe surcharge la méthode
     d'évaluation. ``module`` et ``class_name`` situent la déclaration.
+    ``requires_extra`` : extra optionnel requis (``amnesia.deps``), ou None.
     """
 
     id: str
@@ -146,6 +152,7 @@ class CheckMeta:
     default_severity: str
     requires_facts: tuple[str, ...]
     question_ids: tuple[str, ...]
+    requires_extra: str | None
     implemented: bool
     module: str
     class_name: str
@@ -190,6 +197,7 @@ class CheckMeta:
             default_severity=severite,
             requires_facts=lecteur.uplet("requires_facts", str),
             question_ids=lecteur.uplet("question_ids", str),
+            requires_extra=lecteur.extra(),
             implemented=evaluation is not getattr(Check, _METHODE_EVALUATION),
             module=check.__module__,
             class_name=check.__qualname__,
@@ -232,6 +240,19 @@ class _Lecteur:
                 self.refuser(f"{nom} : élément invalide {element!r}")
         if len(set(valeur)) != len(valeur):
             self.refuser(f"{nom} : doublon dans {valeur!r}")
+        return valeur
+
+    def extra(self) -> str | None:
+        # facultatif : None, ou un extra declare (jamais l'agregat « all »)
+        valeur = getattr(self.check, "requires_extra", None)
+        if valeur is None:
+            return None
+        if not isinstance(valeur, str) or valeur not in deps.EXTRAS:
+            declares = ", ".join(sorted(deps.EXTRAS)) or "aucun"
+            self.refuser(
+                f"requires_extra : extra non déclaré {valeur!r} (déclarés : "
+                f"{declares} ; docs/dev/dependances.md)"
+            )
         return valeur
 
 
