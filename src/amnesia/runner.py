@@ -21,6 +21,9 @@ lève ``CheckSkipped``                    ``skipped``, motif de l'exception
 lève ``MissingExtra`` (extra absent)     ``skipped`` / ``not_collected`` :
                                          commande d'installation dans le
                                          message, sans trace
+lève ``UnsafeInputError`` (fichier       ``skipped`` / ``not_collected`` :
+importé refusé, ``amnesia.inputs``)      motif du refus, sans contenu du
+                                         fichier ni trace
 lève ``NotApplicable``                   ``not_applicable``
 lève ``NotImplementedError``             ``skipped`` / ``not_implemented``
 lève une autre exception                 ``error`` / ``internal_error`` : type
@@ -86,6 +89,7 @@ from .checks.base import (
 from .checks.context import Context
 from .deps import MissingExtra, require_extra
 from .facts import CachingCollector, Collector, FactSet, resolve
+from .inputs import UnsafeInputError
 from .log import check_logger
 from .target import Target
 
@@ -307,6 +311,17 @@ def _evaluer_brut(
         # evalue, le message donne la commande d'installation ; aucune ErrorInfo,
         # donc aucune trace, meme avec debug
         return CheckResult.skipped(check.id, cible.id, Reason.NOT_COLLECTED, str(exc))
+    except UnsafeInputError as exc:
+        # fichier importe refuse (hostile, demesure, mal forme) qu'un collecteur
+        # n'a pas traduit en fait indisponible : non evalue, jamais conforme ;
+        # le message est ecrit par amnesia.inputs, sans contenu du fichier, et
+        # aucune ErrorInfo n'est construite, donc aucune trace, meme avec debug
+        return CheckResult.skipped(
+            check.id,
+            cible.id,
+            Reason.NOT_COLLECTED,
+            f"fichier importé refusé : {exc}",
+        )
     except CheckSkipped as exc:
         return CheckResult.skipped(check.id, cible.id, exc.reason, exc.message)
     except NotApplicable as exc:

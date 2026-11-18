@@ -774,13 +774,25 @@ def test_rapport_non_objet() -> None:
         (b"[1, 2]", "objet JSON"),
         (b'{"x": NaN}', r"valeur non finie \(NaN\)"),
         (b'{"x": -Infinity}', "valeur non finie"),
-        (b"\xff\xfe{}", "UTF-8"),
+        (b'{"x": "\xe9"}', "UTF-8 attendu"),
+        (b"\xff\xfe{}", "JSON invalide"),
+        (b'{"x": 1, "x": 2}', "clé en double"),
         (b"[" * 100_000, "JSON"),
         (b'{"x": ' + b"9" * 5000 + b"}", "nombre hors limites"),
     ],
     # ids courts : par defaut pytest derive l'id du contenu, et tmp_path en fait
     # un nom de dossier, trop long pour Windows avec 100 000 crochets
-    ids=["tronque", "liste", "nan", "infini", "bom-utf16", "profondeur", "nombre"],
+    ids=[
+        "tronque",
+        "liste",
+        "nan",
+        "infini",
+        "latin-1",
+        "utf16-invalide",
+        "doublon",
+        "profondeur",
+        "nombre",
+    ],
 )
 def test_load_report_illisible(tmp_path: Path, contenu: bytes, message: str) -> None:
     chemin = tmp_path / "rapport.json"
@@ -798,6 +810,21 @@ def test_load_report_bom(tmp_path: Path) -> None:
     chemin = tmp_path / "rapport.json"
     chemin.write_bytes(b"\xef\xbb\xbf" + FIXTURE.read_bytes())
     assert load_report(chemin) == rapport()
+    # redirection de Windows PowerShell 5.1 : UTF-16 avec BOM
+    chemin.write_bytes(FIXTURE.read_text(encoding="utf-8").encode("utf-16"))
+    assert load_report(chemin) == rapport()
+
+
+def test_load_report_preuve_a_la_profondeur_maximale(tmp_path: Path) -> None:
+    # une preuve de 64 niveaux (borne de amnesia.checks.base) reste lisible
+    donnees = rapport()
+    preuve: Any = "fin"
+    for _ in range(64):
+        preuve = [preuve]
+    donnees["gaps"][0]["evidence"]["imbrication"] = preuve
+    chemin = tmp_path / "rapport.json"
+    chemin.write_text(json.dumps(donnees), encoding="utf-8")
+    assert load_report(chemin) == donnees
 
 
 def test_cli_rapport_illisible(

@@ -448,6 +448,127 @@ def test_interdictions_documentees() -> None:
         assert f"`{nom}`" in texte, nom
 
 
+# Formats importes (#35)
+
+# seul amnesia.inputs analyse un format importe : hors de lui, aucun module
+# n'importe les analyseurs XML ni les modules d'archives de la bibliotheque
+# standard. « xml » couvre xml.etree, xml.dom, xml.sax et xml.parsers.expat.
+MODULE_D_ENTREE = "amnesia.inputs"
+FORMATS_RESERVES = ("xml", "zipfile", "tarfile")
+# fonctions qui chargent un module par son nom, ou qui extraient une archive en
+# appelant zipfile et tarfile a la place de l'appelant
+CHARGEMENT_PAR_NOM = frozenset({"import_module", "__import__"})
+EXTRACTION_INDIRECTE = frozenset({"unpack_archive", "make_archive"})
+
+
+def _est_reserve(module: str) -> bool:
+    return any(module == r or module.startswith(f"{r}.") for r in FORMATS_RESERVES)
+
+
+def _nom_appele(appel: ast.Call) -> str:
+    if isinstance(appel.func, ast.Name):
+        return appel.func.id
+    if isinstance(appel.func, ast.Attribute):
+        return appel.func.attr
+    return ""
+
+
+def _formats_reserves(source: str) -> set[str]:
+    """Imports d'un format réservé, ``if TYPE_CHECKING:`` et import par nom compris."""
+    ecarts: set[str] = set()
+    for noeud in ast.walk(ast.parse(source)):
+        if isinstance(noeud, ast.Import):
+            ecarts.update(a.name for a in noeud.names if _est_reserve(a.name))
+        elif isinstance(noeud, ast.ImportFrom):
+            if noeud.level == 0 and noeud.module and _est_reserve(noeud.module):
+                ecarts.add(noeud.module)
+            ecarts.update(a.name for a in noeud.names if a.name in EXTRACTION_INDIRECTE)
+        elif isinstance(noeud, ast.Call) and _nom_appele(noeud) in CHARGEMENT_PAR_NOM:
+            ecarts.update(
+                arg.value
+                for arg in noeud.args
+                if isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and _est_reserve(arg.value)
+            )
+        elif isinstance(noeud, ast.Name) and noeud.id in EXTRACTION_INDIRECTE:
+            ecarts.add(noeud.id)
+        elif isinstance(noeud, ast.Attribute) and noeud.attr in EXTRACTION_INDIRECTE:
+            ecarts.add(noeud.attr)
+    return ecarts
+
+
+def test_formats_importes_reserves_a_amnesia_inputs() -> None:
+    # critere d'acceptation de #35 : ni xml.etree, xml.dom, xml.sax,
+    # xml.parsers.expat, zipfile ou tarfile hors de amnesia.inputs
+    modules = _modules()
+    assert MODULE_D_ENTREE in modules
+    for module, chemin in modules.items():
+        if module == MODULE_D_ENTREE or module.startswith(f"{MODULE_D_ENTREE}."):
+            continue
+        ecarts = _formats_reserves(_texte(chemin))
+        assert not ecarts, (
+            f"{module} importe {sorted(ecarts)} : un format importé se lit par "
+            f"{MODULE_D_ENTREE} (docs/architecture.md)"
+        )
+    # le garde-fou voit bien ces imports la ou ils sont permis
+    assert _formats_reserves(_texte(modules[MODULE_D_ENTREE])) >= {
+        "xml.etree",
+        "xml.parsers",
+        "zipfile",
+    }
+
+
+@pytest.mark.parametrize(
+    ("source", "ecart"),
+    [
+        ("import xml.etree.ElementTree as ET\n", "xml.etree.ElementTree"),
+        ("from xml.etree import ElementTree\n", "xml.etree"),
+        ("from xml import etree\n", "xml"),
+        ("import xml\n", "xml"),
+        ("from xml.dom import minidom\n", "xml.dom"),
+        ("import xml.sax\n", "xml.sax"),
+        ("from xml.parsers import expat\n", "xml.parsers"),
+        ("import xml.parsers.expat\n", "xml.parsers.expat"),
+        ("import zipfile\n", "zipfile"),
+        ("from zipfile import ZipFile\n", "zipfile"),
+        ("import os, tarfile\n", "tarfile"),
+        ("def f():\n    import tarfile\n", "tarfile"),
+        ("try:\n    import zipfile\nexcept ImportError:\n    pass\n", "zipfile"),
+        (
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import zipfile\n",
+            "zipfile",
+        ),
+        ("import importlib\nz = importlib.import_module('zipfile')\n", "zipfile"),
+        ("x = __import__('xml.sax')\n", "xml.sax"),
+        ("import shutil\nshutil.unpack_archive('a.zip', 'd')\n", "unpack_archive"),
+        ("from shutil import unpack_archive\n", "unpack_archive"),
+    ],
+)
+def test_garde_fou_des_formats_importes(source: str, ecart: str) -> None:
+    assert ecart in _formats_reserves(source)
+
+
+def test_garde_fou_des_formats_importes_sans_faux_positif() -> None:
+    source = (
+        "import json, tomllib, csv\n"
+        "from amnesia.inputs import XmlElement, extract_zip, load_xml\n"
+        "from . import xml_gpo\n"
+        "import importlib\n"
+        "m = importlib.import_module('amnesia.checks.windows')\n"
+        "NOM = 'zipfile'\n"
+    )
+    assert _formats_reserves(source) == set()
+
+
+def test_formats_reserves_documentes() -> None:
+    texte = _texte(ARCHITECTURE)
+    for nom in ("xml.etree", "xml.dom", "xml.sax", "xml.parsers.expat", "zipfile"):
+        assert f"`{nom}`" in texte, nom
+    assert "`tarfile`" in texte
+    assert "`amnesia.inputs.XmlElement`" in texte
+
+
 # Flux et frontieres de confiance
 
 

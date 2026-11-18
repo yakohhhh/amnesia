@@ -13,6 +13,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -32,6 +33,7 @@ from amnesia.checks.base import (
 )
 from amnesia.checks.context import Context
 from amnesia.facts import Fact, FactSet, UnavailableReason
+from amnesia.inputs import load_xml
 from amnesia.runner import DEFAULT_TIMEOUT, OPERATEUR_INCONNU, AuditSummary
 from amnesia.target import Target
 
@@ -547,6 +549,41 @@ def test_collecteur_qui_plante() -> None:
     resultat = auditer([check], collector=Defaillant()).results[0]
     assert (resultat.status, resultat.reason) == (Status.ERROR, Reason.INTERNAL_ERROR)
     assert check.appels == 0
+
+
+def test_fichier_importe_refuse_non_evalue_sans_trace(tmp_path: Path) -> None:
+    # un collecteur de bundle (#52) lit ses fichiers par amnesia.inputs ; s'il
+    # laisse passer le refus, le moteur le traduit : non evalue, jamais conforme
+    marqueur = "MARQUEUR-CONFIDENTIEL-3f9a"
+    piege = tmp_path / "sysmon.xml"
+    piege.write_text(
+        f'<!DOCTYPE c [<!ENTITY x "{marqueur}">]><c>&x;</c>', encoding="utf-8"
+    )
+
+    class Bundle:
+        def collect(
+            self, target: Target, names: Iterable[str], *, timeout: float
+        ) -> FactSet:
+            load_xml(piege)
+            raise AssertionError("le fichier piégé doit être refusé")
+
+    checks = [
+        Factice("test.sysmon", conforme, ("windows.sysmon.config",)),
+        Factice("test.autre", conforme),
+    ]
+    audit = auditer(checks, collector=Bundle(), debug=True)
+    resultats = par_id(audit)
+    refuse = resultats["test.sysmon"]
+    assert (refuse.status, refuse.reason) == (Status.SKIPPED, Reason.NOT_COLLECTED)
+    assert refuse.message == (
+        "fichier importé refusé : XML refusé : déclaration DOCTYPE (DTD) interdite"
+    )
+    # ni trace, meme avec debug, ni contenu du fichier
+    assert refuse.error is None
+    assert marqueur not in str(refuse.to_dict())
+    # non evalue : l'audit est incomplet, et les autres checks tournent
+    assert not audit.complete
+    assert resultats["test.autre"].status is Status.PASS
 
 
 def test_on_result_defaillant_n_arrete_pas_l_audit(
