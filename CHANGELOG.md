@@ -92,7 +92,7 @@ la première version sera la 0.1.0 (milestone M0).
   PowerShell inscrit avec son empreinte, une opération LDAP ou AWS ou une
   requête HTTP de la liste, et tout le reste est refusé avant exécution
   (`ReadOnlyViolation`) ; la liste est publiée dans `docs/READ-ONLY.md`
-  (#39).
+  (#215).
 - Hors ligne par défaut : aucune télémétrie, vérification de mise à jour ni
   rapport de plantage ; amnesia ne contacte que les cibles désignées, depuis les
   seuls collecteurs (règle ruff `TID251` partout ailleurs, liste explicite dans
