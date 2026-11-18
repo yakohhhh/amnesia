@@ -2,53 +2,169 @@
 
 [![ci](https://github.com/yakohhhh/amnesia/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yakohhhh/amnesia/actions/workflows/ci.yml)
 
-**Ce que ton SI aura *oublié* le jour de l'incident.**
+**Ce que votre SI aura *oublié* le jour de l'incident.**
 
 La pire surprise en réponse à incident, c'est de découvrir que les logs
-n'existaient pas, ou qu'ils ont déjà été écrasés. `amnesia` audite ta
-télémétrie **avant** l'incident (endpoints Windows, Active Directory, cloud) et
-te rend la liste des questions d'enquête auxquelles tu ne pourras **pas**
-répondre.
+n'existaient pas, ou qu'ils ont déjà été écrasés. `amnesia` est un outil d'audit
+de *forensic readiness* : son but est d'auditer la télémétrie **avant**
+l'incident (endpoints Windows, Active Directory, cloud) et de rendre la liste
+des questions d'enquête qui resteraient **sans réponse**.
 
-> Exemple de sortie : *« Qui s'est connecté en RDP sur SRV-FILE il y a trois
-> semaines ? → Impossible : le journal Security fait 20 Mo et a été écrasé il y
-> a 4 jours. »*
+> Exemple de rendu, sur un rapport fictif : *« Qui s'est connecté en RDP sur
+> SRV-FILE il y a trois semaines ? → Impossible : le journal Security fait 20 Mo
+> et a été écrasé il y a 4 jours. »*
 
-## Ce qu'il vérifie (cible)
+Le projet est en cours de développement : le socle fonctionne, mais **aucun
+check n'est encore évalué** et rien n'est publié sur PyPI (section « État »).
 
-- **Windows** : politique d'audit avancée, Sysmon, logging PowerShell, taille et
-  rétention des journaux, synchronisation NTP.
-- **Active Directory** : audit des objets sensibles, Kerberos, modifications de GPO.
-- **Cloud** : rétention des logs Microsoft 365 / Entra ID, AWS CloudTrail.
-- **Pipeline** : les événements partent-ils vraiment vers le SIEM ?
+## Périmètre visé
+
+Cette liste décrit la cible, pas l'existant : aucun de ces contrôles n'est
+encore évalué (section « État »).
+
+- **Windows** ([M1](https://github.com/yakohhhh/amnesia/milestone/2)) :
+  politique d'audit avancée, Sysmon, logging PowerShell, taille et rétention
+  des journaux, synchronisation NTP.
+- **Active Directory** ([M1](https://github.com/yakohhhh/amnesia/milestone/2)) :
+  audit des objets sensibles, NTLM, modifications de GPO, autorités de
+  certification.
+- **Cloud** ([M2](https://github.com/yakohhhh/amnesia/milestone/3)) : rétention
+  des logs Microsoft 365 / Entra ID, AWS CloudTrail.
+- **Pipeline** ([M2](https://github.com/yakohhhh/amnesia/milestone/3)) : les
+  événements partent-ils vraiment vers le SIEM ?
+- **Linux et virtualisation**
+  ([M3](https://github.com/yakohhhh/amnesia/milestone/6)) : journald, rsyslog,
+  auditd, vSphere.
 
 ## État
 
-Squelette fonctionnel : moteur de checks + CLI. Les checks listent déjà leur
-intention et les faits qu'ils lisent ; leur `evaluate()` est à implémenter — voir
-[`docs/dev/faits.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/faits.md)
-et
+Version de développement, jamais publiée. Seul le socle
+([M0 — Scaffold](https://github.com/yakohhhh/amnesia/milestone/1)) est fusionné
+sur `main` :
+
+- la commande `amnesia` et ses sous-commandes `audit`, `list-checks`, `render`
+  et `schema` ;
+- le moteur d'audit : il lance les checks sur une cible, isole un check en
+  échec ou bloqué, et ne compte jamais conforme ce qui n'a pas été évalué ;
+- le rapport JSON versionné et son JSON Schema, affiché par `amnesia schema`
+  ([`docs/format-rapport.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/format-rapport.md)) ;
+- les rendus texte et Markdown d'un rapport, où chaque angle mort est formulé
+  comme une question d'enquête ;
+- des codes de sortie stables et une écriture protégée du rapport (sections
+  « Démarrer » et « Codes de sortie ») ;
+- un fonctionnement hors ligne, sans télémétrie (section « Confidentialité »).
+
+Ce qui n'existe pas encore :
+
+- **l'évaluation des checks** : les cinq checks Windows enregistrés déclarent
+  leur intention et les faits qu'ils lisent, sans rien évaluer
+  (`amnesia list-checks` les affiche « à implémenter » ;
+  [`docs/dev/faits.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/faits.md)) ;
+- **la collecte des faits** : ni sur la machine locale, ni à distance par
+  WinRM, ni depuis un bundle hors ligne. `--target` accepte déjà
+  `winrm://<hôte>` et `bundle:<chemin>`, mais rien n'y est collecté ;
+- les checks Active Directory, cloud et Linux, et le rendu HTML.
+
+Un audit ne détecte donc **aucun angle mort** aujourd'hui, et son résultat ne
+dit rien de la télémétrie de la machine auditée : sous Windows, les cinq checks
+sont « non exécutés » et l'audit se termine en code 3 (audit incomplet) ; sous
+Linux et macOS, ils sont « sans objet » et le code est 0.
+
+L'avancement se lit dans les
+[milestones GitHub](https://github.com/yakohhhh/amnesia/milestones) : elles
+seules font foi. Du M0, il reste la publication sur PyPI
+([#33](https://github.com/yakohhhh/amnesia/issues/33)), qui attend le nom
+définitif du projet ([#12](https://github.com/yakohhhh/amnesia/issues/12)), et
+des réglages du dépôt ([#13](https://github.com/yakohhhh/amnesia/issues/13)).
+Viennent ensuite
+[M1 — MVP (Windows + AD)](https://github.com/yakohhhh/amnesia/milestone/2),
+[M2 — Cloud](https://github.com/yakohhhh/amnesia/milestone/3) et
+[M3 — Linux & virtualisation](https://github.com/yakohhhh/amnesia/milestone/6) ;
+la vision de chaque milestone est dans
 [`docs/ROADMAP.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/ROADMAP.md).
 
 ## Démarrer
 
-Avec [uv](https://docs.astral.sh/uv/) (environnement virtuel créé et géré
-automatiquement) :
+amnesia n'est pas encore publié sur PyPI
+([#33](https://github.com/yakohhhh/amnesia/issues/33)) : il s'installe depuis
+les sources, jamais par son nom depuis un index. Le paquet s'appelle
+`amnesia-dfr` et sa commande, `amnesia` ; le paquet nommé `amnesia` sur PyPI
+est un projet sans rapport, à ne pas installer.
+
+Prérequis : git, et Python 3.11 ou plus récent (uv le télécharge au besoin).
+Toutes les commandes se lancent depuis la racine du clone, sous macOS, Linux
+ou Windows PowerShell ; une variante PowerShell est donnée quand la syntaxe
+diffère.
 
 ```bash
-uv sync
+git clone https://github.com/yakohhhh/amnesia.git
+cd amnesia
+```
+
+### Avec uv
+
+[uv](https://docs.astral.sh/uv/) crée et gère l'environnement virtuel
+(installation vérifiée d'uv :
+[`CONTRIBUTING.md`](https://github.com/yakohhhh/amnesia/blob/main/CONTRIBUTING.md#prérequis)) :
+
+```bash
+uv sync --locked
 uv run amnesia list-checks
-uv run amnesia audit --target winrm://dc01
-uv run amnesia render rapport.json --format md   # rendu d'un rapport archivé
+uv run amnesia audit
+uv run amnesia render amnesia-out/amnesia-report.json --format md
 ```
 
-Sans uv, toujours dans un environnement virtuel :
+`audit` audite la machine locale (`--target local`, la valeur par défaut),
+écrit le rapport dans `amnesia-out/amnesia-report.json` et se termine en code 3
+sous Windows, 0 sous Linux et macOS (section « État »). Relancé, il refuse
+d'écraser ce rapport : ajouter `--overwrite`, ou choisir une autre destination
+avec `--out`. `render` re-rend un rapport archivé, sans refaire l'audit.
+
+Pour voir un rendu qui contient des angles morts, un rapport fictif sert aux
+tests du dépôt :
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e .
-amnesia --help
+uv run amnesia render tests/fixtures/report-min.json
 ```
+
+### Sans uv, dans un environnement virtuel
+
+Hors d'un environnement virtuel, un Python géré par le système (Homebrew,
+Debian, Ubuntu) refuse `pip install`
+([PEP 668](https://peps.python.org/pep-0668/)). Sous macOS et Linux (sous
+Debian et Ubuntu, le paquet système `python3-venv` est requis) :
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/amnesia --help
+```
+
+Sous Windows PowerShell (sans le lanceur `py`, remplacer `py` par `python`) :
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python -m pip install -e .
+.\.venv\Scripts\amnesia --help
+```
+
+### Sans installation
+
+Le paquet de base n'a aucune dépendance tierce : il se lance depuis les
+sources, avec Python 3.11 ou plus récent.
+
+```bash
+PYTHONPATH=src python3 -m amnesia --help
+```
+
+Sous Windows PowerShell, la variable reste définie pour la session :
+
+```powershell
+$env:PYTHONPATH = "src"
+py -m amnesia --help
+```
+
+### Le rapport
 
 `amnesia audit` écrit le rapport JSON dans `--out` et affiche les questions
 d'enquête sans réponse (`--format text`, ou `json` pour le rapport lui-même ;
@@ -156,48 +272,29 @@ dépréciation et la procédure de release.
 
 ## Pourquoi Python
 
-Les SDK dont le projet a besoin sont tous là et matures : Microsoft Graph,
-boto3, WinRM, génération de rapports. On va vite, et les checks s'écrivent comme
-des plugins indépendants.
+Les SDK dont le projet a besoin existent et sont matures : Microsoft Graph,
+boto3, WinRM, génération de rapports. Les checks s'écrivent comme des plugins
+indépendants.
 
 Ces SDK restent optionnels : le paquet de base n'installe aucune dépendance
-tierce. Chaque domaine apporte les siennes par un extra (`.[<extra>]`, ou
-`.[all]` pour tous), importé seulement au moment de s'en servir ; sans lui, les
+tierce. Chaque domaine apportera les siennes par un extra (`.[<extra>]`, ou
+`.[all]` pour tous), importé seulement au moment de s'en servir : sans lui, les
 checks concernés sont « non évalués » et le message donne la commande
-d'installation depuis les sources. `amnesia list-checks` indique l'extra requis
-par chaque check.
+d'installation depuis les sources. Le mécanisme est en place, mais aucun extra
+de domaine n'existe encore : `all` est vide, et `amnesia list-checks` indique
+l'extra requis par chaque check (`-` : aucun).
 Politique d'acceptation d'une dépendance :
 [`docs/dev/dependances.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/dependances.md).
-
-## Vendable
-
-C'est une **prestation de conseil que des cabinets facturent déjà** (digital
-forensic readiness assessment). Le modèle retenu est l'**open core**
-([ADR 0001](https://github.com/yakohhhh/amnesia/blob/main/docs/adr/0001-modele-de-licence.md)) :
-
-- **le cœur**, ce dépôt, reste sous licence MIT, gratuit pour tous, cabinets et
-  MSP compris : moteur et catalogue de checks, collecte, collecteur PowerShell
-  déposé chez le client, CLI, rapports JSON, texte, Markdown et HTML sans
-  marque. Il reste utilisable seul, de bout en bout, pour auditer son propre SI
-  ou celui d'un client ;
-- **les éditions commerciales** (rapport client en marque blanche, export PDF,
-  scoring de maturité, fonctionnalités MSP multi-clients) sont des composants
-  séparés, sous licence propriétaire, développés hors de ce dépôt.
-
-Tu peux même facturer l'audit comme prestation dès la v0, avec le cœur seul.
-
-> Nom PyPI : le paquet s'appelle `amnesia-dfr` (le nom `amnesia` est pris), mais
-> la commande reste `amnesia`. Il n'est pas encore publié (#33) : installe-le
-> depuis les sources, jamais par son nom depuis PyPI.
 
 ## Confidentialité
 
 Un rapport amnesia est la carte des angles morts d'un client : rien n'en sort
-sans que tu le décides. amnesia est **hors ligne par défaut** :
+sans une décision explicite de l'utilisateur. amnesia est **hors ligne par
+défaut** :
 
-- il ne contacte que les cibles et les API que tu désignes (`--target`, un
-  connecteur cloud explicitement demandé) ; aucune donnée ne part vers l'éditeur,
-  un CDN ou un service tiers ;
+- il ne contacte que les cibles et les API désignées par l'utilisateur
+  (`--target`, un connecteur cloud explicitement demandé) ; aucune donnée ne
+  part vers l'éditeur, un CDN ou un service tiers ;
 - pas de télémétrie, pas de vérification de mise à jour, pas de rapport de
   plantage ni d'envoi de rapport : une erreur interne est journalisée sur
   stderr, et c'est tout ;
@@ -236,8 +333,24 @@ dépendance qui enfreindrait ces règles est une vulnérabilité à signaler
 
 ## Scope & légal
 
-Lecture seule, sur un périmètre que tu es autorisé à auditer. `amnesia` lit des
-configurations, pas des données métier.
+amnesia ne s'utilise que sur un périmètre que l'on est autorisé à auditer, par
+un mandat écrit du propriétaire du système. Trois engagements de conception
+encadrent la collecte :
+
+- **lecture seule** : rien n'est écrit ni modifié sur la cible auditée
+  ([ADR 0006](https://github.com/yakohhhh/amnesia/blob/main/docs/adr/0006-garantie-lecture-seule.md)) ;
+- **périmètre autorisé** : aucune cible hors du périmètre déclaré n'est
+  jointe ;
+- **minimisation** : seules des configurations et des métadonnées de journaux
+  sortent de la cible, jamais le contenu des événements ni des données métier.
+
+Aucune collecte n'existe encore (section « État ») : ces engagements guident la
+conception, et les mécanismes qui les garantiront restent à livrer. Ce sont
+l'allowlist des opérations de lecture
+([#39](https://github.com/yakohhhh/amnesia/issues/39)), le fichier de périmètre
+vérifié avant toute connexion
+([#37](https://github.com/yakohhhh/amnesia/issues/37)) et la minimisation des
+données collectées ([#41](https://github.com/yakohhhh/amnesia/issues/41)).
 
 Un rapport est confidentiel : les règles de stockage, de transmission et de
 conservation des données client, et le canal de signalement des vulnérabilités,
@@ -248,7 +361,13 @@ sont dans
 
 Tout le contenu de ce dépôt est sous licence MIT
 ([`LICENSE`](https://github.com/yakohhhh/amnesia/blob/main/LICENSE)) ; aucune édition commerciale n'y est
-publiée. Chaque fichier déclare sa licence en en-tête SPDX ou dans `REUSE.toml`,
+publiée. Le modèle retenu est l'**open core**
+([ADR 0001](https://github.com/yakohhhh/amnesia/blob/main/docs/adr/0001-modele-de-licence.md)) :
+le cœur, ce dépôt, reste sous licence MIT et utilisable seul, de bout en bout ;
+les éditions commerciales sont des composants séparés, sous licence
+propriétaire, développés hors de ce dépôt.
+
+Chaque fichier déclare sa licence en en-tête SPDX ou dans `REUSE.toml`,
 et la conformité [REUSE](https://reuse.software/) est vérifiée en CI. Les
 contributions sont acceptées sous DCO (`Signed-off-by` sur chaque commit, pas de
 CLA) : voir
