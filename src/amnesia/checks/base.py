@@ -98,6 +98,8 @@ from pathlib import PurePath
 from traceback import extract_tb
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
+from ..log import mask_secrets
+
 if TYPE_CHECKING:
     from ..facts import FactSet
     from ..target import Kind
@@ -902,7 +904,11 @@ def assainir(texte: str) -> str:
 
     Même traitement que le message d'``ErrorInfo`` : à appliquer à tout texte
     venu de la cible ou d'un collecteur (source d'un fait...) avant le rapport.
+    La valeur de tout ``Secret`` lu pendant l'exécution (``amnesia.secrets``)
+    est masquée d'abord, sous sa forme brute, encodée dans une URL ou échappée
+    par ``repr()``, ``ascii()`` ou JSON (``log.register_secret``).
     """
+    texte = mask_secrets(texte)
     for motif, remplacement in _CAVIARDAGES:
         texte = motif.sub(remplacement, texte)
     # sequences ANSI, retours chariot, bidi : rendus visibles (\x1b, \r, \u202e)
