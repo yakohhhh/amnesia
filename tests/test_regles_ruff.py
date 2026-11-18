@@ -64,6 +64,17 @@ def _codes(source: str, fichier: str = "src/amnesia/_cas.py") -> set[str]:
         ("import httpx\n", "TID251"),
         ("import urllib3\n", "TID251"),
         ("from urllib.request import urlopen\n", "TID251"),
+        ("import asyncio\n\nS = asyncio.start_server(rappel, port=0)\n", "TID251"),
+        (
+            "import logging.handlers\n\n"
+            'H = logging.handlers.HTTPHandler("exemple.invalid", "/")\n',
+            "TID251",
+        ),
+        ("from logging.handlers import SysLogHandler\n", "TID251"),
+        ("import logging.config\n\nT = logging.config.listen(9030)\n", "TID251"),
+        # set_stream_logger reste interdit hors des collecteurs ; dans les
+        # collecteurs, c'est tests/test_reseau.py qui le tient
+        ('import boto3\n\nboto3.set_stream_logger("")\n', "TID251"),
     ],
     ids=[
         "datetime-sans-fuseau",
@@ -84,6 +95,11 @@ def _codes(source: str, fichier: str = "src/amnesia/_cas.py") -> set[str]:
         "httpx",
         "urllib3",
         "from-urllib-request",
+        "asyncio-start-server",
+        "http-handler",
+        "syslog-handler",
+        "logging-config-listen",
+        "set-stream-logger",
     ],
 )
 def test_regle_detectee(source: str, code: str) -> None:

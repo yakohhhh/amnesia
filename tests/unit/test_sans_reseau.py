@@ -59,7 +59,7 @@ class CheckQuiSeConnecte(CheckHorsLigne):
 
     def evaluate(self, facts: FactSet, ctx: Context) -> CheckResult:
         # hors d'un collecteur reseau : interdit par TID251 et par le socle
-        socket.create_connection(("192.0.2.1", 80), timeout=1)
+        socket.create_connection(("192.0.2.1", 80), timeout=1)  # noqa: TID251
         return CheckResult.passed(self.id, ctx.target.id)
 
 
@@ -89,7 +89,7 @@ def _resultats(rapport: Path) -> list[dict[str, Any]]:
 
 def test_temoin_connexion_bloquee() -> None:
     with pytest.raises(SocketBlockedError):
-        socket.create_connection(("192.0.2.1", 80), timeout=1)
+        socket.create_connection(("192.0.2.1", 80), timeout=1)  # noqa: TID251
 
 
 def test_check_factice_qui_se_connecte_est_bloque() -> None:
@@ -215,6 +215,37 @@ def test_audit_check_qui_se_connecte_jamais_silencieux(
         '<IMG SRC="HTTPS://CDN.EXAMPLE/A.PNG">',
         '<body background="https://cdn.example/fond.png">',
         '<td style="background: url(//cdn.example/fond.png)">',
+        # HTML : <base>, srcset, entites, normalisation de l'URL, SVG
+        '<base href="https://cdn.example/"><img src="logo.png">',
+        '<img src="a.png" srcset="a.png 1x, https://cdn.example/b.png 2x">',
+        '<img src="https&#58;//cdn.example/x.png">',
+        '<img src="https:&#47;&#47;cdn.example/x.png">',
+        '<img src="https:/\\cdn.example/x.png">',
+        '<img src="https:cdn.example/x.png">',
+        '<img src=" ht&#9;tps://cdn.example/x.png">',
+        '<img src="a.png" src="https://cdn.example/x.png">',
+        '<svg><feImage href="https://cdn.example/a.png"/></svg>',
+        '<link rel=preload as=image imagesrcset="https://cdn.example/a.png">',
+        '<a href="rapport.html" ping="https://cdn.example/p">lien</a>',
+        '<iframe srcdoc="&lt;img src=https://cdn.example/x.png&gt;"></iframe>',
+        # CSS : image-set, echappements, entites d'un <style> de SVG
+        "<div style='background-image:image-set(\"https://cdn.example/a.png\" 1x)'>",
+        "<style>a { background: u\\72l(https://cdn.example/a.png) }</style>",
+        "<style>\\40import 'a.css';</style>",
+        "<svg><style>a { fill: url(https&#58;//cdn.example/a.svg#f) }</style></svg>",
+        # Markdown : references condensees et raccourcies, fins de ligne CRLF,
+        # destination a la ligne, etiquettes normalisees, crochets dans le texte
+        "![logo][]\n\n[logo]: https://cdn.example/logo.png",
+        "![logo] suite\n\n[logo]: https://cdn.example/logo.png",
+        "![logo][ref]\r\n\r\n[ref]: https://cdn.example/logo.png\r\n",
+        "![logo][ref]\n\n[ref]:\n  https://cdn.example/logo.png",
+        "![logo][my  ref]\n\n[my ref]: https://cdn.example/logo.png",
+        "![a \\[b\\]](https://cdn.example/x.png)",
+        "![a [b] c](https://cdn.example/x.png)",
+        "![logo][ref]\n\n> [ref]: https://cdn.example/logo.png",
+        "![x](https\\://cdn.example/x.png)",
+        "![x](https&#58;//cdn.example/x.png)",
+        "\\\\![x](https://cdn.example/x.png)",
     ],
 )
 def test_ressource_externe_refusee(
@@ -237,6 +268,14 @@ def test_ressource_externe_refusee(
         '<a href="https://attack.mitre.org/">lien</a>',
         "<style>body { background: url(fond.png) }</style>",
         "- Cible : winrm\\://srv-file.exemple.invalid",
+        '<img src="a.png" srcset="a.png 1x, images/b.png 2x">',
+        "<div style=\"background: url(&quot;data:image/svg+xml,<svg xmlns='"
+        "http://www.w3.org/2000/svg'/>&quot;)\">",
+        '<style>body { font-family: "Segoe UI", sans-serif }</style>',
+        "![logo][]\n\n[logo]: images/logo.png",
+        # point d'exclamation echappe : un lien, pas une image
+        "\\![pas une image](https://attack.mitre.org/)",
+        "Lien vers <https://attack.mitre.org/>.",
     ],
 )
 def test_lien_textuel_accepte(

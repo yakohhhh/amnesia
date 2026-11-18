@@ -182,9 +182,12 @@ Ces engagements sont tenus par le code, pas seulement par ce texte :
 - seuls les collecteurs (`src/amnesia/facts/collectors.py`, liste explicite
   dans `pyproject.toml`) peuvent ouvrir une connexion : la règle ruff `TID251`
   interdit partout ailleurs `socket.socket`, `socket.create_connection`,
-  `asyncio.open_connection`, `http.client`, `urllib.request`, `urllib3`,
-  `requests` et `httpx`, et un test refuse hors des collecteurs tout import d'un
-  module réseau ou d'un SDK de connexion ;
+  `asyncio.open_connection`, `asyncio.start_server`, `http.client`,
+  `urllib.request`, `urllib3`, `requests`, `httpx` et les handlers de
+  journalisation réseau (`logging.handlers.HTTPHandler`, `SysLogHandler`,
+  `SocketHandler`…), et un test refuse hors des collecteurs tout import d'un
+  module réseau ou d'un SDK de connexion (`importlib.import_module` compris) et
+  toute méthode de connexion d'une boucle asyncio ;
 - un test vérifie que chaque sous-processus lancé par amnesia reçoit
   l'environnement de `amnesia.facts.subprocess_env()` ;
 - les tests coupent le réseau, et chaque commande (`--help`, `--version`,

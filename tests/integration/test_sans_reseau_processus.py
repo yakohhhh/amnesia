@@ -81,7 +81,56 @@ def test_temoin_le_garde_refuse_bien(tmp_path: Path) -> None:
     )
     sortie = _python(tmp_path, "-c", code)
     assert sortie.returncode == CODE_RESEAU, sortie.stderr
-    assert "socket.create_connection" in sortie.stderr
+    # origine : l'appelant (aucune ligne d'amnesia sur la pile), pas le harnais
+    assert "socket.create_connection depuis <string>:7 (faux_main)" in sortie.stderr
+    assert "sans_reseau.py" not in sortie.stderr
+
+
+def test_origine_ligne_d_amnesia(tmp_path: Path) -> None:
+    # la tentative vient d'une fonction injectee, appelee par la CLI : l'origine
+    # est la ligne du paquet amnesia la plus profonde, pas le harnais ni le
+    # depot (qui s'appelle lui aussi amnesia)
+    code = (
+        "import socket, sys\n"
+        f"sys.path.insert(0, {str(RACINE)!r})\n"
+        "import sans_reseau\n"
+        "import amnesia.cli\n"
+        "def checks():\n"
+        "    socket.socket()\n"
+        "amnesia.cli.default_checks = checks\n"
+        "raise SystemExit(sans_reseau.main(['audit', '--target', 'local']))\n"
+    )
+    sortie = _python(tmp_path, "-c", code)
+    assert sortie.returncode == CODE_RESEAU, sortie.stderr
+    # liste finale du harnais (le journal de la CLI cite aussi l'exception)
+    (ligne,) = [x for x in sortie.stderr.splitlines() if x.startswith("  - ")]
+    chemin = ligne.removeprefix("  - socket.socket depuis ").rpartition(":")[0]
+    assert Path(chemin).name == "cli.py", ligne
+    assert Path(chemin).parent.name == "amnesia", ligne
+
+
+def test_boucle_asyncio_sans_tentative(tmp_path: Path) -> None:
+    # socketpair (self-pipe de toute boucle asyncio) reste permis : un
+    # collecteur qui lance pwsh par asyncio (#48) ne sort pas en 99 pour rien
+    code = (
+        "import asyncio, socket, sys\n"
+        f"sys.path.insert(0, {str(RACINE)!r})\n"
+        "import sans_reseau\n"
+        "sans_reseau.couper_le_reseau()\n"
+        "asyncio.run(asyncio.sleep(0))\n"
+        "a, b = socket.socketpair()\n"
+        "with a, b:\n"
+        "    a.sendall(b'x')\n"
+        "    assert b.recv(1) == b'x'\n"
+        "try:\n"
+        "    socket.socket()\n"
+        "except sans_reseau.ReseauInterdit:\n"
+        "    pass\n"
+        "raise SystemExit(len(sans_reseau.TENTATIVES))\n"
+    )
+    sortie = _python(tmp_path, "-c", code)
+    # une seule tentative : le socket.socket() final, toujours refuse
+    assert sortie.returncode == 1, (sortie.returncode, sortie.stderr)
 
 
 @pytest.mark.parametrize(

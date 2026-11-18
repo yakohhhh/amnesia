@@ -141,7 +141,8 @@ class _PlafondTiers(logging.Filter):
     Couvre un logger tiers remis en DEBUG après coup par setLevel. Ne couvre PAS
     un handler posé directement sur un logger tiers : boto3.set_stream_logger
     ajoute le sien, sans plafond ni expurgation, et les requêtes signées partent
-    en clair. D'où l'interdiction de set_stream_logger (ruff TID251, pyproject).
+    en clair. D'où l'interdiction de set_stream_logger (ruff TID251, pyproject),
+    tenue aussi dans les collecteurs, où TID251 est levé, par tests/test_reseau.py.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
