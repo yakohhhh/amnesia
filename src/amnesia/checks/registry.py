@@ -38,6 +38,15 @@ Un check qui a besoin d'un SDK quel que soit le transport (API cloud) le
 déclare dans ``requires_extra`` : l'extra doit figurer dans
 ``amnesia.deps.EXTRAS``, et ``list-checks`` l'affiche.
 
+Questions
+---------
+``question_ids`` cite les questions du catalogue auxquelles le check contribue
+(``Q-WIN-RDP-LOGON`` ; ``amnesia.catalog``, docs/catalogue.md). Le registre
+n'en valide que la forme : il ne lit pas le catalogue. Leur existence et la
+réciprocité du lien (chaque question citée liste le check dans ``checks``) sont
+vérifiées par ``amnesia.catalog.verify_registry()``, que lancent ``amnesia
+catalog validate`` et la suite de tests.
+
 Chaque registre recueille les checks des modules qu'il charge : pendant
 l'import, ``@register`` enregistre dans le registre qui charge, et un module
 déjà importé est relu (classes décorées qu'il définit). Un module de check qui
@@ -78,7 +87,7 @@ from typing import Any, NoReturn, TypeVar
 
 from .. import deps
 from ..target import Kind
-from .base import Check, Severity
+from .base import FORMAT_QUESTION_ID, Check, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +198,16 @@ class CheckMeta:
                 f"(attendu : {', '.join(SEVERITES)})"
             )
         target_kinds = lecteur.uplet("target_kinds", Kind, vide_permis=False)
+        # forme seulement : l'existence au catalogue et la reciprocite du lien
+        # se verifient hors du registre (amnesia.catalog.verify_registry)
+        question_ids = lecteur.uplet("question_ids", str)
+        for question_id in question_ids:
+            if not FORMAT_QUESTION_ID.fullmatch(question_id):
+                lecteur.refuser(
+                    f"question_ids : identifiant de question invalide "
+                    f"{question_id!r} (attendu : Q-<DOMAINE>-<SUJET>, par ex. "
+                    "Q-WIN-RDP-LOGON ; docs/catalogue.md)"
+                )
         evaluation = getattr(check, _METHODE_EVALUATION)
         return cls(
             id=check_id,
@@ -199,7 +218,7 @@ class CheckMeta:
             version=version,
             default_severity=severite,
             requires_facts=lecteur.uplet("requires_facts", str),
-            question_ids=lecteur.uplet("question_ids", str),
+            question_ids=question_ids,
             requires_extra=lecteur.extra(),
             implemented=evaluation is not getattr(Check, _METHODE_EVALUATION),
             module=check.__module__,

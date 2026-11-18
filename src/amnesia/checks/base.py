@@ -344,6 +344,20 @@ def _verifier_identifiant(valeur: object, champ: str) -> None:
         raise ValueError(f"{champ} non imprimable : {valeur!r}")
 
 
+# identifiant d'une question du catalogue (#46) : Q-<DOMAINE>-<SUJET>, en
+# majuscules ASCII (Q-WIN-RDP-LOGON) ; fullmatch, jamais match
+FORMAT_QUESTION_ID = re.compile(r"Q-[A-Z0-9]+(?:-[A-Z0-9]+)+", re.ASCII)
+
+
+def _verifier_question_id(valeur: object) -> None:
+    _verifier_identifiant(valeur, "question_id")
+    if not FORMAT_QUESTION_ID.fullmatch(str(valeur)):
+        raise ValueError(
+            f"question_id invalide {_apercu(str(valeur))} : identifiant du "
+            "catalogue attendu (ex. Q-WIN-RDP-LOGON)"
+        )
+
+
 def _verifier_texte(valeur: object, champ: str) -> None:
     # texte libre : son rendu en terminal (#22) neutralise les caracteres de controle
     if not isinstance(valeur, str):
@@ -556,10 +570,14 @@ class Gap:
 
     Identification : le check qui l'a produit (``check_id``), la cible
     (``target``, forme normalisée ``Target.id``), la ressource en défaut
-    (``resource`` : journal, GPO, objet AD, trail...) et, facultative tant que le
-    catalogue (#46) n'existe pas, la question de référence (``question_id``).
+    (``resource`` : journal, GPO, objet AD, trail...) et la question du
+    catalogue à laquelle il se rattache (``question_id``, ex.
+    ``Q-WIN-RDP-LOGON`` ; ``amnesia.catalog``, docs/catalogue.md).
 
-    Contenu : la question (``question``), la raison (``reason``), la sévérité
+    Contenu : la question (``question``, toujours produite par
+    ``amnesia.catalog.render_question()``, jamais écrite en dur dans un check :
+    le doctest ci-dessous la recopie pour rester lisible), la raison
+    (``reason``), la sévérité
     (``severity``, grille dans docs/severite.md) et la preuve chiffrée
     (``evidence``). Puis une remédiation courte, avec un chemin de GPO ou une
     commande (``remediation`` ; ``remediation_id`` servira à #76), des
@@ -582,6 +600,7 @@ class Gap:
     ...     check_id="win.event_log_retention",
     ...     target="winrm://srv-file",
     ...     resource="Security",
+    ...     question_id="Q-WIN-RDP-LOGON",
     ...     question="Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?",
     ...     reason="Le journal Security fait 20 Mo et a été écrasé il y a 4 jours.",
     ...     severity=Severity.HIGH,
@@ -625,7 +644,7 @@ class Gap:
     check_id: str
     target: str
     resource: str
-    question_id: str | None = None
+    question_id: str
     question: str
     reason: str
     severity: Severity
@@ -638,9 +657,9 @@ class Gap:
     def __post_init__(self) -> None:
         for champ in ("check_id", "target", "resource"):
             _verifier_identifiant(getattr(self, champ), champ)
-        for champ in ("question_id", "remediation_id"):
-            if getattr(self, champ) is not None:
-                _verifier_identifiant(getattr(self, champ), champ)
+        _verifier_question_id(self.question_id)
+        if self.remediation_id is not None:
+            _verifier_identifiant(self.remediation_id, "remediation_id")
         for champ in ("question", "reason", "remediation"):
             _verifier_texte(getattr(self, champ), champ)
         object.__setattr__(
@@ -667,9 +686,9 @@ class Gap:
         Indépendant de ``reason``, de la sévérité et de la preuve : le même
         constat garde la même empreinte d'un audit à l'autre. Les champs sont
         encodés en tableau JSON, sans ambiguïté de séparateur. Un
-        ``CheckResult`` refuse deux Gaps de même empreinte : tant que
-        ``question_id`` manque (#46), deux questions sur la même ressource
-        exigent un ``question_id`` ou une ``resource`` distincte.
+        ``CheckResult`` refuse deux Gaps de même empreinte : deux constats
+        d'un même check sur une même cible se distinguent par leur
+        ``question_id`` ou par leur ``resource``.
         """
         identite = json.dumps(
             [self.check_id, self.question_id, self.target, self.resource],
@@ -758,7 +777,10 @@ class Check:
     - obligatoires : ``id`` (``domaine.nom``), ``title``, ``description``,
       ``domain``, ``target_kinds``, ``version`` (incrémentée quand la logique
       change) et ``default_severity`` ;
-    - vides par défaut : ``requires_facts`` (#20) et ``question_ids`` (#46) ;
+    - vides par défaut : ``requires_facts`` (#20) et ``question_ids`` (#46 :
+      questions du catalogue auxquelles le check contribue ; chaque question
+      citée liste le check dans son champ ``checks``, et inversement, ce que
+      vérifie ``amnesia catalog validate``) ;
     - ``requires_extra`` (#44) : extra optionnel sans lequel le check ne peut
       jamais être évalué (SDK de son API, ``amnesia.deps.EXTRAS``), ``None``
       par défaut. Le moteur le vérifie avant toute collecte : absent, le check
@@ -1033,8 +1055,8 @@ class CheckResult:
             if g.fingerprint in empreintes:
                 raise ValueError(
                     f"deux Gaps de {self.check_id} sur {self.target} ont la même "
-                    f"empreinte (ressource {_apercu(g.resource)}) : renseigner "
-                    "question_id ou distinguer resource"
+                    f"empreinte (ressource {_apercu(g.resource)}) : distinguer "
+                    "question_id ou resource"
                 )
             empreintes.add(g.fingerprint)
         # error et skipped exigent un motif compatible ; les autres n'en ont pas

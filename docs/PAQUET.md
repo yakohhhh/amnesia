@@ -100,10 +100,13 @@ une collision est signalée.
 
 ## Données du paquet
 
-`[tool.setuptools.package-data]` déclare les répertoires embarqués dans le wheel :
-`schemas/*.json` (#22), `catalog/*.toml` (#46) et `templates/**/*` (#77), sous
-`src/amnesia/`. Un test construit le wheel avec un fichier placé dans chacun d'eux
-et vérifie sa présence.
+`[tool.setuptools.package-data]` déclare les données embarquées dans le wheel :
+`schemas/*.json` (#22), le catalogue de questions (#46 : `catalog/VERSION`,
+`catalog/ids.lock` et `catalog/*/*.toml`, soit `questions/` et `sources/`) et
+`templates/**/*` (#77), sous `src/amnesia/`. Un test construit le wheel avec un
+fichier placé à chacun de ces emplacements et vérifie sa présence ; un autre
+compare les fichiers du catalogue du wheel à ceux du dépôt
+([`catalogue.md`](catalogue.md)).
 
 ## Contrôles du paquet construit
 
@@ -117,9 +120,11 @@ et vérifie sa présence.
 4. `check-wheel-contents` sur le wheel ;
 5. wheel installé sans index dans un venv vierge, où il doit être le seul
    paquet (socle sans dépendance tierce) : `amnesia --version` doit afficher
-   `importlib.metadata.version("amnesia-dfr")`, `amnesia list-checks` doit
-   sortir en code 0, et `PYTHONPATH=src python -m amnesia --version` doit
-   afficher la même version.
+   `importlib.metadata.version("amnesia-dfr")`, `amnesia list-checks` et
+   `amnesia catalog validate` doivent sortir en code 0 (le catalogue de
+   questions se lit depuis le wheel installé et reste cohérent avec le registre
+   des checks), et `PYTHONPATH=src python -m amnesia --version` doit afficher la
+   même version.
 
 ## Dépendances d'exécution : extras optionnels
 

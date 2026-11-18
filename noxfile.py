@@ -154,6 +154,9 @@ def build(session: nox.Session) -> None:
         ).strip()
         installee = session.run(amnesia, "--version", external=True, silent=True)
         session.run(amnesia, "list-checks", external=True)
+        # catalogue de questions (#46) : ses fichiers TOML sont dans le wheel,
+        # se lisent depuis site-packages et sont coherents avec le registre
+        session.run(amnesia, "catalog", "validate", external=True)
         # meme version depuis les sources, sans installation (-S : sans site)
         depuis_sources = session.run(
             "python",

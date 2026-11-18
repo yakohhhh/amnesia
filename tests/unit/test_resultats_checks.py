@@ -38,6 +38,7 @@ def _gap_rdp(check_id: str = "win.sysmon", target: str = "dc01") -> Gap:
         check_id=check_id,
         target=target,
         resource="Security",
+        question_id="Q-WIN-RDP-LOGON",
         question="Qui s'est connecte en RDP sur SRV-FILE il y a trois semaines ?",
         reason="journal Security de 20 Mo, ecrase il y a 4 jours",
         severity=Severity.HIGH,
