@@ -7,5 +7,8 @@ rangées par source : `tests/fixtures/windows/`, `tests/fixtures/cloud/`...
   GUID de tenant ou secret réel.
 - Les fichiers sont conservés tels quels (encodage, fins de ligne) : les hooks de
   mise en forme ne touchent pas à ce répertoire.
+- `tests/fixtures/ps/` : scripts PowerShell fictifs, jamais exécutés, dont
+  l'AST est analysé par `tests/integration/test_scripts_powershell.py` ; tous
+  sauf `lecture_conforme.ps1` écrivent sur la cible et doivent être refusés.
 - Les exports bruts vont dans un sous-répertoire `raw/`, ignoré par git et refusé
   par les hooks : ils ne sont jamais commités.

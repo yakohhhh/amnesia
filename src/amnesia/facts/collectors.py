@@ -8,7 +8,13 @@ rend un ``FactSet`` ; les checks n'accèdent jamais eux-mêmes à la cible.
 
 Règles pour tout collecteur :
 
-- argv passé en liste, jamais ``shell=True`` (règles ruff S602 et S604) ;
+- lecture seule (ADR 0006) : un exécutable ne se lance que par
+  ``run_command()``, qui refuse par ``ReadOnlyViolation`` tout ce qui sort de
+  l'allowlist (``amnesia.readonly``) avant de créer le moindre processus ;
+  cette exception signale un bug, elle remonte hors de tout ``except
+  Exception`` ;
+- argv passé en liste, jamais ``shell=True`` (règles ruff S602 et S604),
+  programme désigné par son chemin complet (S607) ;
 - timeout explicite sur chaque appel, propagé depuis ``collect(..., timeout=)`` ;
 - aucune analyse de texte localisé : uniquement des GUID, des valeurs
   numériques, le registre et l'EventData XML ;
@@ -38,13 +44,15 @@ from __future__ import annotations
 import logging
 import math
 import os
+import subprocess
 import sys
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+from ..readonly import check_command
 from ..target import Target, Transport
 from .model import Fact, FactSet, UnavailableReason, load_facts, validate_fact_name
 
@@ -108,6 +116,37 @@ def _verifier_timeout(timeout: float) -> None:
         or timeout <= 0
     ):
         raise ValueError(f"timeout invalide : {timeout!r} (secondes > 0 attendues)")
+
+
+def run_command(
+    argv: Sequence[str], *, timeout: float
+) -> subprocess.CompletedProcess[bytes]:
+    """Lance un exécutable de l'allowlist et rend sa sortie brute.
+
+    Seul point de lancement d'un processus par un collecteur (vérifié sur l'AST
+    de ``amnesia.facts`` par ``tests/unit/test_readonly.py``). ``argv`` est
+    confronté à ``amnesia.readonly.check_command`` avant tout lancement :
+    programme hors allowlist, appelé sans son chemin complet ou avec d'autres
+    arguments que ses formes figées, et ``ReadOnlyViolation`` est levée sans
+    qu'aucun processus soit créé.
+
+    Sans shell, sans entrée standard, avec le délai ``timeout`` (secondes) et
+    l'environnement de ``subprocess_env()``. Les sorties sont rendues en
+    octets : leur décodage dépend de l'outil (page de code OEM, UTF-16) et
+    revient au collecteur. Le code de retour n'est pas vérifié ici ;
+    ``subprocess.TimeoutExpired`` et ``OSError`` remontent à l'appelant, qui en
+    fait un fait ``unavailable``.
+    """
+    _verifier_timeout(timeout)
+    commande = check_command(argv)
+    return subprocess.run(  # noqa: S603 - argv verifie par l'allowlist, sans shell
+        list(commande),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+        env=subprocess_env(),
+    )
 
 
 def _noms(names: Iterable[str]) -> list[str]:

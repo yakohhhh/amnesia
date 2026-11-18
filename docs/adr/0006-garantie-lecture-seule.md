@@ -74,6 +74,32 @@ ligne (#48), lui, s'exécute sous le contrôle de l'administrateur du client, pa
 d'amnesia : ce qu'il écrit sur l'hôte (son bundle) relève de cet
 administrateur.
 
+Mise en œuvre du point 2 (#39) : l'allowlist est le registre
+`ALLOWED_OPERATIONS` de `amnesia.readonly`, source unique dont
+[`docs/READ-ONLY.md`](../READ-ONLY.md) est généré. Tout ce qui en sort est
+refusé avant exécution par `ReadOnlyViolation` :
+
+- un exécutable n'est lancé que par son chemin complet, sous une forme
+  d'arguments figée (`wevtutil.exe gl <canal>`, jamais `wevtutil cl`) ;
+- un script PowerShell vit dans `src/amnesia/ps/`, est inscrit au registre
+  avec son empreinte SHA-256, et la CI analyse son AST : commande, alias ou
+  méthode .NET hors allowlist, affectation à une propriété ou redirection
+  vers un fichier font échouer le test ;
+- une connexion LDAP est enveloppée (bind et search seulement) ; un client
+  AWS ou HTTP reçoit une garde qui refuse l'opération avant tout envoi.
+
+Être en lecture seule ne suffit pas à faire une bonne source : la commande
+`auditpol.exe /get /category:* /r` est dans l'allowlist parce qu'elle n'écrit
+rien, mais ses libellés sont traduits, et la règle « aucune analyse de
+texte localisé » de [`docs/dev/faits.md`](../dev/faits.md) continue de
+s'appliquer à ce qu'un collecteur en lit.
+
+Trois opérations ne modifient aucune configuration mais laissent un objet
+ou consomment un quota chez le client (requête sur le journal d'audit
+unifié de Microsoft Graph, job de recherche Splunk, `sts:AssumeRole`) :
+elles sont nommées, refusées par défaut, et ne passent qu'avec un opt-in
+explicite de l'auditeur, une par une.
+
 Contre un amnesia compromis ou un check tiers malveillant, les points 1 et 2
 ne valent rien, puisqu'ils sont du code dans le même processus : seuls le
 point 3 (contrainte côté cible) et un compte d'audit à droits réduits
@@ -109,9 +135,14 @@ d'exploitation (#82). Aucune des deux ne suffit seule.
   `io`, `tempfile`, `importlib`, ni collecteur, ni nom réexporté par
   `amnesia.checks.base`) et n'appelle ni `open` ni `exec` ; un module piège
   vérifie que les contournements connus sont vus.
-- `tests/test_regles_ruff.py` : règles S602, S604, S605 (`shell=True`) actives
-  sur `src/`.
-- #39 : test CI de l'allowlist des opérations des collecteurs.
+- `tests/test_regles_ruff.py` : règles S602, S604, S605 (`shell=True`) et S607
+  (programme sans chemin complet) actives sur `src/`.
+- `tests/unit/test_readonly.py` (#39) : chaque forme de l'allowlist passe,
+  chaque écriture connue est refusée sans requête ni processus ; dans
+  `amnesia.facts`, un processus ne se lance que par `run_command()` ;
+  `docs/READ-ONLY.md` est à jour.
+- `tests/integration/test_scripts_powershell.py` (#39) : `pwsh` analyse l'AST
+  des scripts ; ignoré sans `pwsh` sur un poste, en échec sans lui sur la CI.
 - Modèle de PR : case « Lecture seule respectée ».
 
 ## Avantages et inconvénients des options
@@ -135,6 +166,8 @@ d'exploitation (#82). Aucune des deux ne suffit seule.
 ## Pour aller plus loin
 
 - [`docs/threat-model.md`](../threat-model.md) : M10, M11, hypothèse H2.
+- [`docs/READ-ONLY.md`](../READ-ONLY.md) : l'allowlist, opération par
+  opération.
 - [`docs/dev/faits.md`](../dev/faits.md) : règles pour tout collecteur.
 - [ADR 0007](0007-transports.md) : ce que chaque transport permet de
   contraindre côté cible.

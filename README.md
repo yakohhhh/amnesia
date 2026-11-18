@@ -237,7 +237,10 @@ dépendance qui enfreindrait ces règles est une vulnérabilité à signaler
 ## Scope & légal
 
 Lecture seule, sur un périmètre que tu es autorisé à auditer. `amnesia` lit des
-configurations, pas des données métier.
+configurations, pas des données métier. Ce que ses collecteurs ont le droit
+d'exécuter sur une cible est listé, opération par opération, dans
+[`docs/READ-ONLY.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/READ-ONLY.md) :
+tout le reste est refusé avant exécution.
 
 Un rapport est confidentiel : les règles de stockage, de transmission et de
 conservation des données client, et le canal de signalement des vulnérabilités,

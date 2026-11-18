@@ -142,7 +142,8 @@ aussi le SDK de chaque extra, que mypy et les tests doivent voir comme en CI :
 La suite est verte quand le bilan de nox affiche `lint: success`,
 `typecheck: success` et `tests-3.11: success`, couverture d'au moins 80 %
 comprise. Des tests SKIPPED sont normaux : ils
-demandent Windows, un binaire gitleaks dans le `PATH`, des droits administrateur,
+demandent Windows, un binaire gitleaks ou `pwsh` dans le `PATH`, des droits
+administrateur,
 le lab Active Directory, un tenant cloud ou le réseau (marqueurs `windows`,
 `admin`, `lab`, `cloud` et `network`, options `--run-*` de
 [`tests/conftest.py`](tests/conftest.py)).
@@ -196,7 +197,10 @@ Pour les rejouer sur tout le dépôt : `uv run pre-commit run --all-files`.
     tout `subprocess` en mode texte : la suite tourne avec `EncodingWarning` en
     erreur.
 - **Lecture seule** : un check lit des configurations, il ne modifie jamais la
-  cible auditée.
+  cible auditée. Un collecteur n'exécute que des opérations de l'allowlist
+  ([`docs/READ-ONLY.md`](docs/READ-ONLY.md), généré depuis
+  `src/amnesia/readonly.py` : section « Lecture seule » de
+  [`docs/dev/faits.md`](docs/dev/faits.md)).
 - **Tests** ([`tests/conftest.py`](tests/conftest.py)) : tests unitaires dans
   `tests/unit/`, un fichier par module ; vrais processus dans
   `tests/integration/` ; tests d'outillage à la racine de `tests/`. Le réseau est

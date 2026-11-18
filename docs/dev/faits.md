@@ -113,9 +113,15 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
 
 ### Règles pour tout collecteur
 
-- argv passé en liste, jamais `shell=True` : les règles ruff S602, S604 et S605
-  sont actives sur `src/` (`tests/test_regles_ruff.py`), et un test parcourt
-  l'AST de `src/` ;
+- lecture seule : un collecteur n'exécute que des opérations de l'allowlist
+  (`amnesia.readonly`, section « Lecture seule » ci-dessous). Un exécutable
+  se lance par `run_command(argv, timeout=)`, seul appel à `subprocess` de
+  `amnesia.facts` (vérifié sur l'AST) : programme hors allowlist, sans chemin
+  complet ou avec d'autres arguments que ses formes figées, et
+  `ReadOnlyViolation` est levée avant tout lancement ;
+- argv passé en liste, jamais `shell=True`, programme désigné par son chemin
+  complet : les règles ruff S602, S604, S605 et S607 sont actives sur `src/`
+  (`tests/test_regles_ruff.py`), et un test parcourt l'AST de `src/` ;
 - timeout explicite sur chaque appel, propagé depuis `collect(..., timeout=)`,
   qui refuse une valeur nulle, négative ou infinie ;
 - `subprocess` avec un `encoding=` explicite (`docs/dev/encodage.md`) et
@@ -159,6 +165,42 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
   règle précédente : sans l'extra, `require_extra` lève `MissingExtra`, que le
   moteur traduit en « non évalué » avec la commande d'installation
   ([`docs/dev/dependances.md`](dependances.md)).
+
+### Lecture seule : ajouter une opération à l'allowlist
+
+`ALLOWED_OPERATIONS` (`src/amnesia/readonly.py`) est la source unique de ce
+qu'un collecteur exécute sur une cible
+([ADR 0006](../adr/0006-garantie-lecture-seule.md)) ;
+[`docs/READ-ONLY.md`](../READ-ONLY.md) en est généré. Un collecteur qui a
+besoin d'une nouvelle lecture l'y ajoute, dans la même PR :
+
+- **exécutable** : une forme `Executable` par ligne de commande, arguments
+  littéraux ou `Param` borné par une expression régulière qui ne laisse
+  passer ni option (`/r:<hôte>`) ni chemin distant ; jamais une forme qui
+  écrit, même un fichier temporaire (`auditpol /backup`, `reg export`,
+  `wevtutil epl`) ;
+- **script PowerShell** : un fichier de `src/amnesia/ps/`, jamais une chaîne
+  dans le code Python, inscrit dans `SCRIPTS` avec son empreinte
+  (`script_digest()`) et chargé par `load_script()`. Il n'emploie que les
+  cmdlets (`PsCommand`, nom complet, aucun alias) et méthodes .NET
+  (`PsMethod`) de l'allowlist, n'affecte que des variables simples et ne
+  redirige rien vers un fichier. Un verbe interdit (`Set-`, `New-`...) n'est
+  admis que par une exception nommée et justifiée (`exception=True`) ;
+  `ForEach-Object` n'est pas admis, son paramètre `-MemberName` appelant
+  une méthode hors de vue de l'analyse : utiliser l'instruction `foreach` ;
+- **LDAP, AWS, HTTP** : le client passe par `ReadOnlyLdap`,
+  `protect_aws_client()` ou `HttpGuard(api, base_url)` ; une opération qui
+  laisse une trace ou consomme un quota chez le client porte un `opt_in`,
+  décrit dans `OPT_INS`, et reste refusée par défaut ;
+- `ALLOWLIST_VERSION` est incrémenté, puis `uv run python
+  scripts/generer_read_only.py` régénère la documentation (un test échoue
+  sinon).
+
+`ReadOnlyViolation` signale un bug d'amnesia, pas un échec de collecte : un
+collecteur la laisse remonter, hors de tout `except Exception`, au lieu d'en
+faire un fait `unavailable`. Les scripts sont analysés par
+`tests/integration/test_scripts_powershell.py`, qui demande `pwsh` : ignoré
+sans lui sur un poste de développement, en échec sans lui sur la CI.
 
 ## Écrire un check
 

@@ -46,7 +46,7 @@ flowchart LR
 | Étape | Code | Ce qui entre | Ce qui sort | Décision |
 |---|---|---|---|---|
 | Cible | `amnesia.target` | `--target` (`local`, `winrm://<hôte>[:port]`, `bundle:<chemin>`) | `Target` validé : genre (`windows_host`...), transport, hôte ou chemin ; forme normalisée `Target.id` | [ADR 0007](adr/0007-transports.md) |
-| Transport | collecteurs de `amnesia.facts.collectors` | `Target`, noms de faits, délai | connexion ou lecture de fichier, **en lecture seule** | [ADR 0006](adr/0006-garantie-lecture-seule.md), [ADR 0007](adr/0007-transports.md) |
+| Transport | collecteurs de `amnesia.facts.collectors`, allowlist de `amnesia.readonly` | `Target`, noms de faits, délai | connexion ou lecture de fichier, **en lecture seule** : seules les opérations de [`READ-ONLY.md`](READ-ONLY.md) s'exécutent | [ADR 0006](adr/0006-garantie-lecture-seule.md), [ADR 0007](adr/0007-transports.md) |
 | Collecte | `amnesia.facts` (`Fact`, `FactSet`, `CachingCollector`, enveloppe `amnesia.facts/1`) | ce que le transport a lu | faits `ok` (valeur) ou `unavailable` (motif), un par clé, collectés une fois par audit | [ADR 0004](adr/0004-separation-collecte-evaluation.md) |
 | Évaluation | `amnesia.checks` (`Check.evaluate`, registre, `resolve()`) | `FactSet`, `Context` | `CheckResult` : `pass`, `gap` (avec des `Gap`), `error`, `skipped` ou `not_applicable` | [ADR 0004](adr/0004-separation-collecte-evaluation.md) |
 | Résultats | `amnesia.runner` (`run_audit`, `AuditResult`, `AuditSummary`) | checks, cible, collecteur | résultats triés par sévérité, comptes, `complete`, `interrupted` | — |
@@ -75,7 +75,9 @@ basses. De bas en haut :
 
 1. **socle sans dépendance interne** : `amnesia.target` (cibles et transports),
    `amnesia.log` (journal expurgé), `amnesia.facts.model` (faits),
-   `amnesia.deps` (extras optionnels, importés à la demande) ;
+   `amnesia.deps` (extras optionnels, importés à la demande),
+   `amnesia.readonly` (allowlist des opérations de lecture seule et gardes
+   qui refusent tout le reste) ;
 2. **modèle des checks** : `amnesia.checks.base` (`Check`, `CheckResult`,
    `Gap`), `amnesia.checks.context`, `amnesia.checks.registry` ;
 3. **collecte et résolution** : `amnesia.facts.collectors`,
@@ -115,10 +117,11 @@ modules.
 | `amnesia.checks.base` | aucune |
 | `amnesia.facts` | `amnesia.facts.collectors`, `amnesia.facts.model`, `amnesia.facts.resolution` |
 | `amnesia.facts.resolution` | `amnesia.checks.base`, `amnesia.facts.model` |
-| `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.target` |
+| `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.readonly`, `amnesia.target` |
 | `amnesia.facts.model` | aucune |
 | `amnesia.deps` | aucune |
 | `amnesia.log` | aucune |
+| `amnesia.readonly` | aucune |
 | `amnesia.target` | aucune |
 
 Ce que la table interdit, et pourquoi :
@@ -142,6 +145,16 @@ Ce que la table interdit, et pourquoi :
   dans un check du dépôt, pas une isolation : du code Python malveillant, ou
   un check tiers installé hors du dépôt (#149), garde tous les droits de
   l'interpréteur ;
+- **un collecteur n'exécute que des opérations de l'allowlist**
+  ([ADR 0006](adr/0006-garantie-lecture-seule.md)) : `amnesia.readonly` est
+  la source unique de ce qui peut s'exécuter sur une cible, et refuse le
+  reste avant exécution (`ReadOnlyViolation`). Dans `amnesia.facts`, un
+  processus ne se lance que par `run_command()`, qui vérifie l'argv ; un
+  script PowerShell ne se charge que par `load_script()`, qui vérifie son
+  empreinte ; les clients LDAP, AWS et HTTP des collecteurs à venir
+  passent par `ReadOnlyLdap`, `protect_aws_client()` et `HttpGuard`.
+  `amnesia.readonly` n'importe ni SDK ni autre module d'amnesia : la liste
+  se relit, et [`READ-ONLY.md`](READ-ONLY.md) en est généré ;
 - **la collecte ne connaît pas le moteur** : un collecteur se remplace par un
   autre (local, WinRM, bundle) sans toucher aux checks ni au moteur ;
 - **le rapport lit des résultats, jamais la cible** ; les rendus lisent le
@@ -171,7 +184,7 @@ redéfinit pas, il dit quelle étape du flux les traverse.
 
 | Frontière | Étape du flux | Ce qui la traverse | Mesures |
 |---|---|---|---|
-| Z1 → Z2, Z1 → Z3 (poste → cibles) | Transport | authentification, puis lecture de configurations | lecture seule ([ADR 0006](adr/0006-garantie-lecture-seule.md)), périmètre autorisé (#37), transports chiffrés et authentifiés ([ADR 0007](adr/0007-transports.md)) |
+| Z1 → Z2, Z1 → Z3 (poste → cibles) | Transport | authentification, puis lecture de configurations | lecture seule : allowlist des opérations ([ADR 0006](adr/0006-garantie-lecture-seule.md), [`READ-ONLY.md`](READ-ONLY.md)), périmètre autorisé (#37), transports chiffrés et authentifiés ([ADR 0007](adr/0007-transports.md)) |
 | Z2 → Z1 (cibles → poste) | Collecte | sorties de commandes, fichiers, bundles : données d'une cible **peut-être compromise** (H4) | tout texte venu de la cible est caviardé et rendu imprimable avant d'entrer dans un résultat (`assainir`) ; valeurs figées et bornées (`Evidence`) ; bundle vérifié par empreintes (#52) ; aucune analyse de texte localisé |
 | Z1 → Z4 (poste → destinataires) | Rapport, rendus | le rapport : la carte des angles morts du client | déterminisme, caractères de contrôle échappés, `argv` expurgé ([`format-rapport.md`](format-rapport.md)) ; fichier lisible du seul opérateur, écrit atomiquement, jamais à travers un lien ni par-dessus un fichier existant (`amnesia.output`) ; règles de remise dans `SECURITY.md` |
 | Z5 → Z1 (chaîne d'approvisionnement → poste) | installation | code d'amnesia et de ses dépendances | versions exactes, lock avec empreintes, délai de carence ([`dev/dependances.md`](dev/dependances.md)) |
@@ -198,6 +211,8 @@ Ce que produit un audit, où cela vit et quand cela disparaît (minimisation :
 
 - [`docs/dev/faits.md`](dev/faits.md) : enveloppe des faits, collecteurs,
   écriture d'un check ;
+- [`docs/READ-ONLY.md`](READ-ONLY.md) : opérations qu'un collecteur a le
+  droit d'exécuter sur une cible ;
 - [`docs/format-rapport.md`](format-rapport.md) : champs et compatibilité du
   rapport ;
 - [`docs/RELEASING.md`](RELEASING.md) : surfaces publiques et versionnage ;
