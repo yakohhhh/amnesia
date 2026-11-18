@@ -307,6 +307,7 @@ def test_meta_figee_et_complete() -> None:
         default_severity="critical",
         requires_facts=("windows.auditpol.backup",),
         question_ids=("q.logon",),
+        requires_extra=None,
         implemented=False,
         module=__name__,
         class_name="Essai",
@@ -377,6 +378,8 @@ def test_checks_actuels() -> None:
             assert validate_fact_name(nom).startswith("windows."), nom
         assert meta.description.strip()
         assert not meta.implemented, meta.id
+        # extra WinRM porte par le collecteur (#63) : evaluables sur un bundle
+        assert meta.requires_extra is None, meta.id
 
 
 def test_severites_alignees_sur_l_enum_severity() -> None:

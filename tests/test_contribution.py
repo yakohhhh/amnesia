@@ -252,6 +252,7 @@ def test_modele_de_pr_unique_avec_checklist() -> None:
         "Documentation",
         "Lecture seule",
         "Modèle de menace",
+        "ADR",
     ]
     assert len(cases) == len(attendus), cases
     for case, attendu in zip(cases, attendus, strict=True):
@@ -282,7 +283,7 @@ def test_de_git_clone_a_une_suite_verte() -> None:
     parcours = [
         f"git clone {DEPOT}.git",
         "cd amnesia",
-        "uv sync --locked",
+        "uv sync --locked --all-extras",
         "uv run pre-commit install",
         "uv run nox -s lint typecheck tests-3.11",
     ]

@@ -144,12 +144,21 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
   tenues par `tests/test_reseau.py`, qui relance ruff sans dérogation ni `noqa`
   et refuse `set_stream_logger` sur l'AST quel que soit son receveur ;
 - aucune analyse de texte localisé : uniquement des GUID, des valeurs
-  numériques, le registre et l'EventData XML. Par exemple `auditpol /backup`
-  (CSV avec le GUID de sous-catégorie et un `Setting Value` numérique, d'où le
-  fait `windows.auditpol.backup`) plutôt que `auditpol /get`, dont
-  l'« Inclusion Setting » est traduite ;
+  numériques, le registre et l'EventData XML. Par exemple la politique d'audit
+  par GUID de sous-catégorie et valeur numérique (le `Setting Value` du CSV
+  d'`auditpol /backup`, d'où le fait `windows.auditpol.backup`) plutôt que
+  `auditpol /get`, dont l'« Inclusion Setting » est traduite ;
+- aucune écriture sur la cible, même temporaire : `auditpol /backup
+  /file:<fichier>` écrit un fichier sur la cible et n'entre pas dans
+  l'allowlist ; en ligne, la même valeur se lit par l'API
+  `AuditQuerySystemPolicy` ([ADR 0006](../adr/0006-garantie-lecture-seule.md)) ;
 - un échec de collecte d'un fait donne un fait `unavailable` avec son motif, pas
-  une exception.
+  une exception ;
+- un SDK tiers (WinRM, LDAP, Graph, boto3) s'importe dans `collect()`, après
+  `require_extra("<extra>")`, jamais au niveau du module. Seule exception à la
+  règle précédente : sans l'extra, `require_extra` lève `MissingExtra`, que le
+  moteur traduit en « non évalué » avec la commande d'installation
+  ([`docs/dev/dependances.md`](dependances.md)).
 
 ## Écrire un check
 
@@ -172,6 +181,11 @@ class MonCheck(Check):
   peut être `None`.
 - Tant qu'un check n'est pas écrit, il hérite d'`evaluate()`, qui lève
   `NotImplementedError` ; le moteur (#21) le rend en `skipped/not_implemented`.
+- `requires_extra` (facultatif) : extra optionnel sans lequel le check ne peut
+  jamais être évalué, quel que soit le transport (SDK d'une API cloud :
+  `"aws"`). Sans lui, le moteur rend `skipped/not_collected` avec la commande
+  d'installation ; `amnesia list-checks` l'affiche. Convention :
+  [`docs/dev/dependances.md`](dependances.md).
 
 ## Exemple complet : tester un check avec `FixtureCollector`
 

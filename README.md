@@ -90,10 +90,11 @@ Les outils (ruff, mypy, pytest, nox) sont épinglés dans `pyproject.toml` et fi
 avec leurs empreintes dans `uv.lock`.
 
 ```bash
-uv sync                             # installe le projet et le groupe dev depuis uv.lock
+uv sync --all-extras                # projet, extras et groupe dev depuis uv.lock
 uv run nox -l                       # liste des sessions
 uv run nox -s lint typecheck tests  # lint, typage + tests (toutes versions)
 uv run nox -s build                 # sdist + wheel contrôlés, wheel installé dans un venv vierge
+uv run nox -s lowest-direct         # tests avec les bornes basses des extras
 uv run mypy                         # typage strict de src et tests
 uv run pytest                       # tests sur l'interpréteur de .python-version
 ```
@@ -142,6 +143,15 @@ dépréciation et la procédure de release.
 Les SDK dont le projet a besoin sont tous là et matures : Microsoft Graph,
 boto3, WinRM, génération de rapports. On va vite, et les checks s'écrivent comme
 des plugins indépendants.
+
+Ces SDK restent optionnels : le paquet de base n'installe aucune dépendance
+tierce. Chaque domaine apporte les siennes par un extra (`.[<extra>]`, ou
+`.[all]` pour tous), importé seulement au moment de s'en servir ; sans lui, les
+checks concernés sont « non évalués » et le message donne la commande
+d'installation depuis les sources. `amnesia list-checks` indique l'extra requis
+par chaque check.
+Politique d'acceptation d'une dépendance :
+[`docs/dev/dependances.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/dev/dependances.md).
 
 ## Vendable
 
