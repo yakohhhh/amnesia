@@ -174,6 +174,50 @@ Tu peux même facturer l'audit comme prestation dès la v0, avec le cœur seul.
 > la commande reste `amnesia`. Il n'est pas encore publié (#33) : installe-le
 > depuis les sources, jamais par son nom depuis PyPI.
 
+## Confidentialité
+
+Un rapport amnesia est la carte des angles morts d'un client : rien n'en sort
+sans que tu le décides. amnesia est **hors ligne par défaut** :
+
+- il ne contacte que les cibles et les API que tu désignes (`--target`, un
+  connecteur cloud explicitement demandé) ; aucune donnée ne part vers l'éditeur,
+  un CDN ou un service tiers ;
+- pas de télémétrie, pas de vérification de mise à jour, pas de rapport de
+  plantage ni d'envoi de rapport : une erreur interne est journalisée sur
+  stderr, et c'est tout ;
+- il fonctionne entièrement sans accès Internet, hors connecteurs cloud
+  explicitement demandés ; `list-checks`, `render`, `schema` et `audit --target
+  local` n'ouvrent aucune connexion ;
+- ses rendus (texte, Markdown) ne chargent aucune ressource externe : ni image,
+  ni feuille de style, ni script, ni police ; les liens de référence restent du
+  texte ;
+- tout sous-processus lancé par amnesia, `pwsh` compris, reçoit
+  `POWERSHELL_TELEMETRY_OPTOUT=1` et `POWERSHELL_UPDATECHECK=Off` dans son
+  environnement : PowerShell 7 envoie sinon une télémétrie au démarrage puis
+  pendant la session, et vérifie ses mises à jour ; la variable n'a d'effet que
+  posée avant le lancement du processus.
+
+Ces engagements sont tenus par le code, pas seulement par ce texte :
+
+- seuls les collecteurs (`src/amnesia/facts/collectors.py`, liste explicite
+  dans `pyproject.toml`) peuvent ouvrir une connexion : la règle ruff `TID251`
+  interdit partout ailleurs `socket.socket`, `socket.create_connection`,
+  `asyncio.open_connection`, `asyncio.start_server`, `http.client`,
+  `urllib.request`, `urllib3`, `requests`, `httpx` et les handlers de
+  journalisation réseau (`logging.handlers.HTTPHandler`, `SysLogHandler`,
+  `SocketHandler`…), et un test refuse hors des collecteurs tout import d'un
+  module réseau ou d'un SDK de connexion (`importlib.import_module` compris) et
+  toute méthode de connexion d'une boucle asyncio ;
+- un test vérifie que chaque sous-processus lancé par amnesia reçoit
+  l'environnement de `amnesia.facts.subprocess_env()` ;
+- les tests coupent le réseau, et chaque commande (`--help`, `--version`,
+  `list-checks`, `schema`, `render`, `audit`) est aussi lancée dans un
+  processus dont le réseau est coupé avant le moindre import d'amnesia.
+
+Le futur contrôle de licence (#154) restera vérifiable hors ligne. Une
+dépendance qui enfreindrait ces règles est une vulnérabilité à signaler
+([`SECURITY.md`](https://github.com/yakohhhh/amnesia/blob/main/SECURITY.md)).
+
 ## Scope & légal
 
 Lecture seule, sur un périmètre que tu es autorisé à auditer. `amnesia` lit des

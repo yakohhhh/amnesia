@@ -218,9 +218,11 @@ contiennent les mêmes données et suivent les mêmes règles.
   [règles des fixtures de test][fixtures]. Le dépôt est public : ce qui y est
   collé l'est aussi. Menaces [M16][menaces] et [M20][menaces].
 - **Aucune télémétrie.** amnesia n'envoie rien à personne : ni télémétrie, ni
-  vérification de mise à jour, ni ressource externe dans ses rendus. Ses seules
-  connexions réseau sont celles de la collecte, vers les cibles (#26, #77). Une
-  dépendance qui enfreint cette règle est une vulnérabilité à signaler. Menace
+  vérification de mise à jour, ni rapport de plantage, ni ressource externe dans
+  ses rendus. Ses seules connexions réseau sont celles de la collecte, vers les
+  cibles désignées par l'opérateur, depuis les seuls collecteurs
+  ([README, « Confidentialité »][confidentialite] ; HTML : #77). Une dépendance
+  qui enfreint cette règle est une vulnérabilité à signaler. Menace
   [M19][menaces].
 
 [modele]: https://github.com/yakohhhh/amnesia/blob/main/docs/threat-model.md
@@ -231,3 +233,4 @@ contiennent les mêmes données et suivent les mêmes règles.
 [correctifs]: https://github.com/yakohhhh/amnesia/blob/main/docs/RELEASING.md#correctifs
 [paquet]: https://github.com/yakohhhh/amnesia/blob/main/docs/PAQUET.md
 [fixtures]: https://github.com/yakohhhh/amnesia/blob/main/tests/fixtures/README.md
+[confidentialite]: https://github.com/yakohhhh/amnesia/blob/main/README.md#confidentialité

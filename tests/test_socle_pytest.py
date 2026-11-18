@@ -209,7 +209,7 @@ def test_option_force_enable_socket_inconnue(pytester: pytest.Pytester) -> None:
 
 def test_socket_bloquee_dans_cette_suite() -> None:
     with pytest.raises(SocketBlockedError):
-        socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # noqa: TID251 - temoin
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,14 @@ les faits requis indisponibles en résultat, sans jamais produire de Gap.
 Documentation : ``docs/dev/faits.md``.
 """
 
-from .collectors import CachingCollector, Collector, FixtureCollector, LocalCollector
+from .collectors import (
+    SUBPROCESS_ENV,
+    CachingCollector,
+    Collector,
+    FixtureCollector,
+    LocalCollector,
+    subprocess_env,
+)
 from .model import (
     FACT_DOMAINS,
     SCHEMA,
@@ -27,6 +34,7 @@ from .resolution import FactUnavailableError, resolve
 __all__ = [
     "FACT_DOMAINS",
     "SCHEMA",
+    "SUBPROCESS_ENV",
     "CachingCollector",
     "Collector",
     "Fact",
@@ -40,5 +48,6 @@ __all__ = [
     "UnavailableReason",
     "load_facts",
     "resolve",
+    "subprocess_env",
     "validate_fact_name",
 ]
