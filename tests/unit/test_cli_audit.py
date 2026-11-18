@@ -53,6 +53,7 @@ def _gap(severite: str) -> Gap:
         check_id="test.x",
         target="local",
         resource="Security",
+        question_id="Q-WIN-RDP-LOGON",
         question="Qui s'est connecté ?",
         reason="journal factice écrasé",
         severity=Severity.parse(severite),

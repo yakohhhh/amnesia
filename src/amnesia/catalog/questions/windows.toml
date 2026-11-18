@@ -1,0 +1,384 @@
+# Questions d'enquête du domaine windows.
+#
+# Une table [[question]] par question ; format et règles : docs/catalogue.md.
+# Un identifiant publié (ids.lock) ne change plus et ne se retire jamais : une
+# question abandonnée passe en status = "deprecated" avec replaced_by.
+# Les formulations sont originales ; les sources citées sont listées dans
+# docs/catalogue.md. Vérifier une modification : amnesia catalog validate
+
+# --- Sessions --------------------------------------------------------------
+
+[[question]]
+id = "Q-WIN-RDP-LOGON"
+status = "active"
+domain = "windows"
+theme = "authentication"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Qui s'est connecté en RDP sur {host} il y a {lookback} ?"
+why.fr = "Sans trace des ouvertures de session à distance, l'enquête ne peut ni dater l'arrivée de l'attaquant sur l'hôte, ni nommer le compte et le poste source qu'il a utilisés."
+sources = [
+  "SRC-SEC-4624-T10",
+  "SRC-SEC-4625",
+  "SRC-SEC-4778-4779",
+  "SRC-TS-LSM-21-24-25",
+  "SRC-TS-RCM-1149",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "anssi", id = "ANSSI-PB-090", version = "1.1" },
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-NETWORK-LOGON"
+status = "active"
+domain = "windows"
+theme = "lateral_movement"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Quels comptes ont ouvert une session réseau sur {host} il y a {lookback}, et depuis quelles machines ?"
+why.fr = "Les ouvertures de session réseau (partages, exécution à distance) dessinent le chemin de l'attaquant d'une machine à l'autre ; sans elles, le périmètre de la compromission reste une hypothèse."
+sources = [
+  "SRC-SEC-4624-T3",
+  "SRC-SEC-4625",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "anssi", id = "ANSSI-PB-090", version = "1.1" },
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-EXPLICIT-CREDS"
+status = "active"
+domain = "windows"
+theme = "lateral_movement"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Quels comptes ont été utilisés avec des identifiants explicites depuis {host} il y a {lookback} ?"
+why.fr = "L'usage d'identifiants explicites (runas, montage d'un partage sous un autre compte) révèle les comptes dont l'attaquant détient le secret et les machines qu'il a visées depuis l'hôte."
+sources = [
+  "SRC-SEC-4648",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-PRIV-LOGON"
+status = "active"
+domain = "windows"
+theme = "authentication"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Quels comptes ont ouvert une session avec des privilèges d'administration sur {host} il y a {lookback} ?"
+why.fr = "Sans la liste des sessions à privilèges, l'enquête ne sait ni quand l'attaquant a obtenu les droits d'administration, ni avec quel compte."
+sources = [
+  "SRC-SEC-4672",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-LOCAL-ADMIN"
+status = "active"
+domain = "windows"
+theme = "persistence"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Quel compte local a été créé ou ajouté au groupe Administrateurs de {host} il y a {lookback}, et par qui ?"
+why.fr = "Un compte local créé ou promu par l'attaquant est une porte dérobée qui survit au changement des mots de passe du domaine ; sans ces événements, elle passe inaperçue."
+sources = [
+  "SRC-SEC-4720",
+  "SRC-SEC-4732",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+# --- Exécution et persistance ----------------------------------------------
+
+[[question]]
+id = "Q-WIN-PROCESS-CMDLINE"
+status = "active"
+domain = "windows"
+theme = "execution"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Quels programmes ont été lancés sur {host} il y a {lookback}, et avec quelle ligne de commande ?"
+why.fr = "Sans la création des processus et leur ligne de commande, l'enquête sait au mieux qu'un outil a tourné, jamais ce qu'il a fait ni quel processus l'a lancé."
+sources = [
+  "SRC-SEC-4688-CMDLINE",
+  "SRC-SYSMON-1",
+]
+checks = ["win.audit_policy", "win.event_log_retention", "win.sysmon"]
+references = [
+  { kind = "anssi", id = "ANSSI-PB-090", version = "1.1" },
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-POWERSHELL"
+status = "active"
+domain = "windows"
+theme = "execution"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Quelles commandes et quels scripts PowerShell ont été exécutés sur {host} il y a {lookback} ?"
+why.fr = "PowerShell est l'outil d'administration que les attaquants détournent le plus ; sans le contenu des scripts exécutés, leurs actions sur l'hôte ne peuvent pas être reconstituées."
+sources = [
+  "SRC-PS-4104",
+  "SRC-PS-4103",
+]
+checks = ["win.event_log_retention", "win.powershell_logging"]
+references = [
+  { kind = "anssi", id = "ANSSI-PB-090", version = "1.1" },
+]
+
+[[question]]
+id = "Q-WIN-SERVICE-INSTALL"
+status = "active"
+domain = "windows"
+theme = "persistence"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Quels services ont été installés sur {host} il y a {lookback}, et par quel compte ?"
+why.fr = "L'installation d'un service signe à la fois une persistance et une exécution à distance (PsExec et ses équivalents) ; sans elle, l'enquête ne voit ni l'une ni l'autre."
+sources = [
+  "SRC-SYS-7045",
+  "SRC-SEC-4697",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-SCHTASK"
+status = "active"
+domain = "windows"
+theme = "persistence"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Quelles tâches planifiées ont été créées sur {host} il y a {lookback}, et que lançaient-elles ?"
+why.fr = "Une tâche planifiée relance le code de l'attaquant après un redémarrage ou un nettoyage ; sans sa création, l'enquête ne peut ni la dater ni l'attribuer à un compte."
+sources = [
+  "SRC-SEC-4698",
+  "SRC-TASK-106",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-WMI-PERSIST"
+status = "active"
+domain = "windows"
+theme = "persistence"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Un abonnement WMI permanent a-t-il été enregistré sur {host} il y a {lookback} ?"
+why.fr = "Un abonnement WMI permanent exécute du code sans fichier ni service visible ; sans journal de son enregistrement, cette persistance échappe à l'enquête."
+sources = [
+  "SRC-WMI-5861",
+  "SRC-SYSMON-19-20-21",
+]
+checks = ["win.event_log_retention", "win.sysmon"]
+references = []
+
+[[question]]
+id = "Q-WIN-AUTORUN"
+status = "active"
+domain = "windows"
+theme = "persistence"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Quelles clés de démarrage automatique du registre ont été modifiées sur {host} il y a {lookback} ?"
+why.fr = "Les clés de démarrage automatique sont la persistance la plus courante ; sans trace de leur modification, l'enquête ne sait ni quand ni par quel processus elle a été posée."
+sources = [
+  "SRC-SYSMON-12-13-14",
+  "SRC-SEC-4657",
+]
+checks = ["win.audit_policy", "win.event_log_retention", "win.sysmon"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+# --- Réseau et exfiltration ------------------------------------------------
+
+[[question]]
+id = "Q-WIN-OUTBOUND"
+status = "active"
+domain = "windows"
+theme = "exfiltration"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Vers quelles adresses {host} a-t-il ouvert des connexions sortantes il y a {lookback}, et depuis quel processus ?"
+why.fr = "Sans les connexions sortantes rattachées à un processus, ni le serveur de commande de l'attaquant ni la destination des données volées ne peuvent être identifiés depuis l'hôte."
+sources = [
+  "SRC-SYSMON-3",
+  "SRC-SEC-5156",
+]
+checks = ["win.audit_policy", "win.event_log_retention", "win.sysmon"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-DNS"
+status = "active"
+domain = "windows"
+theme = "exfiltration"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Quels noms de domaine ont été résolus depuis {host} il y a {lookback}, et par quel processus ?"
+why.fr = "Les résolutions DNS relient une adresse contactée au nom que le logiciel malveillant a demandé ; sans elles, l'infrastructure de l'attaquant est plus difficile à reconnaître et à bloquer."
+sources = [
+  "SRC-SYSMON-22",
+  "SRC-DNS-3008",
+]
+checks = ["win.event_log_retention", "win.sysmon"]
+references = []
+
+[[question]]
+id = "Q-WIN-USB"
+status = "active"
+domain = "windows"
+theme = "exfiltration"
+roles = ["server", "workstation"]
+severity_default = "low"
+text.fr = "Quels périphériques de stockage amovibles ont été branchés sur {host} il y a {lookback} ?"
+why.fr = "Sans l'historique des périphériques amovibles, une sortie de données ou une infection par support physique ne peut être ni confirmée ni écartée."
+sources = [
+  "SRC-SEC-6416",
+  "SRC-PART-1006",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-SHARE-ACCESS"
+status = "active"
+domain = "windows"
+theme = "lateral_movement"
+roles = ["dc", "server"]
+severity_default = "medium"
+text.fr = "Qui a accédé aux partages de fichiers de {host} il y a {lookback}, et à quels fichiers ?"
+why.fr = "Sans les accès aux partages, l'enquête ne peut pas dire quels fichiers l'attaquant a consultés, copiés ou chiffrés, ni depuis quelle machine."
+sources = [
+  "SRC-SEC-5140",
+  "SRC-SEC-5145",
+  "SRC-SEC-4663",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+# --- Anti-forensic ---------------------------------------------------------
+
+[[question]]
+id = "Q-WIN-LOG-CLEARED"
+status = "active"
+domain = "windows"
+theme = "anti_forensics"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "Un journal d'événements de {host} a-t-il été effacé il y a {lookback}, et par quel compte ?"
+why.fr = "L'effacement d'un journal est un indice de compromission en soi ; s'il n'est pas tracé, l'enquête prend une absence de preuves pour une absence d'activité."
+sources = [
+  "SRC-SEC-1102",
+  "SRC-SYS-104",
+]
+checks = ["win.event_log_retention"]
+references = []
+
+[[question]]
+id = "Q-WIN-AUDIT-CHANGE"
+status = "active"
+domain = "windows"
+theme = "anti_forensics"
+roles = ["dc", "server", "workstation"]
+severity_default = "high"
+text.fr = "La stratégie d'audit de {host} a-t-elle été modifiée il y a {lookback}, et par qui ?"
+why.fr = "Un attaquant qui désactive l'audit rend ses actions suivantes invisibles ; sans trace de ce changement, l'enquête ignore à partir de quand les journaux cessent d'être fiables."
+sources = [
+  "SRC-SEC-4719",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-TIME-CHANGE"
+status = "active"
+domain = "windows"
+theme = "anti_forensics"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "L'horloge de {host} a-t-elle été modifiée il y a {lookback}, et par quel processus ?"
+why.fr = "Un changement d'heure décale ou désordonne les horodatages ; s'il n'est pas tracé, la chronologie reconstituée à partir des journaux de l'hôte est fausse sans que rien ne le signale."
+sources = [
+  "SRC-SEC-4616",
+]
+checks = ["win.audit_policy", "win.event_log_retention"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-SHADOW-DELETE"
+status = "active"
+domain = "windows"
+theme = "anti_forensics"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Les clichés instantanés de {host} ont-ils été supprimés il y a {lookback}, et par quelle commande ?"
+why.fr = "La suppression des clichés instantanés (vssadmin, wmic shadowcopy) précède souvent un chiffrement ; sans elle, l'enquête ne peut pas dater le début de la phase destructrice."
+sources = [
+  "SRC-SEC-4688-CMDLINE",
+  "SRC-SYSMON-1",
+]
+checks = ["win.audit_policy", "win.event_log_retention", "win.sysmon"]
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-WIN-DEFENDER-TAMPER"
+status = "active"
+domain = "windows"
+theme = "anti_forensics"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "La protection Microsoft Defender de {host} a-t-elle été désactivée ou reconfigurée il y a {lookback} ?"
+why.fr = "Sans trace de la désactivation de l'antivirus, l'enquête ne sait ni quand l'hôte a cessé d'être protégé, ni quelles exclusions ont laissé passer les outils de l'attaquant."
+sources = [
+  "SRC-DEFENDER-5001-5007",
+]
+checks = ["win.event_log_retention"]
+references = []
+
+[[question]]
+id = "Q-WIN-TIMELINE"
+status = "active"
+domain = "windows"
+theme = "anti_forensics"
+roles = ["dc", "server", "workstation"]
+severity_default = "medium"
+text.fr = "Dans quel ordre les événements se sont-ils enchaînés entre {host} et le contrôleur de domaine il y a {lookback} ?"
+why.fr = "Si l'horloge de l'hôte dérive, ses journaux ne s'alignent plus sur ceux des autres machines ; l'ordre des actions de l'attaquant d'une machine à l'autre devient indémontrable."
+sources = [
+  "SRC-WIN-TIME-SYNC",
+]
+checks = ["win.time_sync"]
+references = []

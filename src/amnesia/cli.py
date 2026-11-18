@@ -21,6 +21,18 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .catalog import (
+    Catalog,
+    CatalogError,
+    Question,
+    QuestionStatus,
+    Source,
+    SourceKind,
+    Theme,
+    UnknownIdError,
+    load_catalog,
+    verify_registry,
+)
 from .checks import REGISTRY, CheckMeta, default_checks
 from .checks.base import ErrorInfo, assainir
 from .exitcodes import (
@@ -61,6 +73,18 @@ logger = logging.getLogger(__name__)
 
 # rapport d'entree illisible ou refuse (amnesia render) : code fatal
 CODE_RAPPORT_ILLISIBLE = FATAL
+# catalogue embarque invalide (amnesia catalog) : code fatal, jamais 1
+# (angle mort) ni 2 (usage)
+CODE_CATALOGUE_INVALIDE = FATAL
+
+# enabled_by_default d'une source, pour amnesia catalog show
+PAR_DEFAUT = {
+    True: "journalisé sur une installation par défaut",
+    False: "absent d'une installation par défaut",
+    None: "non établi",
+}
+# question « planned » : aucun check n'y contribue encore
+SANS_CHECK = "aucun pour l'instant"
 
 # --out - : le JSON va sur stdout, le rendu texte sur stderr
 SORTIE_STANDARD = "-"
@@ -206,6 +230,101 @@ def _lister_checks(metas: list[CheckMeta]) -> None:
             f"{_extra(m):<{largeur_extra}}  "
             f"{ETATS[m.implemented]:<{largeur_etat}}  {m.title}"
         )
+
+
+def _lister_catalogue(catalogue: Catalog) -> None:
+    """Questions groupées par thème, avec leur statut, alignées."""
+    print(
+        f"Catalogue {catalogue.version} : {len(catalogue)} questions, "
+        f"{len(catalogue.sources)} sources de télémétrie"
+    )
+    largeur_id = max((len(q.id) for q in catalogue), default=0)
+    largeur_statut = max(len(s.label) for s in QuestionStatus)
+    for theme in Theme:
+        questions = [q for q in catalogue if q.theme is theme]
+        if not questions:
+            continue
+        print(f"\n{theme.label}")
+        for q in questions:
+            print(
+                f"  {q.id:<{largeur_id}}  {q.status.label:<{largeur_statut}}  {q.text}"
+            )
+
+
+def _detail_source(source: Source, retrait: str = "") -> list[str]:
+    """Lignes décrivant une source : résumé, titre, prérequis, état par défaut."""
+    lignes = [f"{retrait}{source.id}  {source.summary()}", f"{retrait}  {source.title}"]
+    if source.kind is SourceKind.EVENT:
+        lignes.append(f"{retrait}  fournisseur : {source.provider}")
+    lignes += [
+        f"{retrait}  prérequis : {prerequis.describe()}"
+        for prerequis in source.prerequisites
+    ]
+    lignes.append(f"{retrait}  par défaut : {PAR_DEFAUT[source.enabled_by_default]}")
+    return lignes
+
+
+def _montrer_question(catalogue: Catalog, question: Question) -> None:
+    """Fiche d'une question : gabarit, raison d'être, checks, sources, références."""
+    print(f"{question.id}  [{question.status.label}]")
+    if question.replaced_by is not None:
+        print(f"Remplacée par : {question.replaced_by}")
+    print(f"Question : {question.text}")
+    print(f"Pourquoi : {question.why}")
+    print(f"Domaine : {question.domain.value}")
+    print(f"Thème : {question.theme.label}")
+    print(f"Rôles : {', '.join(r.label for r in question.roles)}")
+    print(f"Sévérité par défaut : {question.severity_default.value}")
+    print(f"Checks : {', '.join(question.checks) or SANS_CHECK}")
+    print("Sources (une seule suffit) :")
+    for source in catalogue.sources_of(question.id):
+        print("\n".join(_detail_source(source, retrait="  ")))
+    if question.references:
+        print("Références :")
+        for reference in question.references:
+            version = "" if reference.version is None else f" v{reference.version}"
+            url = "" if reference.url is None else f" : {reference.url}"
+            print(f"  {reference.kind.value} {reference.id}{version}{url}")
+
+
+def _cataloguer(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Commandes ``catalog list``, ``show`` et ``validate``.
+
+    Un catalogue embarqué invalide vaut le code fatal, avec une ligne par
+    erreur sur stderr : chacune nomme le fichier, l'entrée et le champ.
+    """
+    try:
+        catalogue = load_catalog()
+        if args.catalog_cmd == "validate":
+            verify_registry(catalogue, REGISTRY.metas())
+    except CatalogError as exc:
+        for erreur in exc.errors:
+            # texte du depot, mais rendu imprimable comme toute erreur fatale
+            logger.error("catalogue invalide : %s", assainir(erreur))
+        return CODE_CATALOGUE_INVALIDE
+    if args.catalog_cmd == "validate":
+        print(
+            f"catalogue {catalogue.version} valide : {len(catalogue)} questions, "
+            f"{len(catalogue.sources)} sources, "
+            f"{sum(1 for q in catalogue if q.status is QuestionStatus.ACTIVE)} "
+            "questions reliées à un check"
+        )
+        return OK
+    if args.catalog_cmd == "list":
+        _lister_catalogue(catalogue)
+        return OK
+    # show : argparse exige l'une des trois sous-commandes
+    try:
+        if args.id.startswith("SRC-"):
+            print("\n".join(_detail_source(catalogue.source(args.id))))
+        else:
+            _montrer_question(catalogue, catalogue.question(args.id))
+    except UnknownIdError:
+        # erreur d'usage, sans echo de la saisie (sequences de terminal)
+        parser.error(
+            "catalog show : identifiant inconnu (liste : amnesia catalog list)"
+        )
+    return OK
 
 
 def _rendre(args: argparse.Namespace) -> int:
@@ -535,6 +654,40 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[journal],
         help="Affiche le JSON Schema du rapport (docs/format-rapport.md)",
     )
+
+    c = sub.add_parser(
+        "catalog",
+        parents=[journal],
+        help="Catalogue des questions d'enquête (docs/catalogue.md)",
+        description=(
+            "Catalogue embarqué des questions d'enquête et de la télémétrie qui "
+            "permet d'y répondre. Catalogue invalide : code "
+            f"{CODE_CATALOGUE_INVALIDE}, une ligne par erreur."
+        ),
+    )
+    csub = c.add_subparsers(dest="catalog_cmd", required=True, metavar="COMMANDE")
+    csub.add_parser(
+        "list",
+        parents=[journal],
+        help="Questions groupées par thème, avec leur statut",
+    )
+    s = csub.add_parser(
+        "show",
+        parents=[journal],
+        help="Fiche d'une question (Q-...) ou d'une source (SRC-...)",
+    )
+    s.add_argument("id", metavar="ID", help="identifiant, ex. Q-WIN-RDP-LOGON")
+    csub.add_parser(
+        "validate",
+        parents=[journal],
+        help="Valide le catalogue et son lien avec le registre des checks",
+        description=(
+            "Valide les fichiers du catalogue (identifiants uniques, sources "
+            "connues, GUID, statuts, ids.lock) et le lien réciproque avec le "
+            "registre des checks. Code 0 si tout est cohérent, "
+            f"{CODE_CATALOGUE_INVALIDE} sinon."
+        ),
+    )
     return p
 
 
@@ -551,6 +704,9 @@ def _executer(
     if args.cmd == "schema":
         _ecrire_schema()
         return OK
+
+    if args.cmd == "catalog":
+        return _cataloguer(args, parser)
 
     if args.cmd == "audit":
         return _auditer(args, argv, parser)

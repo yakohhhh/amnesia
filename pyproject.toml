@@ -130,9 +130,17 @@ version = { attr = "amnesia.__version__" }
 
 [tool.setuptools.package-data]
 # donnees embarquees dans le wheel : marqueur PEP 561 (les auteurs de checks tiers
-# heritent des types de Check et Gap), schemas (#22), catalogue (#46) et gabarits
-# de rapport (#77) ; tests/test_paquet.py verifie leur presence
-amnesia = ["py.typed", "schemas/*.json", "catalog/*.toml", "templates/**/*"]
+# heritent des types de Check et Gap), schemas (#22), catalogue (#46 : version,
+# identifiants publies, questions et sources par domaine) et gabarits de rapport
+# (#77) ; tests/test_paquet.py verifie leur presence
+amnesia = [
+    "py.typed",
+    "schemas/*.json",
+    "catalog/VERSION",
+    "catalog/ids.lock",
+    "catalog/*/*.toml",
+    "templates/**/*",
+]
 
 [tool.pytest.ini_options]
 # Marqueurs (windows, admin, lab, cloud, network) et options --run-* :

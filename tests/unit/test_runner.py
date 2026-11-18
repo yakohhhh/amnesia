@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import getpass
 import logging
 import subprocess
@@ -19,6 +20,7 @@ import pytest
 
 import amnesia
 from amnesia import AuditResult, run_audit, runner
+from amnesia.catalog import CatalogError, load_catalog, render_question
 from amnesia.checks import REGISTRY, Check, Gap
 from amnesia.checks.base import (
     CheckResult,
@@ -94,6 +96,7 @@ def un_gap(
         check_id=check_id,
         target=cible,
         resource=ressource,
+        question_id="Q-WIN-RDP-LOGON",
         question="Qui s'est connecté ?",
         reason="journal écrasé",
         severity=Severity.parse(severite),
@@ -597,6 +600,7 @@ def test_metadonnees_d_execution() -> None:
     a = auditer([], operator="ACME\\auditeur")
     b = auditer([])
     assert a.amnesia_version == amnesia.__version__
+    assert a.catalog_version == load_catalog().version
     assert a.run_id != b.run_id
     assert len(a.run_id) == 36
     assert a.target is CIBLE
@@ -747,3 +751,66 @@ def test_check_sans_fait_non_bloque_par_une_collecte_bloquee(
     assert resultats["test.b"].status is Status.PASS
     assert resultats["test.c"].status is Status.PASS
     assert time.monotonic() - debut < 2.0
+
+
+# --- catalogue des questions (#46) ---------------------------------------------
+
+
+def test_gap_de_question_inconnue_du_catalogue_refuse() -> None:
+    # le rapport annonce une version de catalogue : un Gap n'y entre qu'avec
+    # une question que ce catalogue definit
+    def inconnue(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
+        gap = dataclasses.replace(
+            un_gap(check.id, ctx.target.id, "high"), question_id="Q-WIN-INCONNUE"
+        )
+        return CheckResult.with_gaps(check.id, ctx.target.id, [gap])
+
+    audit = auditer(
+        [Factice("test.inconnue", inconnue), Factice("test.gap", gap("low"))]
+    )
+    resultats = par_id(audit)
+    fautif = resultats["test.inconnue"]
+    assert (fautif.status, fautif.reason) == (Status.ERROR, Reason.INTERNAL_ERROR)
+    assert fautif.gaps == ()
+    assert fautif.error is not None
+    assert fautif.error.type == "ValueError"
+    assert (
+        f"question_id est inconnu du catalogue {load_catalog().version} : "
+        "'Q-WIN-INCONNUE'" in fautif.error.message
+    )
+    # le check suivant n'en souffre pas, et l'audit n'est pas complet
+    assert resultats["test.gap"].status is Status.GAP
+    assert audit.complete is False
+
+
+def test_gap_dont_la_question_vient_du_catalogue() -> None:
+    def rdp(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
+        hote = ctx.target.address
+        assert hote is not None
+        gap = dataclasses.replace(
+            un_gap(check.id, ctx.target.id, "high"),
+            question_id="Q-WIN-RDP-LOGON",
+            question=render_question("Q-WIN-RDP-LOGON", host=hote, lookback_days=21),
+        )
+        return CheckResult.with_gaps(check.id, ctx.target.id, [gap])
+
+    (resultat,) = auditer([Factice("test.rdp", rdp)]).results
+    (constat,) = resultat.gaps
+    assert constat.question_id == "Q-WIN-RDP-LOGON"
+    assert constat.question == (
+        "Qui s'est connecté en RDP sur dc01 il y a trois semaines ?"
+    )
+
+
+def test_catalogue_invalide_arrete_l_audit_avant_le_premier_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # paquet altere : aucun check n'est evalue contre un catalogue douteux
+    def invalide() -> None:
+        raise CatalogError("VERSION : fichier absent")
+
+    monkeypatch.setattr(runner, "load_catalog", invalide)
+    check = Factice("test.pass", conforme)
+    with pytest.raises(CatalogError, match="VERSION : fichier absent"):
+        auditer([check])
+    assert check.appels == 0

@@ -64,7 +64,7 @@ Tous les champs sont toujours présents ; une valeur absente vaut `null`.
 | --- | --- | --- |
 | `name` | chaîne | Toujours `amnesia`. |
 | `version` | chaîne | Version d'amnesia qui a mené l'audit (`amnesia.__version__`). |
-| `catalog_version` | chaîne ou `null` | Version du catalogue de questions ; `null` tant que le catalogue (#46) n'existe pas. |
+| `catalog_version` | chaîne | Version CalVer du catalogue de questions (`2026.11.0`) qui définit les `question_id` du rapport ([`catalogue.md`](catalogue.md)). |
 
 ### `run`
 
@@ -114,7 +114,7 @@ Forme de `Gap.to_dict()` (modèle Gap v1, #16 ; grille de sévérité :
 | `check_id` | chaîne | Check qui a produit le Gap. |
 | `target` | chaîne | `id` de la cible. |
 | `resource` | chaîne | Ressource en défaut : journal, GPO, objet AD... |
-| `question_id` | chaîne ou `null` | Question du catalogue (#46). |
+| `question_id` | chaîne | Question du catalogue (`Q-WIN-RDP-LOGON`) : identifiant immuable, détaillé par `amnesia catalog show <id>` ([`catalogue.md`](catalogue.md)). |
 | `question` | chaîne | Question d'enquête qui restera sans réponse. |
 | `reason` | chaîne | Pourquoi. |
 | `severity` | énumération | `critical`, `high`, `medium`, `low` ou `info`. |
@@ -175,6 +175,11 @@ pas et ignore les champs inconnus : le schéma v1 ne déclare pas
 vérifient en revanche qu'amnesia n'écrit aucun champ absent du schéma. La
 politique de versionnage du projet (#31) reprend cette règle.
 
+Ces règles s'appliquent à partir de la première publication d'amnesia
+([`RELEASING.md`](RELEASING.md)). Avant elle, le schéma `1.0.0` a été resserré
+une fois sans changer de version : depuis le catalogue de questions (#46),
+`tool.catalog_version` et `question_id` ne valent plus jamais `null`.
+
 ## Sécurité et confidentialité
 
 - **Arguments masqués** : dans `run.argv`, la valeur de `--password`,
@@ -223,7 +228,7 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
   "tool": {
     "name": "amnesia",
     "version": "0.1.0",
-    "catalog_version": null
+    "catalog_version": "2026.11.0"
   },
   "run": {
     "id": "5f0c6b1e-8a3d-4c2b-9e7f-1a2b3c4d5e6f",
@@ -318,11 +323,11 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
   ],
   "gaps": [
     {
-      "fingerprint": "8bcac978c5c18ccbffdca61a07951bee2e73e11430676cc6961095bcfa02ba4b",
+      "fingerprint": "fcbd9c5733b6739d141c4ffbe8e547a81422f5b92e33b1b3cb2d921f319f627f",
       "check_id": "win.event_log_retention",
       "target": "winrm://srv-file.exemple.invalid",
       "resource": "Security",
-      "question_id": null,
+      "question_id": "Q-WIN-RDP-LOGON",
       "question": "Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?",
       "reason": "Le journal Security fait 20 Mo et a été écrasé il y a 4 jours.",
       "severity": "high",
@@ -353,11 +358,11 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
       "compromise_indicator": false
     },
     {
-      "fingerprint": "56f5e1ed812ee96cc1c60df9e2c2b3683cb3009f7f8d67f490be554ac21e019d",
+      "fingerprint": "7755b7f0930db21126d21d80bd4edfec78cd55b69302e62cc6fe4437dd4773f9",
       "check_id": "win.powershell_logging",
       "target": "winrm://srv-file.exemple.invalid",
       "resource": "ScriptBlockLogging",
-      "question_id": null,
+      "question_id": "Q-WIN-POWERSHELL",
       "question": "Quelles commandes PowerShell l'attaquant a-t-il exécutées ?",
       "reason": "La journalisation des blocs de script est désactivée.",
       "severity": "medium",

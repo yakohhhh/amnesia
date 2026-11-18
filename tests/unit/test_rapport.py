@@ -25,6 +25,7 @@ import pytest
 import amnesia
 from amnesia import AuditResult, run_audit
 from amnesia import report as module_rapport
+from amnesia.catalog import load_catalog
 from amnesia.checks import REGISTRY, Check
 from amnesia.checks.base import (
     CheckResult,
@@ -107,6 +108,7 @@ def un_gap(
         check_id=check_id,
         target=cible,
         resource=ressource,
+        question_id="Q-WIN-RDP-LOGON",
         question=question,
         reason="Le journal a été écrasé.",
         severity=severite,
@@ -189,6 +191,7 @@ def audit_de_reference(ordre: int = 1) -> AuditResult:
         check_id="win.event_log_retention",
         target=cible,
         resource="Security",
+        question_id="Q-WIN-RDP-LOGON",
         question="Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?",
         reason="Le journal Security fait 20 Mo et a été écrasé il y a 4 jours.",
         severity=Severity.HIGH,
@@ -224,6 +227,7 @@ def audit_de_reference(ordre: int = 1) -> AuditResult:
         check_id="win.powershell_logging",
         target=cible,
         resource="ScriptBlockLogging",
+        question_id="Q-WIN-POWERSHELL",
         question="Quelles commandes PowerShell l'attaquant a-t-il exécutées ?",
         reason="La journalisation des blocs de script est désactivée.",
         severity=Severity.MEDIUM,
@@ -266,6 +270,9 @@ def audit_de_reference(ordre: int = 1) -> AuditResult:
     ]
     return AuditResult(
         amnesia_version="0.1.0",
+        # fige comme la version d'amnesia : le golden ne change pas quand
+        # le catalogue embarque est incremente
+        catalog_version="2026.11.0",
         run_id=RUN_ID,
         started_at="2026-10-21T09:30:00+00:00",
         finished_at="2026-10-21T09:30:04.250000+00:00",
@@ -334,7 +341,7 @@ def test_version_horodatages_et_duree() -> None:
     assert rapport["tool"] == {
         "name": "amnesia",
         "version": amnesia.__version__,
-        "catalog_version": None,
+        "catalog_version": load_catalog().version,
     }
     run = rapport["run"]
     assert run["started_at"] == run["finished_at"] == "2026-10-21T09:30:00Z"
@@ -867,3 +874,47 @@ def test_doc_documente_chaque_champ_et_la_compatibilite() -> None:
     assert "## Compatibilité" in texte
     for mot in ("MAJEURE", "MINEURE", "ignore"):
         assert mot in texte
+
+
+# --- catalogue des questions (#46) ---------------------------------------------
+
+
+def test_rapport_porte_la_version_du_catalogue_et_un_question_id_par_gap() -> None:
+    checks = [Factice("win.angle_mort", avec_gaps(Severity.HIGH, Severity.LOW))]
+    rapport = build_report(auditer(checks), check_versions={})
+    valider(rapport)
+    catalogue = load_catalog()
+    assert rapport["tool"]["catalog_version"] == catalogue.version
+    assert rapport["gaps"]
+    for gap in rapport["gaps"]:
+        assert gap["question_id"] in catalogue
+    # le golden aussi : chaque question_id est une question du catalogue
+    for gap in rapport_de_reference()["gaps"]:
+        assert gap["question_id"] in catalogue
+
+
+@pytest.mark.parametrize("valeur", [None, "", "rdp", "q-win-rdp-logon", "Q-WIN", 46])
+def test_schema_refuse_un_gap_sans_question_du_catalogue(valeur: object) -> None:
+    rapport = rapport_de_reference()
+    valider(rapport)
+    rapport["gaps"][0]["question_id"] = valeur
+    with pytest.raises(jsonschema.ValidationError):
+        valider(rapport)
+    del rapport["gaps"][0]["question_id"]
+    with pytest.raises(jsonschema.ValidationError, match="question_id"):
+        valider(rapport)
+
+
+@pytest.mark.parametrize(
+    "valeur", [None, "", "1.0.0", "2026.11", "2026.13.0", "2026.011.0"]
+)
+def test_schema_exige_une_version_de_catalogue_calver(valeur: object) -> None:
+    rapport = rapport_de_reference()
+    rapport["tool"]["catalog_version"] = valeur
+    with pytest.raises(jsonschema.ValidationError):
+        valider(rapport)
+    rapport["tool"]["catalog_version"] = "2027.1.12"
+    valider(rapport)
+    del rapport["tool"]["catalog_version"]
+    with pytest.raises(jsonschema.ValidationError, match="catalog_version"):
+        valider(rapport)

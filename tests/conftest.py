@@ -231,6 +231,7 @@ def registre_factice(monkeypatch: pytest.MonkeyPatch) -> list[CheckFactice]:
                     check_id="test.avec_gap",
                     target="local",
                     resource="Security",
+                    question_id="Q-WIN-RDP-LOGON",
                     question="Qui s'est connecte ?",
                     reason="journal factice ecrase",
                     severity=Severity.HIGH,

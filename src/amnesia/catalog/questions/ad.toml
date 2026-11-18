@@ -1,0 +1,188 @@
+# Questions d'enquête du domaine ad.
+#
+# Une table [[question]] par question ; format et règles : docs/catalogue.md.
+# Un identifiant publié (ids.lock) ne change plus et ne se retire jamais : une
+# question abandonnée passe en status = "deprecated" avec replaced_by.
+# Les formulations sont originales ; les sources citées sont listées dans
+# docs/catalogue.md. Vérifier une modification : amnesia catalog validate
+# Aucun check AD n'existe encore : toutes les questions sont "planned".
+
+# --- Comptes et privilèges -------------------------------------------------
+
+[[question]]
+id = "Q-AD-PRIV-GROUP"
+status = "planned"
+domain = "ad"
+theme = "persistence"
+roles = ["dc"]
+severity_default = "critical"
+text.fr = "Qui a ajouté un compte à un groupe à privilèges du domaine il y a {lookback} ?"
+why.fr = "L'ajout d'un compte aux administrateurs du domaine donne le contrôle de tout le système d'information ; sans cet événement, l'enquête ne peut ni le dater ni en nommer l'auteur."
+sources = [
+  "SRC-AD-4728-4732-4756",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-ACCOUNT-CREATE"
+status = "planned"
+domain = "ad"
+theme = "persistence"
+roles = ["dc"]
+severity_default = "high"
+text.fr = "Quels comptes ont été créés ou activés dans le domaine il y a {lookback}, et par qui ?"
+why.fr = "Un compte créé ou réactivé par l'attaquant lui garde un accès légitime en apparence ; sans ces événements, il se confond avec les comptes du quotidien."
+sources = [
+  "SRC-AD-4720-4722",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-PASSWORD-RESET"
+status = "planned"
+domain = "ad"
+theme = "persistence"
+roles = ["dc"]
+severity_default = "high"
+text.fr = "Qui a réinitialisé le mot de passe d'un compte du domaine il y a {lookback} ?"
+why.fr = "Réinitialiser un mot de passe suffit à s'approprier un compte ; sans cet événement, l'enquête ne distingue pas le titulaire légitime de l'attaquant."
+sources = [
+  "SRC-AD-4724",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+# --- Authentification et secrets -------------------------------------------
+
+[[question]]
+id = "Q-AD-DCSYNC"
+status = "planned"
+domain = "ad"
+theme = "authentication"
+roles = ["dc"]
+severity_default = "critical"
+text.fr = "Quel compte a demandé à {host} la réplication des secrets de l'annuaire (DCSync) il y a {lookback} ?"
+why.fr = "Une réplication abusive livre les secrets de tous les comptes du domaine ; sans audit de ces droits, l'enquête ne peut pas dire si le domaine entier est à reconstruire."
+sources = [
+  "SRC-AD-4662-DCSYNC",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "DS-Replication-Get-Changes-All", url = "https://learn.microsoft.com/en-us/windows/win32/adschema/r-ds-replication-get-changes-all" },
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-KERBEROAST"
+status = "planned"
+domain = "ad"
+theme = "authentication"
+roles = ["dc"]
+severity_default = "high"
+text.fr = "Quels tickets de service Kerberos chiffrés en RC4 ont été demandés à {host} il y a {lookback}, et par quel compte ?"
+why.fr = "Des demandes en série de tickets de service en RC4 trahissent une attaque hors ligne des mots de passe des comptes de service ; sans elles, la liste des comptes exposés reste inconnue."
+sources = [
+  "SRC-AD-4769-RC4",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-ASREP"
+status = "planned"
+domain = "ad"
+theme = "authentication"
+roles = ["dc"]
+severity_default = "medium"
+text.fr = "Quels comptes ont obtenu un ticket Kerberos sans pré-authentification auprès de {host} il y a {lookback} ?"
+why.fr = "Un ticket délivré sans pré-authentification se casse hors ligne ; sans cet événement, l'enquête ne sait pas quels comptes ont été visés ni depuis quelle machine."
+sources = [
+  "SRC-AD-4768-NOPREAUTH",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-PWD-SPRAY"
+status = "planned"
+domain = "ad"
+theme = "authentication"
+roles = ["dc"]
+severity_default = "high"
+text.fr = "Quels comptes du domaine ont subi des échecs d'authentification en série il y a {lookback}, et depuis quelles machines ?"
+why.fr = "Sans les échecs d'authentification vus par les contrôleurs de domaine, une attaque par pulvérisation de mots de passe et le premier compte compromis passent inaperçus."
+sources = [
+  "SRC-AD-4771",
+  "SRC-AD-4776",
+  "SRC-AD-4625",
+  "SRC-AD-4740",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+# --- Modifications de l'annuaire -------------------------------------------
+
+[[question]]
+id = "Q-AD-GPO-CHANGE"
+status = "planned"
+domain = "ad"
+theme = "persistence"
+roles = ["dc"]
+severity_default = "high"
+text.fr = "Quelles stratégies de groupe (GPO) ont été modifiées il y a {lookback}, et par qui ?"
+why.fr = "Une GPO modifiée déploie du code ou affaiblit la sécurité sur tout un parc ; sans trace du changement, ni son auteur ni son contenu d'origine ne sont connus."
+sources = [
+  "SRC-AD-5136-GPO",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-ACL-CHANGE"
+status = "planned"
+domain = "ad"
+theme = "persistence"
+roles = ["dc"]
+severity_default = "high"
+text.fr = "Quels objets de l'annuaire ont vu leurs droits d'accès (ACL) modifiés il y a {lookback}, et par qui ?"
+why.fr = "Un droit ajouté sur un objet sensible est une porte dérobée discrète dans l'annuaire ; sans audit des modifications, elle survit à la remédiation."
+sources = [
+  "SRC-AD-5136-ACL",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
+
+[[question]]
+id = "Q-AD-CERT-ISSUE"
+status = "planned"
+domain = "ad"
+theme = "authentication"
+roles = ["dc", "server"]
+severity_default = "medium"
+text.fr = "Quels certificats l'autorité de certification {host} a-t-elle délivrés il y a {lookback}, et à quels demandeurs ?"
+why.fr = "Un certificat obtenu frauduleusement permet de s'authentifier à la place d'un autre compte, même après un changement de mot de passe ; sans journal des délivrances, il reste valide et inconnu."
+sources = [
+  "SRC-AD-4886-4887",
+]
+checks = []
+references = [
+  { kind = "microsoft", id = "MS-GPAC", url = "https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpac/77878370-0712-47cd-997d-b07053429f6d" },
+]
