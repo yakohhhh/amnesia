@@ -74,7 +74,8 @@ Les modules forment des couches ; une couche n'importe que les couches plus
 basses. De bas en haut :
 
 1. **socle sans dépendance interne** : `amnesia.target` (cibles et transports),
-   `amnesia.log` (journal expurgé), `amnesia.facts.model` (faits) ;
+   `amnesia.log` (journal expurgé), `amnesia.facts.model` (faits),
+   `amnesia.deps` (extras optionnels, importés à la demande) ;
 2. **modèle des checks** : `amnesia.checks.base` (`Check`, `CheckResult`,
    `Gap`), `amnesia.checks.context`, `amnesia.checks.registry` ;
 3. **collecte et résolution** : `amnesia.facts.collectors`,
@@ -103,16 +104,17 @@ modules.
 | `amnesia.render.text` | `amnesia.render.base` |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.report` |
 | `amnesia.report` | `amnesia.checks`, `amnesia.runner`, `amnesia.target` |
-| `amnesia.runner` | `amnesia`, `amnesia.checks`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
+| `amnesia.runner` | `amnesia`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
-| `amnesia.checks.registry` | `amnesia.checks.base`, `amnesia.target` |
+| `amnesia.checks.registry` | `amnesia.checks.base`, `amnesia.deps`, `amnesia.target` |
 | `amnesia.checks.context` | `amnesia.target` |
 | `amnesia.checks.base` | aucune |
 | `amnesia.facts` | `amnesia.facts.collectors`, `amnesia.facts.model`, `amnesia.facts.resolution` |
 | `amnesia.facts.resolution` | `amnesia.checks.base`, `amnesia.facts.model` |
 | `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.target` |
 | `amnesia.facts.model` | aucune |
+| `amnesia.deps` | aucune |
 | `amnesia.log` | aucune |
 | `amnesia.target` | aucune |
 
