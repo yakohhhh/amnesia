@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Lance amnesia dans un processus dont le reseau est coupe (#26).
 
 Usage : ``python tests/sans_reseau.py <arguments d'amnesia>``
