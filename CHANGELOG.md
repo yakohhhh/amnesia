@@ -94,5 +94,15 @@ la première version sera la 0.1.0 (milestone M0).
   sous-processus lancé par amnesia reçoit `POWERSHELL_TELEMETRY_OPTOUT=1` et
   `POWERSHELL_UPDATECHECK=Off` (`amnesia.facts.subprocess_env()`). Engagement
   écrit : README, section « Confidentialité » (#26).
+- Écriture sécurisée du rapport : sans `--out`, il va dans
+  `amnesia-out/amnesia-report.json` (dossier créé en 0700, avec un `.gitignore`
+  réduit à `*`) et non plus dans le répertoire courant. Le fichier est lisible du
+  seul compte courant (0600 quel que soit l'umask ; sous Windows, ACL réduite au
+  compte courant, héritage désactivé), écrit de façon atomique (ni fichier
+  partiel ni temporaire après une erreur ou un Ctrl+C) et jamais écrasé sans
+  `--overwrite`, même s'il apparaît pendant l'audit (code 2). Une destination qui
+  est un lien symbolique est refusée, même avec `--overwrite` (code 2), et une
+  destination située dans un dépôt git sans y être ignorée déclenche un
+  avertissement sur stderr (#25).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main

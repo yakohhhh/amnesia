@@ -153,7 +153,8 @@ def test_commande_amnesia_pointe_sur_main() -> None:
 
 def test_audit_valeurs_par_defaut() -> None:
     args = build_parser().parse_args(["audit"])
-    assert (args.target, args.out) == (Target.parse("localhost"), "amnesia-report.json")
+    # sans --out : amnesia-out/amnesia-report.json (amnesia.output, #25)
+    assert (args.target, args.out) == (Target.parse("localhost"), None)
 
 
 def test_audit_reel_ecrit_le_rapport(
@@ -166,9 +167,10 @@ def test_audit_reel_ecrit_le_rapport(
     assert main(["audit", "--target", "winrm://dc01"]) == 1
     sortie = capsys.readouterr().out
     assert "[stub]" not in sortie
-    # rapport par defaut dans le cwd, isole par le conftest
-    rapport = tmp_path / "amnesia-report.json"
-    assert list(tmp_path.iterdir()) == [rapport]
+    # rapport par defaut dans amnesia-out/ du cwd, isole par le conftest
+    rapport = tmp_path / "amnesia-out" / "amnesia-report.json"
+    assert list(tmp_path.iterdir()) == [rapport.parent]
+    assert rapport.is_file()
     resultats = json.loads(rapport.read_text(encoding="utf-8"))["results"]
     assert sorted(r["check_id"] for r in resultats) == sorted(
         c.id for c in registre_factice

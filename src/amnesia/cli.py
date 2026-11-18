@@ -18,7 +18,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
 from . import __version__
 from .checks import REGISTRY, CheckMeta, default_checks
@@ -35,6 +35,13 @@ from .exitcodes import (
 )
 from .facts import Collector, Fact, FactSet, LocalCollector, UnavailableReason
 from .log import FORMATS, setup_logging
+from .output import (
+    UnsafeDestinationError,
+    default_report_path,
+    prepare_default_dir,
+    warn_if_not_ignored,
+    write_private,
+)
 from .render import (
     GROUP_BY,
     RENDERERS,
@@ -57,8 +64,13 @@ CODE_RAPPORT_ILLISIBLE = FATAL
 # --out - : le JSON va sur stdout, le rendu texte sur stderr
 SORTIE_STANDARD = "-"
 
-DEFAULT_OUT = "amnesia-report.json"
-"""Rapport par défaut, relatif au répertoire courant (emplacement définitif : #25)."""
+DEFAULT_OUT = default_report_path().as_posix()
+"""Rapport sans ``--out`` : ``amnesia-out/amnesia-report.json``, relatif au
+répertoire courant (``amnesia.output``)."""
+
+# refus de --out, avant l'audit comme au moment d'ecrire
+EXISTE_DEJA = "existe déjà (--overwrite pour l'écraser)"
+LIEN_REFUSE = "lien symbolique refusé, même avec --overwrite"
 
 FORMATS_SORTIE = ("text", "json")
 """Ce que ``amnesia audit`` écrit sur stdout : rendu texte ou le rapport JSON."""
@@ -258,103 +270,61 @@ def _collecteur(target: Target) -> Collector:
     return _CollecteurAbsent(target.transport)
 
 
-# CreateFileW (winnt.h, fileapi.h)
-_GENERIC_WRITE = 0x40000000
-_FILE_SHARE_READ = 0x00000001
-_FILE_SHARE_WRITE = 0x00000002
-_CREATE_NEW = 1
-_FILE_ATTRIBUTE_NORMAL = 0x00000080
-_FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> int:
+    """Écrit le rapport par ``amnesia.output.write_private()`` ; rend un code.
 
-
-def _creer_sans_suivre(chemin: Path) -> BinaryIO:
-    """Crée ``chemin`` pour y écrire des octets, sans jamais suivre de lien.
-
-    Échoue (``OSError``) dès qu'une entrée occupe ce nom, lien symbolique cassé
-    compris. Sous POSIX, c'est la garantie du mode ``x`` (``O_CREAT | O_EXCL``).
-    Sous Windows, ``open()`` appelle ``CreateFileW(CREATE_NEW)``, qui suit un
-    lien cassé et crée sa cible : ``FILE_FLAG_OPEN_REPARSE_POINT`` y fait du
-    lien lui-même l'entrée existante (``ERROR_FILE_EXISTS``), d'où l'appel
-    direct.
-    """
-    if sys.platform == "win32":
-        return _creer_sans_suivre_windows(chemin)
-    else:
-        # if/else et non retour anticipe : mypy ignore la branche de l'autre
-        # plateforme sans la signaler comme inatteignable
-        return chemin.open("xb")
-
-
-if sys.platform == "win32":
-    import ctypes
-    import msvcrt
-    from ctypes import wintypes
-
-    def _creer_sans_suivre_windows(chemin: Path) -> BinaryIO:
-        """``CreateFileW(CREATE_NEW)`` avec ``FILE_FLAG_OPEN_REPARSE_POINT``."""
-        # instance propre : ctypes.windll est partage, ses argtypes aussi
-        noyau = ctypes.WinDLL("kernel32", use_last_error=True)
-        creer = noyau.CreateFileW
-        creer.argtypes = (
-            wintypes.LPCWSTR,
-            wintypes.DWORD,
-            wintypes.DWORD,
-            wintypes.LPVOID,
-            wintypes.DWORD,
-            wintypes.DWORD,
-            wintypes.HANDLE,
-        )
-        creer.restype = wintypes.HANDLE
-        fermer = noyau.CloseHandle
-        fermer.argtypes = (wintypes.HANDLE,)
-        fermer.restype = wintypes.BOOL
-        poignee = creer(
-            os.fspath(chemin),
-            _GENERIC_WRITE,
-            _FILE_SHARE_READ | _FILE_SHARE_WRITE,
-            None,
-            _CREATE_NEW,
-            _FILE_ATTRIBUTE_NORMAL | _FILE_FLAG_OPEN_REPARSE_POINT,
-            None,
-        )
-        # INVALID_HANDLE_VALUE vaut -1, rendu non signe par HANDLE (c_void_p)
-        if poignee is None or poignee == ctypes.c_void_p(-1).value:
-            raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            fd = msvcrt.open_osfhandle(poignee, os.O_WRONLY)
-        except BaseException:
-            fermer(poignee)
-            raise
-        try:
-            return os.fdopen(fd, "wb")
-        except BaseException:
-            os.close(fd)
-            raise
-
-
-def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> bool:
-    """Écrit le rapport dans ``chemin`` ; faux (et journal) si c'est impossible.
-
-    Le fichier est toujours créé par ``_creer_sans_suivre`` (mode ``x``,
-    ``O_EXCL``), qui ne suit jamais un lien, symbolique ou physique, planté à
-    cet emplacement, sous POSIX comme sous Windows. Sans ``overwrite``, un
-    fichier existant n'est donc jamais écrasé. Avec, l'entrée présente est
-    d'abord retirée (un lien est retiré, sa cible reste intacte), puis le
-    rapport est créé à sa place ; une entrée réapparue entre les deux fait
-    échouer la création : rien n'est écrasé. Permissions, écriture atomique et
-    emplacement par défaut : #25.
+    0600 (ACL du seul compte courant sous Windows), écriture atomique, jamais
+    à travers un lien symbolique. Une entrée apparue à ce chemin pendant
+    l'audit, ou un lien symbolique, donne le code 2 sans rien modifier ; toute
+    autre erreur, le code 4.
     """
     try:
-        if overwrite:
-            chemin.unlink(missing_ok=True)
-        with _creer_sans_suivre(chemin) as fichier:
-            fichier.write(octets)
+        write_private(chemin, octets, force=overwrite)
+    except UnsafeDestinationError:
+        logger.error("rapport %s : %s", chemin, LIEN_REFUSE)
+        return USAGE
+    except FileExistsError:
+        logger.error("rapport %s : %s ; rapport non écrit", chemin, EXISTE_DEJA)
+        return USAGE
     except OSError as exc:
         logger.error(
             "rapport %s : écriture impossible : %s", chemin, exc.strerror or exc
         )
-        return False
+        return FATAL
     logger.info("rapport écrit : %s", chemin)
+    return OK
+
+
+def _refus_out(chemin: Path, *, overwrite: bool) -> str | None:
+    """Motif de refus de ``--out`` avant l'audit, ou ``None``.
+
+    Perdre un audit entier pour un fichier déjà là serait pire : le test est
+    fait avant. ``write_private()`` le refait de façon atomique au moment
+    d'écrire.
+    """
+    if chemin.is_symlink():
+        return LIEN_REFUSE
+    if not overwrite and chemin.exists():
+        return EXISTE_DEJA
+    return None
+
+
+def _preparer_out(chemin: Path, *, par_defaut: bool) -> bool:
+    """Prépare ``amnesia-out/`` sans ``--out`` ; avertit si git peut voir le rapport.
+
+    Faux (et journal) si le dossier par défaut ne peut pas être créé.
+    """
+    if par_defaut:
+        try:
+            prepare_default_dir(chemin.parent)
+        except OSError as exc:
+            logger.error(
+                "dossier %s : création impossible : %s",
+                chemin.parent,
+                exc.strerror or exc,
+            )
+            return False
+    warn_if_not_ignored(chemin)
     return True
 
 
@@ -372,18 +342,33 @@ def _auditer(
     """Commande audit : checks du registre → rapport JSON → rendu texte.
 
     ``--out PATH`` : le JSON va dans le fichier et stdout reçoit ``--format``
-    (rendu texte, ou le JSON). ``--out -`` : le JSON va sur stdout et le rendu
-    texte sur stderr (rien d'autre avec ``--format json``).
+    (rendu texte, ou le JSON). Sans ``--out``, le fichier est
+    ``amnesia-out/amnesia-report.json``, dans un dossier créé en 0700 et ignoré
+    par git. ``--out -`` : le JSON va sur stdout et le rendu texte sur stderr
+    (rien d'autre avec ``--format json``). Écriture : ``amnesia.output``.
     """
-    vers_stdout = args.out == SORTIE_STANDARD
-    chemin = None if vers_stdout else Path(args.out)
+    par_defaut = args.out is None
+    chemin: Path | None
+    if args.out == SORTIE_STANDARD:
+        chemin = None
+    elif par_defaut:
+        chemin = default_report_path()
+    else:
+        chemin = Path(args.out)
     # le chemin vient de la ligne de commande : neutralise avant tout echo
     chemin_affiche = assainir(str(chemin)) if chemin is not None else ""
-    # avant l'audit : perdre un audit entier pour un fichier deja la serait pire
-    if chemin is not None and not args.overwrite and chemin.exists():
-        parser.error(
-            f"--out {chemin_affiche} : existe déjà (--overwrite pour l'écraser)"
-        )
+    if chemin is not None:
+        try:
+            refus = _refus_out(chemin, overwrite=args.overwrite)
+        except OSError as exc:
+            logger.error(
+                "rapport %s : écriture impossible : %s", chemin, exc.strerror or exc
+            )
+            return FATAL
+        if refus is not None:
+            parser.error(f"--out {chemin_affiche} : {refus}")
+        if not _preparer_out(chemin, par_defaut=par_defaut):
+            return FATAL
     # instances neuves : aucun etat ne passe d'un audit a l'autre
     checks = default_checks()
     audit = run_audit(checks, args.target, _collecteur(args.target), debug=args.debug)
@@ -394,8 +379,9 @@ def _auditer(
         _ecrire_utf8(octets, texte_json)
         flux_texte = sys.stderr
     else:
-        if not _ecrire_rapport(chemin, octets, overwrite=args.overwrite):
-            return FATAL
+        code = _ecrire_rapport(chemin, octets, overwrite=args.overwrite)
+        if code != OK:
+            return code
         flux_texte = sys.stdout
         if args.format == "json":
             _ecrire_utf8(octets, texte_json)
@@ -439,17 +425,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     a.add_argument(
         "--out",
-        default=DEFAULT_OUT,
+        default=None,
         metavar="PATH|-",
         help=(
-            f"rapport JSON (défaut : {DEFAULT_OUT}) ; « - » : JSON sur stdout, "
-            "rendu texte sur stderr"
+            f"rapport JSON, créé en 0600 (défaut : {DEFAULT_OUT}, dossier en "
+            "0700 ignoré par git) ; « - » : JSON sur stdout, rendu texte sur stderr"
         ),
     )
     a.add_argument(
         "--overwrite",
         action="store_true",
-        help="écrase un rapport existant (refusé sinon)",
+        help="remplace un rapport existant (refusé sinon), jamais un lien symbolique",
     )
     a.add_argument(
         "--format",

@@ -138,8 +138,8 @@ def test_surrogate_en_sortie_utf8(
     # le surrogate passe par --out : la cible est validee en ASCII (#18). Le
     # fichier n'est pas cree (un systeme de fichiers peut refuser le nom) : seul
     # son nom, repete sur stdout apres le rendu, est en jeu ici
-    def ecriture_simulee(chemin: Path, octets: bytes, *, overwrite: bool) -> bool:
-        return True
+    def ecriture_simulee(chemin: Path, octets: bytes, *, overwrite: bool) -> int:
+        return 0
 
     monkeypatch.setattr(cli, "_ecrire_rapport", ecriture_simulee)
     cible = "winrm://essai.invalid"
