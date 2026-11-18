@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Extras optionnels : dépendances tierces d'exécution, importées à la demande.
 
 Le socle (``amnesia-dfr`` installé sans extra) n'a aucune dépendance tierce :

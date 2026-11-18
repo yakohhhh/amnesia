@@ -314,11 +314,13 @@ GIT_HERMETIQUE = {
 AUTEUR = ("Alice Martin", "alice@example.org")
 
 
-def _git(depot: Path, *args: str, auteur: tuple[str, str] = AUTEUR) -> None:
+def _git(
+    depot: Path, *args: str, auteur: tuple[str, str] = AUTEUR, check: bool = True
+) -> int:
     nom, courriel = auteur
-    subprocess.run(  # noqa: S603 - git et arguments constants, sans shell
+    return subprocess.run(  # noqa: S603 - git et arguments constants, sans shell
         ["git", "-C", str(depot), *args],  # noqa: S607 - git du PATH
-        check=True,
+        check=check,
         capture_output=True,
         env={
             **GIT_HERMETIQUE,
@@ -327,7 +329,7 @@ def _git(depot: Path, *args: str, auteur: tuple[str, str] = AUTEUR) -> None:
             "GIT_COMMITTER_NAME": nom,
             "GIT_COMMITTER_EMAIL": courriel,
         },
-    )
+    ).returncode
 
 
 def _commit(
@@ -420,7 +422,7 @@ def test_dco_casse_de_l_adresse_ignoree_et_chaine_de_signatures(depot: Path) -> 
     assert code == 0, sortie
 
 
-def test_dco_ignore_main_et_les_fusions(depot: Path) -> None:
+def test_dco_ignore_main_et_les_fusions_propres(depot: Path) -> None:
     _commit(depot, "Contribution", signe=True)
     _git(depot, "switch", "-q", "main")
     _commit(depot, "Autre commit de main, sans Signed-off-by")
@@ -430,6 +432,71 @@ def test_dco_ignore_main_et_les_fusions(depot: Path) -> None:
     code, sortie = _dco(depot)
     assert code == 0, sortie
     assert "1 commits verifies, 0 sans DCO" in sortie
+
+
+def _ecrire(depot: Path, nom: str, contenu: str) -> None:
+    (depot / nom).write_text(contenu, encoding="utf-8")
+    _git(depot, "add", nom)
+
+
+@pytest.mark.parametrize("signe", [False, True])
+def test_dco_fusion_qui_ajoute_du_contenu_verifiee(depot: Path, signe: bool) -> None:
+    # un petit commit signe, puis une fusion qui apporte un fichier absent de ses
+    # deux parents : sans Signed-off-by, ce contenu entrerait sans attestation
+    _commit(depot, "Contribution", signe=True)
+    _git(depot, "switch", "-q", "main")
+    _ecrire(depot, "main.txt", "main\n")
+    _git(depot, "commit", "-q", "--no-verify", "-m", "Commit de main")
+    _git(depot, "switch", "-q", "pr")
+    _git(depot, "merge", "-q", "--no-ff", "--no-commit", "main")
+    _ecrire(depot, "porte_derobee.py", "print('x')\n")
+    options = ["-s"] if signe else []
+    _git(depot, "commit", "-q", "--no-verify", *options, "-m", "Fusion de main")
+    code, sortie = _dco(depot)
+    assert code == (0 if signe else 1), sortie
+    assert f"2 commits verifies, {0 if signe else 1} sans DCO" in sortie
+
+
+def test_dco_conflit_resolu_a_la_main_verifie(depot: Path) -> None:
+    _ecrire(depot, "fichier.txt", "branche\n")
+    _git(depot, "commit", "-q", "--no-verify", "-s", "-m", "Contribution")
+    _git(depot, "switch", "-q", "main")
+    _ecrire(depot, "fichier.txt", "main\n")
+    _git(depot, "commit", "-q", "--no-verify", "-m", "Commit de main")
+    _git(depot, "switch", "-q", "pr")
+    # conflit (code 1), resolu a la main puis valide sans Signed-off-by
+    assert _git(depot, "merge", "-q", "main", check=False) == 1
+    _ecrire(depot, "fichier.txt", "resolution\n")
+    _git(depot, "commit", "-q", "--no-verify", "--no-edit")
+    code, sortie = _dco(depot)
+    assert code == 1, sortie
+    assert "2 commits verifies, 1 sans DCO" in sortie
+
+
+def test_dco_fusion_de_plus_de_deux_parents_verifiee(depot: Path) -> None:
+    for branche in ("a", "b"):
+        _git(depot, "switch", "-q", "-c", branche, "main")
+        _ecrire(depot, f"{branche}.txt", f"{branche}\n")
+        _git(depot, "commit", "-q", "--no-verify", "-s", "-m", f"Branche {branche}")
+    _git(depot, "switch", "-q", "pr")
+    _git(depot, "merge", "-q", "--no-ff", "--no-verify", "-m", "Pieuvre", "a", "b")
+    code, sortie = _dco(depot)
+    assert code == 1, sortie
+    assert "3 commits verifies, 1 sans DCO" in sortie
+
+
+@pytest.mark.parametrize("separateur", ["\u2028", "\x1c", "\x85", "\x0b"])
+def test_dco_nom_d_auteur_avec_fin_de_ligne_unicode(
+    depot: Path, separateur: str
+) -> None:
+    # str.splitlines() couperait le nom : sa fin deviendrait le courriel de
+    # l'auteur, et le Signed-off-by d'Eve validerait un commit de la victime
+    auteur = (f"Eve{separateur}eve@example.net", "victime@example.com")
+    _commit(depot, "Titre", "Signed-off-by: Eve <eve@example.net>", auteur=auteur)
+    code, sortie = _dco(depot)
+    assert code == 1, sortie
+    assert "1 commits verifies, 1 sans DCO" in sortie
+    assert "<victime@example.com>" in sortie
 
 
 def test_dco_plage_vide_refusee(depot: Path) -> None:

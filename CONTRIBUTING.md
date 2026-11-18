@@ -361,20 +361,29 @@ Signed-off-by: Prénom Nom <prenom.nom@example.org>
   ne compte pas), et la ligne se trouve dans le dernier paragraphe du message,
   avec les autres trailers : une ligne au milieu du corps ne compte pas.
 - Le job CI `dco` (agrégé par `ci-ok`, donc bloquant) vérifie chaque commit de la
-  PR absent de `main`, hors commits de fusion, avec
-  [`scripts/verifier_dco.py`](scripts/verifier_dco.py). Il ne s'applique pas aux
-  PR du propriétaire du dépôt, titulaire des droits, ni à celles de Dependabot ;
-  un mainteneur qui pousse un commit sur la branche d'une PR externe le signe
-  donc lui aussi.
-- Commit poussé sans `Signed-off-by` : la branche n'est pas réécrite (voir
-  [« Workflow Git »](#workflow-git)). Repars de `upstream/main` sur une nouvelle
-  branche, reprends-y tes commits en les signant, pousse-la et ouvre une nouvelle
-  PR qui remplace la première (à fermer, avec un lien vers la nouvelle) :
+  PR absent de `main` avec [`scripts/verifier_dco.py`](scripts/verifier_dco.py).
+  Seules les fusions propres en sont exemptées : celles dont le contenu est
+  exactement la fusion automatique de leurs deux parents, comme la mise à jour de
+  la branche par `git merge upstream/main` ou le bouton « Update branch ». Une
+  fusion qui ajoute du contenu ou résout un conflit à la main se signe comme un
+  autre commit (`git commit -s` pour conclure la fusion). Le job ne s'applique pas
+  aux PR du propriétaire du dépôt, titulaire des droits, ni à celles de
+  Dependabot ; un mainteneur qui pousse un commit sur la branche d'une PR externe
+  le signe donc lui aussi.
+- Un commit fait depuis l'interface web de GitHub (suggestion de relecture
+  appliquée, éditeur en ligne) reçoit automatiquement son `Signed-off-by` : le
+  dépôt exige l'attestation sur les commits web.
+- Commit poussé sans `Signed-off-by` : la branche poussée n'est pas réécrite (voir
+  [« Workflow Git »](#workflow-git)). Copie-la sur une nouvelle branche locale,
+  rejoue-y tes commits en les signant au-dessus de `upstream/main` (le rebase de
+  cette copie, jamais poussée, écarte les fusions et les commits déjà dans
+  `main`), pousse-la et ouvre une nouvelle PR qui remplace la première (à fermer,
+  avec un lien vers la nouvelle) :
 
   ```sh
   git fetch upstream
-  git switch -c docs/29-exemple-signe upstream/main
-  git cherry-pick -s <premier-commit>^..<dernier-commit>
+  git switch -c docs/29-exemple-signe docs/29-exemple
+  git rebase --signoff upstream/main
   git push -u origin docs/29-exemple-signe
   ```
 

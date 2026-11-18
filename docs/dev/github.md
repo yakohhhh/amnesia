@@ -84,9 +84,19 @@ les commandes appliquées relèvent de #13.
   GitHub (fork), avec un commit sans `Signed-off-by`, est marquée en échec par le
   job `dco`, donc par `ci-ok` ; elle est fermée sans merge. Les PR du
   propriétaire en sont exemptées : le test ne peut pas venir de son compte.
+- [ ] **Signature des commits web** (#30) : « Require contributors to sign off on
+  web-based commits » activé (`web_commit_signoff_required = true`). Sans lui, une
+  suggestion de relecture appliquée ou une correction faite dans l'éditeur web de
+  GitHub crée un commit sans `Signed-off-by`, que le job `dco` refuse : la PR
+  externe serait à refaire sur une nouvelle branche. Activation, par le
+  propriétaire :
+
+  ```sh
+  gh api -X PATCH repos/yakohhhh/amnesia -F web_commit_signoff_required=true
+  ```
 
 Vérification groupée, en lecture seule :
-`gh api repos/yakohhhh/amnesia --jq '.visibility, .security_and_analysis'`.
+`gh api repos/yakohhhh/amnesia --jq '.visibility, .security_and_analysis, .web_commit_signoff_required'`.
 
 ## Formulaires d'issues et modèle de PR
 
