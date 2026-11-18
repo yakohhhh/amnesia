@@ -31,3 +31,27 @@ class EventLogRetention(Check):
     version = 1
     default_severity = "high"
     requires_facts = ("windows.eventlog.config:Security",)
+    # questions du catalogue auxquelles ce check contribue ; chacune le
+    # liste dans son champ checks (amnesia catalog validate)
+    question_ids = (
+        "Q-WIN-AUDIT-CHANGE",
+        "Q-WIN-AUTORUN",
+        "Q-WIN-DEFENDER-TAMPER",
+        "Q-WIN-DNS",
+        "Q-WIN-EXPLICIT-CREDS",
+        "Q-WIN-LOCAL-ADMIN",
+        "Q-WIN-LOG-CLEARED",
+        "Q-WIN-NETWORK-LOGON",
+        "Q-WIN-OUTBOUND",
+        "Q-WIN-POWERSHELL",
+        "Q-WIN-PRIV-LOGON",
+        "Q-WIN-PROCESS-CMDLINE",
+        "Q-WIN-RDP-LOGON",
+        "Q-WIN-SCHTASK",
+        "Q-WIN-SERVICE-INSTALL",
+        "Q-WIN-SHADOW-DELETE",
+        "Q-WIN-SHARE-ACCESS",
+        "Q-WIN-TIME-CHANGE",
+        "Q-WIN-USB",
+        "Q-WIN-WMI-PERSIST",
+    )

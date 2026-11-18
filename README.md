@@ -38,12 +38,18 @@ encore évalué (section « État »).
 
 ## État
 
-Version de développement, jamais publiée. Seul le socle
-([M0 — Scaffold](https://github.com/yakohhhh/amnesia/milestone/1)) est fusionné
-sur `main` :
+Version de développement, jamais publiée. Sont fusionnés sur `main` le socle
+([M0 — Scaffold](https://github.com/yakohhhh/amnesia/milestone/1)) et, premier
+élément de [M1](https://github.com/yakohhhh/amnesia/milestone/2), le catalogue
+des questions d'enquête :
 
-- la commande `amnesia` et ses sous-commandes `audit`, `list-checks`, `render`
-  et `schema` ;
+- la commande `amnesia` et ses sous-commandes `audit`, `catalog`,
+  `list-checks`, `render` et `schema` ;
+- le catalogue embarqué des questions d'enquête : 31 questions (Windows et
+  Active Directory), chacune avec les sources de télémétrie qui permettent d'y
+  répondre ; il se consulte par `amnesia catalog list` et `amnesia catalog
+  show <id>`, et se contrôle par `amnesia catalog validate`
+  ([`docs/catalogue.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/catalogue.md)) ;
 - le moteur d'audit : il lance les checks sur une cible, isole un check en
   échec ou bloqué, et ne compte jamais conforme ce qui n'a pas été évalué ;
 - le rapport JSON versionné et son JSON Schema, affiché par `amnesia schema`
@@ -306,8 +312,8 @@ défaut** :
   plantage ni d'envoi de rapport : une erreur interne est journalisée sur
   stderr, et c'est tout ;
 - il fonctionne entièrement sans accès Internet, hors connecteurs cloud
-  explicitement demandés ; `list-checks`, `render`, `schema` et `audit --target
-  local` n'ouvrent aucune connexion ;
+  explicitement demandés ; `catalog`, `list-checks`, `render`, `schema` et
+  `audit --target local` n'ouvrent aucune connexion ;
 - ses rendus (texte, Markdown) ne chargent aucune ressource externe : ni image,
   ni feuille de style, ni script, ni police ; les liens de référence restent du
   texte ;
@@ -331,8 +337,8 @@ Ces engagements sont tenus par le code, pas seulement par ce texte :
 - un test vérifie que chaque sous-processus lancé par amnesia reçoit
   l'environnement de `amnesia.facts.subprocess_env()` ;
 - les tests coupent le réseau, et chaque commande (`--help`, `--version`,
-  `list-checks`, `schema`, `render`, `audit`) est aussi lancée dans un
-  processus dont le réseau est coupé avant le moindre import d'amnesia.
+  `list-checks`, `schema`, `catalog`, `render`, `audit`) est aussi lancée dans
+  un processus dont le réseau est coupé avant le moindre import d'amnesia.
 
 Le futur contrôle de licence (#154) restera vérifiable hors ligne. Une
 dépendance qui enfreindrait ces règles est une vulnérabilité à signaler

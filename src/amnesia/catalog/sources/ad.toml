@@ -1,0 +1,178 @@
+# Sources de télémétrie du domaine ad.
+#
+# Une table [[source]] par source : un événement (canal, fournisseur, Event
+# IDs, filtres) ou un réglage, avec ses prérequis. Format : docs/catalogue.md.
+# enabled_by_default est omis tant que le comportement d'une installation par
+# défaut n'est pas établi ; les valeurs présentes restent à confirmer sur des
+# hôtes de référence (#50). GUID des sous-catégories d'audit : MS-GPAC.
+# Journal Security des contrôleurs de domaine (4886 et 4887 : journal
+# Security de l'autorité de certification).
+
+# --- Comptes et groupes du domaine -----------------------------------------
+
+[[source]]
+id = "SRC-AD-4728-4732-4756"
+kind = "event"
+title = "Ajout d'un membre à un groupe de sécurité global, local ou universel"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4728, 4732, 4756]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9237-69AE-11D9-BED3-505054503030}", name = "Security Group Management", success = true },
+]
+
+[[source]]
+id = "SRC-AD-4720-4722"
+kind = "event"
+title = "Création et activation d'un compte utilisateur"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4720, 4722]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9235-69AE-11D9-BED3-505054503030}", name = "User Account Management", success = true },
+]
+
+[[source]]
+id = "SRC-AD-4724"
+kind = "event"
+title = "Réinitialisation du mot de passe d'un compte"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4724]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9235-69AE-11D9-BED3-505054503030}", name = "User Account Management", success = true },
+]
+
+[[source]]
+id = "SRC-AD-4740"
+kind = "event"
+title = "Verrouillage d'un compte utilisateur"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4740]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9235-69AE-11D9-BED3-505054503030}", name = "User Account Management", success = true },
+]
+
+# --- Authentification ------------------------------------------------------
+
+[[source]]
+id = "SRC-AD-4662-DCSYNC"
+kind = "event"
+title = "Opération sur un objet de l'annuaire avec les droits de réplication"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4662]
+filters = { Properties = ["1131f6aa-9c07-11d1-f79f-00c04fc2dcd2", "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"] }
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE923B-69AE-11D9-BED3-505054503030}", name = "Directory Service Access", success = true },
+  { kind = "sacl", object = "racine du domaine (contexte de nommage par défaut)", guids = ["1131f6aa-9c07-11d1-f79f-00c04fc2dcd2", "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"] },
+]
+
+[[source]]
+id = "SRC-AD-4769-RC4"
+kind = "event"
+title = "Ticket de service Kerberos demandé avec un chiffrement RC4"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4769]
+filters = { TicketEncryptionType = "0x17" }
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9240-69AE-11D9-BED3-505054503030}", name = "Kerberos Service Ticket Operations", success = true },
+]
+
+[[source]]
+id = "SRC-AD-4768-NOPREAUTH"
+kind = "event"
+title = "Ticket d'authentification Kerberos (TGT) délivré sans pré-authentification"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4768]
+filters = { PreAuthType = 0 }
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9242-69AE-11D9-BED3-505054503030}", name = "Kerberos Authentication Service", success = true },
+]
+
+[[source]]
+id = "SRC-AD-4771"
+kind = "event"
+title = "Échec de la pré-authentification Kerberos"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4771]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9242-69AE-11D9-BED3-505054503030}", name = "Kerberos Authentication Service", failure = true },
+]
+
+[[source]]
+id = "SRC-AD-4776"
+kind = "event"
+title = "Validation d'identifiants NTLM par le contrôleur de domaine"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4776]
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE923F-69AE-11D9-BED3-505054503030}", name = "Credential Validation", success = true, failure = true },
+]
+
+[[source]]
+id = "SRC-AD-4625"
+kind = "event"
+title = "Échec d'ouverture de session sur le contrôleur de domaine"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4625]
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9215-69AE-11D9-BED3-505054503030}", name = "Logon", failure = true },
+]
+
+# --- Modifications de l'annuaire -------------------------------------------
+
+[[source]]
+id = "SRC-AD-5136-GPO"
+kind = "event"
+title = "Modification d'un objet de stratégie de groupe"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [5136]
+filters = { ObjectClass = "groupPolicyContainer" }
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE923C-69AE-11D9-BED3-505054503030}", name = "Directory Service Changes", success = true },
+  { kind = "sacl", object = "conteneur des stratégies de groupe (CN=Policies,CN=System)" },
+]
+
+[[source]]
+id = "SRC-AD-5136-ACL"
+kind = "event"
+title = "Modification du descripteur de sécurité d'un objet de l'annuaire"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [5136]
+filters = { AttributeLDAPDisplayName = "nTSecurityDescriptor" }
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE923C-69AE-11D9-BED3-505054503030}", name = "Directory Service Changes", success = true },
+  { kind = "sacl", object = "objets de l'annuaire à surveiller (racine du domaine, AdminSDHolder, unités d'organisation)" },
+]
+
+# --- Services de certificats -----------------------------------------------
+
+[[source]]
+id = "SRC-AD-4886-4887"
+kind = "event"
+title = "Demande de certificat reçue, certificat délivré"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4886, 4887]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9221-69AE-11D9-BED3-505054503030}", name = "Certification Services", success = true },
+]

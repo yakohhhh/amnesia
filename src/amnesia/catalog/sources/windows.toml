@@ -1,0 +1,449 @@
+# Sources de télémétrie du domaine windows.
+#
+# Une table [[source]] par source : un événement (canal, fournisseur, Event
+# IDs, filtres) ou un réglage, avec ses prérequis. Format : docs/catalogue.md.
+# enabled_by_default est omis tant que le comportement d'une installation par
+# défaut n'est pas établi ; les valeurs présentes restent à confirmer sur des
+# hôtes de référence (#50). GUID des sous-catégories d'audit : MS-GPAC.
+
+# --- Ouvertures de session -------------------------------------------------
+
+[[source]]
+id = "SRC-SEC-4624-T10"
+kind = "event"
+title = "Ouverture de session à distance réussie (RDP, LogonType 10)"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4624]
+filters = { LogonType = 10 }
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9215-69AE-11D9-BED3-505054503030}", name = "Logon", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4624-T3"
+kind = "event"
+title = "Ouverture de session réseau réussie (LogonType 3)"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4624]
+filters = { LogonType = 3 }
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9215-69AE-11D9-BED3-505054503030}", name = "Logon", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4625"
+kind = "event"
+title = "Échec d'ouverture de session"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4625]
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9215-69AE-11D9-BED3-505054503030}", name = "Logon", failure = true },
+]
+
+[[source]]
+id = "SRC-SEC-4648"
+kind = "event"
+title = "Ouverture de session avec des identifiants explicites"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4648]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9215-69AE-11D9-BED3-505054503030}", name = "Logon", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4672"
+kind = "event"
+title = "Privilèges spéciaux attribués à une nouvelle session"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4672]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE921B-69AE-11D9-BED3-505054503030}", name = "Special Logon", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4778-4779"
+kind = "event"
+title = "Reconnexion et déconnexion d'une session à distance"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4778, 4779]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE921C-69AE-11D9-BED3-505054503030}", name = "Other Logon/Logoff Events", success = true },
+]
+
+[[source]]
+id = "SRC-TS-LSM-21-24-25"
+kind = "event"
+title = "Ouverture, déconnexion et reconnexion d'une session Bureau à distance"
+channel = "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"
+provider = "Microsoft-Windows-TerminalServices-LocalSessionManager"
+event_ids = [21, 24, 25]
+enabled_by_default = true
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational" },
+]
+
+[[source]]
+id = "SRC-TS-RCM-1149"
+kind = "event"
+title = "Authentification réussie auprès du service Bureau à distance"
+channel = "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational"
+provider = "Microsoft-Windows-TerminalServices-RemoteConnectionManager"
+event_ids = [1149]
+enabled_by_default = true
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational" },
+]
+
+# --- Comptes et groupes locaux ---------------------------------------------
+
+[[source]]
+id = "SRC-SEC-4720"
+kind = "event"
+title = "Création d'un compte utilisateur"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4720]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9235-69AE-11D9-BED3-505054503030}", name = "User Account Management", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4732"
+kind = "event"
+title = "Ajout d'un membre à un groupe local de sécurité"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4732]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9237-69AE-11D9-BED3-505054503030}", name = "Security Group Management", success = true },
+]
+
+# --- Exécution -------------------------------------------------------------
+
+[[source]]
+id = "SRC-SEC-4688-CMDLINE"
+kind = "event"
+title = "Création de processus avec sa ligne de commande"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4688]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE922B-69AE-11D9-BED3-505054503030}", name = "Process Creation", success = true },
+  { kind = "registry_value", key = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit', name = "ProcessCreationIncludeCmdLine_Enabled", value = 1 },
+]
+
+[[source]]
+id = "SRC-SYSMON-1"
+kind = "event"
+title = "Sysmon : création de processus"
+channel = "Microsoft-Windows-Sysmon/Operational"
+provider = "Microsoft-Windows-Sysmon"
+event_ids = [1]
+enabled_by_default = false
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Sysmon/Operational" },
+]
+
+[[source]]
+id = "SRC-PS-4104"
+kind = "event"
+title = "PowerShell : journalisation des blocs de script"
+channel = "Microsoft-Windows-PowerShell/Operational"
+provider = "Microsoft-Windows-PowerShell"
+event_ids = [4104]
+enabled_by_default = false
+prerequisites = [
+  { kind = "registry_value", key = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging', name = "EnableScriptBlockLogging", value = 1 },
+]
+
+[[source]]
+id = "SRC-PS-4103"
+kind = "event"
+title = "PowerShell : journalisation des modules"
+channel = "Microsoft-Windows-PowerShell/Operational"
+provider = "Microsoft-Windows-PowerShell"
+event_ids = [4103]
+enabled_by_default = false
+prerequisites = [
+  { kind = "registry_value", key = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging', name = "EnableModuleLogging", value = 1 },
+]
+
+# --- Persistance -----------------------------------------------------------
+
+[[source]]
+id = "SRC-SYS-7045"
+kind = "event"
+title = "Installation d'un service (journal System)"
+channel = "System"
+provider = "Service Control Manager"
+event_ids = [7045]
+enabled_by_default = true
+
+[[source]]
+id = "SRC-SEC-4697"
+kind = "event"
+title = "Installation d'un service (journal Security)"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4697]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9211-69AE-11D9-BED3-505054503030}", name = "Security System Extension", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4698"
+kind = "event"
+title = "Création d'une tâche planifiée"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4698]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9227-69AE-11D9-BED3-505054503030}", name = "Other Object Access Events", success = true },
+]
+
+[[source]]
+id = "SRC-TASK-106"
+kind = "event"
+title = "Planificateur de tâches : tâche enregistrée"
+channel = "Microsoft-Windows-TaskScheduler/Operational"
+provider = "Microsoft-Windows-TaskScheduler"
+event_ids = [106]
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-TaskScheduler/Operational" },
+]
+
+[[source]]
+id = "SRC-WMI-5861"
+kind = "event"
+title = "WMI : abonnement permanent enregistré"
+channel = "Microsoft-Windows-WMI-Activity/Operational"
+provider = "Microsoft-Windows-WMI-Activity"
+event_ids = [5861]
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-WMI-Activity/Operational" },
+]
+
+[[source]]
+id = "SRC-SYSMON-19-20-21"
+kind = "event"
+title = "Sysmon : filtre, consommateur et liaison d'événements WMI"
+channel = "Microsoft-Windows-Sysmon/Operational"
+provider = "Microsoft-Windows-Sysmon"
+event_ids = [19, 20, 21]
+enabled_by_default = false
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Sysmon/Operational" },
+]
+
+[[source]]
+id = "SRC-SYSMON-12-13-14"
+kind = "event"
+title = "Sysmon : création, modification et renommage de clés et de valeurs de registre"
+channel = "Microsoft-Windows-Sysmon/Operational"
+provider = "Microsoft-Windows-Sysmon"
+event_ids = [12, 13, 14]
+enabled_by_default = false
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Sysmon/Operational" },
+]
+
+[[source]]
+id = "SRC-SEC-4657"
+kind = "event"
+title = "Modification d'une valeur de registre auditée"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4657]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE921E-69AE-11D9-BED3-505054503030}", name = "Registry", success = true },
+  { kind = "sacl", object = "clés de registre de démarrage automatique (Run, RunOnce, Services...)" },
+]
+
+# --- Réseau et exfiltration ------------------------------------------------
+
+[[source]]
+id = "SRC-SYSMON-3"
+kind = "event"
+title = "Sysmon : connexion réseau"
+channel = "Microsoft-Windows-Sysmon/Operational"
+provider = "Microsoft-Windows-Sysmon"
+event_ids = [3]
+enabled_by_default = false
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Sysmon/Operational" },
+]
+
+[[source]]
+id = "SRC-SEC-5156"
+kind = "event"
+title = "Connexion autorisée par la plateforme de filtrage Windows"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [5156]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9226-69AE-11D9-BED3-505054503030}", name = "Filtering Platform Connection", success = true },
+]
+
+[[source]]
+id = "SRC-SYSMON-22"
+kind = "event"
+title = "Sysmon : requête DNS"
+channel = "Microsoft-Windows-Sysmon/Operational"
+provider = "Microsoft-Windows-Sysmon"
+event_ids = [22]
+enabled_by_default = false
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Sysmon/Operational" },
+]
+
+[[source]]
+id = "SRC-DNS-3008"
+kind = "event"
+title = "Client DNS : requête résolue"
+channel = "Microsoft-Windows-DNS-Client/Operational"
+provider = "Microsoft-Windows-DNS-Client"
+event_ids = [3008]
+enabled_by_default = false
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-DNS-Client/Operational" },
+]
+
+[[source]]
+id = "SRC-SEC-6416"
+kind = "event"
+title = "Nouveau périphérique externe reconnu par le système"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [6416]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9248-69AE-11D9-BED3-505054503030}", name = "Plug and Play Events", success = true },
+]
+
+[[source]]
+id = "SRC-PART-1006"
+kind = "event"
+title = "Diagnostic des partitions : périphérique de stockage connecté"
+channel = "Microsoft-Windows-Partition/Diagnostic"
+provider = "Microsoft-Windows-Partition"
+event_ids = [1006]
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Partition/Diagnostic" },
+]
+
+[[source]]
+id = "SRC-SEC-5140"
+kind = "event"
+title = "Accès à un partage réseau"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [5140]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9224-69AE-11D9-BED3-505054503030}", name = "File Share", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-5145"
+kind = "event"
+title = "Vérification d'accès détaillée à un fichier partagé"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [5145]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9244-69AE-11D9-BED3-505054503030}", name = "Detailed File Share", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4663"
+kind = "event"
+title = "Tentative d'accès à un objet audité"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4663]
+enabled_by_default = false
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE921D-69AE-11D9-BED3-505054503030}", name = "File System", success = true },
+  { kind = "sacl", object = "dossiers et fichiers partagés à surveiller" },
+]
+
+# --- Anti-forensic ---------------------------------------------------------
+
+[[source]]
+id = "SRC-SEC-1102"
+kind = "event"
+title = "Effacement du journal Security"
+channel = "Security"
+provider = "Microsoft-Windows-Eventlog"
+event_ids = [1102]
+enabled_by_default = true
+
+[[source]]
+id = "SRC-SYS-104"
+kind = "event"
+title = "Effacement d'un autre journal d'événements"
+channel = "System"
+provider = "Microsoft-Windows-Eventlog"
+event_ids = [104]
+enabled_by_default = true
+
+[[source]]
+id = "SRC-SEC-4719"
+kind = "event"
+title = "Modification de la stratégie d'audit du système"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4719]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE922F-69AE-11D9-BED3-505054503030}", name = "Audit Policy Change", success = true },
+]
+
+[[source]]
+id = "SRC-SEC-4616"
+kind = "event"
+title = "Modification de l'heure du système"
+channel = "Security"
+provider = "Microsoft-Windows-Security-Auditing"
+event_ids = [4616]
+enabled_by_default = true
+prerequisites = [
+  { kind = "audit_subcategory", guid = "{0CCE9210-69AE-11D9-BED3-505054503030}", name = "Security State Change", success = true },
+]
+
+[[source]]
+id = "SRC-DEFENDER-5001-5007"
+kind = "event"
+title = "Microsoft Defender : protection en temps réel désactivée, configuration modifiée"
+channel = "Microsoft-Windows-Windows Defender/Operational"
+provider = "Microsoft-Windows-Windows Defender"
+event_ids = [5001, 5007]
+enabled_by_default = true
+prerequisites = [
+  { kind = "channel_enabled", channel = "Microsoft-Windows-Windows Defender/Operational" },
+]
+
+[[source]]
+id = "SRC-WIN-TIME-SYNC"
+kind = "setting"
+title = "Horloge synchronisée sur une source de temps fiable"
+setting = "service de temps Windows (W32Time) : type de synchronisation et source NTP"

@@ -32,6 +32,9 @@ VALIDATEUR = jsonschema.Draft202012Validator(load_schema())
 class CheckFactice(Check):
     """Check sans effet de bord : rend les Gaps fournis sur la cible recue."""
 
+    # question de _gap() : le moteur refuse un Gap hors des question_ids
+    question_ids: tuple[str, ...] = ("Q-WIN-RDP-LOGON",)
+
     def __init__(self, id: str, title: str, gaps: list[Gap] | None = None) -> None:
         self.id = id
         self.title = title
@@ -53,6 +56,7 @@ def _gap(severite: str) -> Gap:
         check_id="test.x",
         target="local",
         resource="Security",
+        question_id="Q-WIN-RDP-LOGON",
         question="Qui s'est connecté ?",
         reason="journal factice écrasé",
         severity=Severity.parse(severite),

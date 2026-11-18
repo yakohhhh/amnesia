@@ -68,6 +68,15 @@ rendu, et traduit le rapport en code de sortie (`amnesia.exitcodes`, #24) ;
 encore aucun fait (#48) : tout fait est `unavailable`, donc aucun check n'est
 `pass`. WinRM, SSH, bundle et cloud sont à venir.
 
+Les questions d'enquête ne sont pas écrites dans les checks : elles viennent du
+catalogue embarqué (`amnesia.catalog`, [`catalogue.md`](catalogue.md)), une
+donnée TOML versionnée. Un check désigne une question par son identifiant
+(`question_id` du Gap) et obtient son texte par `render_question()`. Le moteur
+lit et valide le catalogue avant le premier check, refuse un Gap dont la
+question lui est inconnue ou n'est pas déclarée par le check (`question_ids`),
+et consigne la version du catalogue dans
+l'`AuditResult` ; le rapport la recopie (`tool.catalog_version`).
+
 ## Modules et dépendances autorisées
 
 Les modules forment des couches ; une couche n'importe que les couches plus
@@ -78,16 +87,20 @@ basses. De bas en haut :
    `amnesia.deps` (extras optionnels, importés à la demande) ;
 2. **modèle des checks** : `amnesia.checks.base` (`Check`, `CheckResult`,
    `Gap`), `amnesia.checks.context`, `amnesia.checks.registry` ;
-3. **collecte et résolution** : `amnesia.facts.collectors`,
+3. **catalogue des questions** : `amnesia.catalog` (`model`, puis `loader`),
+   questions d'enquête et sources de télémétrie lues dans les fichiers TOML du
+   paquet ; il ne prend du modèle des checks que son vocabulaire (`Severity`,
+   `Reference`, `Domain`, `CheckMeta`) et ne charge aucun check ;
+4. **collecte et résolution** : `amnesia.facts.collectors`,
    `amnesia.facts.resolution` ;
-4. **checks de domaine** : `amnesia.checks.windows`, `amnesia.checks.ad` ;
-5. **moteur, rapport et rendus** : `amnesia.runner`, puis `amnesia.report`,
+5. **checks de domaine** : `amnesia.checks.windows`, `amnesia.checks.ad` ;
+6. **moteur, rapport et rendus** : `amnesia.runner`, puis `amnesia.report`,
    puis `amnesia.render` (`base`, puis `text` et `markdown`) ; à côté,
    `amnesia.exitcodes` (codes de sortie, d'après les sévérités de
    `amnesia.checks.base`) et `amnesia.output` (écriture des livrables sur le
    poste de l'auditeur, qui ne prend de la collecte que `subprocess_env()` pour
    lancer `git check-ignore`) ;
-6. **entrée** : `amnesia.cli`, `amnesia.__main__`.
+7. **entrée** : `amnesia.cli`, `amnesia.__main__`.
 
 Table des dépendances internes autorisées (imports exécutés au chargement ;
 un import sous `if TYPE_CHECKING:` ne compte pas, il ne crée aucun cycle à
@@ -99,7 +112,7 @@ modules.
 |---|---|
 | `amnesia` | `amnesia.runner` |
 | `amnesia.__main__` | `amnesia.cli` |
-| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.cli` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.exitcodes` | `amnesia.checks.base` |
 | `amnesia.output` | `amnesia.facts.collectors` |
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
@@ -107,9 +120,12 @@ modules.
 | `amnesia.render.text` | `amnesia.render.base` |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.report` |
 | `amnesia.report` | `amnesia.checks`, `amnesia.runner`, `amnesia.target` |
-| `amnesia.runner` | `amnesia`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
+| `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
-| `amnesia.checks.<domaine>` | `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
+| `amnesia.checks.<domaine>` | `amnesia.catalog`, `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
+| `amnesia.catalog` | `amnesia.catalog.loader`, `amnesia.catalog.model` |
+| `amnesia.catalog.loader` | `amnesia.catalog.model`, `amnesia.checks.base`, `amnesia.checks.registry` |
+| `amnesia.catalog.model` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.registry` | `amnesia.checks.base`, `amnesia.deps`, `amnesia.target` |
 | `amnesia.checks.context` | `amnesia.target` |
 | `amnesia.checks.base` | aucune |
@@ -142,6 +158,13 @@ Ce que la table interdit, et pourquoi :
   dans un check du dépôt, pas une isolation : du code Python malveillant, ou
   un check tiers installé hors du dépôt (#149), garde tous les droits de
   l'interpréteur ;
+- **le catalogue ne connaît ni les checks de domaine, ni le moteur** : il lit
+  ses fichiers TOML dans le paquet (`importlib.resources`), jamais ailleurs, et
+  se valide seul. Son lien avec le registre (`checks` d'une question,
+  `question_ids` d'un check) se vérifie de l'extérieur : `verify_registry()`,
+  `amnesia catalog validate`. Un check n'en utilise que `render_question()` ;
+  le moteur a lu le catalogue avant le premier check, si bien que cet appel ne
+  fait aucune I/O pendant `evaluate()` ;
 - **la collecte ne connaît pas le moteur** : un collecteur se remplace par un
   autre (local, WinRM, bundle) sans toucher aux checks ni au moteur ;
 - **le rapport lit des résultats, jamais la cible** ; les rendus lisent le
@@ -198,6 +221,8 @@ Ce que produit un audit, où cela vit et quand cela disparaît (minimisation :
 
 - [`docs/dev/faits.md`](dev/faits.md) : enveloppe des faits, collecteurs,
   écriture d'un check ;
+- [`docs/catalogue.md`](catalogue.md) : questions d'enquête, sources de
+  télémétrie, identifiants stables ;
 - [`docs/format-rapport.md`](format-rapport.md) : champs et compatibilité du
   rapport ;
 - [`docs/RELEASING.md`](RELEASING.md) : surfaces publiques et versionnage ;
