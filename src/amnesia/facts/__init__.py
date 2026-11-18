@@ -15,6 +15,7 @@ from .collectors import (
     Collector,
     FixtureCollector,
     LocalCollector,
+    run_command,
     subprocess_env,
 )
 from .model import (
@@ -48,6 +49,7 @@ __all__ = [
     "UnavailableReason",
     "load_facts",
     "resolve",
+    "run_command",
     "subprocess_env",
     "validate_fact_name",
 ]

@@ -110,6 +110,12 @@ la première version sera la 0.1.0 (milestone M0).
 
 ### Sécurité
 
+- Lecture seule garantie par une allowlist des opérations : un collecteur ne
+  peut exécuter sur une cible qu'un exécutable à arguments figés, un script
+  PowerShell inscrit avec son empreinte, une opération LDAP ou AWS ou une
+  requête HTTP de la liste, et tout le reste est refusé avant exécution
+  (`ReadOnlyViolation`) ; la liste est publiée dans `docs/READ-ONLY.md`
+  (#215).
 - Hors ligne par défaut : aucune télémétrie, vérification de mise à jour ni
   rapport de plantage ; amnesia ne contacte que les cibles désignées, depuis les
   seuls collecteurs (règle ruff `TID251` partout ailleurs, liste explicite dans

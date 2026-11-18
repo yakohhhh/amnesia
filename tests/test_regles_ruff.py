@@ -57,6 +57,8 @@ def _codes(source: str, fichier: str = "src/amnesia/_cas.py") -> set[str]:
             'lancer("auditpol /get", shell=True)\n',
             "S604",
         ),
+        # lecture seule (#39) : programme designe par son chemin complet
+        ('import subprocess\n\nsubprocess.run(["auditpol", "/get"])\n', "S607"),
         # frontiere reseau (#26) : API reseau interdites hors des collecteurs
         ("import urllib.request\n", "TID251"),
         ('import socket\n\nsocket.create_connection(("dc01", 5985))\n', "TID251"),
@@ -89,6 +91,7 @@ def _codes(source: str, fichier: str = "src/amnesia/_cas.py") -> set[str]:
         "shell-subprocess",
         "shell-os-system",
         "shell-autre-appel",
+        "chemin-partiel",
         "urllib-request",
         "create-connection",
         "socket",

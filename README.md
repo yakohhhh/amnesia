@@ -352,15 +352,18 @@ encadrent la collecte :
 
 - **lecture seule** : rien n'est écrit ni modifié sur la cible auditée
   ([ADR 0006](https://github.com/yakohhhh/amnesia/blob/main/docs/adr/0006-garantie-lecture-seule.md)) ;
+  les opérations admises sont listées, une par une, dans
+  [`docs/READ-ONLY.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/READ-ONLY.md),
+  et tout le reste est refusé avant exécution ;
 - **périmètre autorisé** : aucune cible hors du périmètre déclaré n'est
   jointe ;
 - **minimisation** : seules des configurations et des métadonnées de journaux
   sortent de la cible, jamais le contenu des événements ni des données métier.
 
 Aucune collecte n'existe encore (section « État ») : ces engagements guident la
-conception, et les mécanismes qui les garantiront restent à livrer. Ce sont
-l'allowlist des opérations de lecture
-([#39](https://github.com/yakohhhh/amnesia/issues/39)), le fichier de périmètre
+conception. L'allowlist des opérations de lecture
+([#39](https://github.com/yakohhhh/amnesia/issues/39)) est livrée, et les
+collecteurs à venir passeront par elle. Restent à livrer le fichier de périmètre
 vérifié avant toute connexion
 ([#37](https://github.com/yakohhhh/amnesia/issues/37)) et la minimisation des
 données collectées ([#41](https://github.com/yakohhhh/amnesia/issues/41)).

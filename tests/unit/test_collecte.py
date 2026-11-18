@@ -8,11 +8,13 @@ from __future__ import annotations
 import ast
 import logging
 import re
+import subprocess
 import sys
 from collections import Counter
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,8 +31,10 @@ from amnesia.facts import (
     LocalCollector,
     UnavailableReason,
     resolve,
+    run_command,
     validate_fact_name,
 )
+from amnesia.readonly import ReadOnlyViolation
 from amnesia.target import Target
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -384,3 +388,84 @@ def test_doc_reprend_l_exemple_teste() -> None:
     }
     for chemin, contenu in blocs:
         assert (RACINE / chemin).read_text(encoding="utf-8") == contenu, chemin
+
+
+# --- lecture seule (#39) : run_command, seul point de lancement ------------------
+
+WEVTUTIL = "C:\\Windows\\System32\\wevtutil.exe"
+
+
+class _FauxRun:
+    """Remplace subprocess.run : note chaque lancement, n'exécute rien."""
+
+    def __init__(self) -> None:
+        self.appels: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def __call__(
+        self, *args: Any, **options: Any
+    ) -> subprocess.CompletedProcess[bytes]:
+        self.appels.append((args, options))
+        return subprocess.CompletedProcess(args[0], 0, b"sortie", b"")
+
+
+@pytest.fixture
+def faux_run(monkeypatch: pytest.MonkeyPatch) -> _FauxRun:
+    faux = _FauxRun()
+    for lanceur in ("run", "Popen", "call", "check_call", "check_output"):
+        monkeypatch.setattr(subprocess, lanceur, faux)
+    return faux
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [WEVTUTIL, "cl", "Security"],
+        ["wevtutil", "cl", "Security"],
+        ["wevtutil.exe", "gl", "Security"],
+        [WEVTUTIL, "gl", "Security", "/r:srv-file"],
+        ["C:\\Windows\\System32\\auditpol.exe", "/get", "/category:*"],
+        ["C:\\Windows\\System32\\cmd.exe", "/c", "ver"],
+        f"{WEVTUTIL} gl Security",
+    ],
+)
+def test_run_command_refuse_avant_tout_lancement(faux_run: _FauxRun, argv: Any) -> None:
+    # critere de #39 : wevtutil cl Security leve ReadOnlyViolation, et
+    # subprocess n'est jamais appele
+    with pytest.raises(ReadOnlyViolation):
+        run_command(argv, timeout=5)
+    assert faux_run.appels == []
+
+
+def test_run_command_lance_une_commande_de_l_allowlist(
+    faux_run: _FauxRun, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("powershell_telemetry_optout", "0")
+    resultat = run_command([WEVTUTIL, "gl", "Security"], timeout=7.5)
+    assert resultat.stdout == b"sortie"
+    ((args, options),) = faux_run.appels
+    # l'argv lance est celui qui a ete verifie, en liste, sans shell
+    assert args == ([WEVTUTIL, "gl", "Security"],)
+    assert "shell" not in options
+    assert options["timeout"] == 7.5
+    assert options["stdin"] is subprocess.DEVNULL
+    assert options["check"] is False
+    assert options["env"]["POWERSHELL_TELEMETRY_OPTOUT"] == "1"
+    assert "powershell_telemetry_optout" not in options["env"]
+    # sortie en octets : aucun decodage implicite dans la page de code du poste
+    assert not {"text", "encoding", "universal_newlines"} & set(options)
+
+
+def test_run_command_argv_fige_avant_le_lancement(faux_run: _FauxRun) -> None:
+    # un iterateur ne peut pas presenter un argv a la verification et un autre
+    # au lancement : seule une sequence est admise
+    argv: Any = iter([WEVTUTIL, "gl", "Security"])
+    with pytest.raises(ReadOnlyViolation):
+        run_command(argv, timeout=5)
+    assert faux_run.appels == []
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan"), True])
+def test_run_command_exige_un_delai(faux_run: _FauxRun, timeout: float) -> None:
+    with pytest.raises(ValueError, match="timeout invalide"):
+        run_command([WEVTUTIL, "gl", "Security"], timeout=timeout)
+    assert faux_run.appels == []
