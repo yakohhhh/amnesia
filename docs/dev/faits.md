@@ -118,7 +118,31 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
   l'AST de `src/` ;
 - timeout explicite sur chaque appel, propagé depuis `collect(..., timeout=)`,
   qui refuse une valeur nulle, négative ou infinie ;
-- `subprocess` avec un `encoding=` explicite (`docs/dev/encodage.md`) ;
+- `subprocess` avec un `encoding=` explicite (`docs/dev/encodage.md`) et
+  `env=subprocess_env()` : un `pwsh` lancé sans `POWERSHELL_TELEMETRY_OPTOUT=1`
+  envoie une télémétrie à Microsoft, et sans `POWERSHELL_UPDATECHECK=Off`
+  vérifie ses mises à jour (#26). `tests/test_reseau.py` le vérifie sur l'AST
+  de `src/` : chaque `subprocess.run`, `Popen`, `check_output`… et
+  `asyncio.create_subprocess_*` (ou `loop.subprocess_exec`,
+  `loop.subprocess_shell`) reçoit `env=subprocess_env(...)` explicite,
+  et `os.system`, `os.popen`, `os.exec*` et `os.spawn*` sont refusés ;
+- un collecteur ne joint que la cible désignée par l'utilisateur, jamais un
+  tiers. Les collecteurs sont les seuls modules de `src/` autorisés à ouvrir une
+  connexion : la règle ruff `TID251` interdit `socket.socket`,
+  `socket.create_connection`, `asyncio.open_connection`,
+  `asyncio.start_server`, `http.client`, `urllib.request`, `urllib3`,
+  `requests`, `httpx` et les handlers de journalisation réseau
+  (`logging.handlers.HTTPHandler`, `SysLogHandler`…) partout ailleurs, avec une
+  dérogation `per-file-ignores` pour `src/amnesia/facts/collectors.py` et le
+  futur paquet `src/amnesia/facts/collectors/` (#63, #95). Cette liste est
+  explicite et vérifiée par `tests/test_reseau.py`, qui parcourt aussi l'AST de
+  `src/` (imports, `importlib.import_module` d'un nom littéral, méthodes de
+  connexion comme `loop.create_connection` quel que soit leur receveur) ; un
+  nouveau collecteur réseau s'y ajoute dans le ticket qui l'introduit, jamais
+  par un `noqa`. ruff lève `TID251` en entier, pas seulement ses API réseau :
+  dans les collecteurs, les autres API interdites (`set_stream_logger`…) sont
+  tenues par `tests/test_reseau.py`, qui relance ruff sans dérogation ni `noqa`
+  et refuse `set_stream_logger` sur l'AST quel que soit son receveur ;
 - aucune analyse de texte localisé : uniquement des GUID, des valeurs
   numériques, le registre et l'EventData XML. Par exemple la politique d'audit
   par GUID de sous-catégorie et valeur numérique (le `Setting Value` du CSV

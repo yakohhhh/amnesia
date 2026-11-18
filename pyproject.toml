@@ -182,12 +182,42 @@ allowed-confusables = ["’", "–"]
 [tool.ruff.lint.per-file-ignores]
 # la CLI ecrit sur la sortie standard par conception
 "src/amnesia/cli.py" = ["T201"]
-# assert est l'idiome de pytest
+# Frontiere reseau (#26) : seuls les collecteurs qui declarent un transport
+# reseau (#20) peuvent ouvrir une connexion. Liste explicite, verifiee par
+# tests/test_reseau.py ; un futur collecteur WinRM (#63) ou cloud (#95) s'y ajoute.
+# ruff leve la regle entiere, pas une API : les interdictions hors reseau
+# (set_stream_logger...) y sont tenues par tests/test_reseau.py, qui relance
+# ruff sur ces chemins sans derogation et parcourt leur AST.
+"src/amnesia/facts/collectors.py" = ["TID251"]
+"src/amnesia/facts/collectors/**" = ["TID251"]
+# assert est l'idiome de pytest ; TID251 reste actif dans les tests : les rares
+# lignes qui sondent le reseau coupe portent un noqa cible
 "tests/**" = ["S101"]
 
-# set_stream_logger pose sur botocore un handler sans plafond ni expurgation :
-# les requetes signees (Authorization, X-Amz-Security-Token) sortiraient en clair
+# API interdites (TID251). Reseau (#26) : hors des collecteurs ci-dessus, aucune
+# connexion sortante, donc aucune telemetrie ni verification de mise a jour
+# possible par accident ; les handlers de logging reseau enverraient des journaux
+# de donnees client a un tiers. set_stream_logger pose sur botocore un handler
+# sans plafond ni expurgation : les requetes signees (Authorization,
+# X-Amz-Security-Token) sortiraient en clair.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
+"socket.socket".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"socket.create_connection".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"asyncio.open_connection".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"http.client".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"urllib.request".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"urllib3".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"requests".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"httpx".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"asyncio.start_server".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"asyncio.open_unix_connection".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"asyncio.start_unix_server".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"logging.handlers.SocketHandler".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"logging.handlers.DatagramHandler".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"logging.handlers.SysLogHandler".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"logging.handlers.HTTPHandler".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"logging.handlers.SMTPHandler".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
+"logging.config.listen".msg = "réseau réservé aux collecteurs (#26, per-file-ignores)"
 "boto3.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
 "botocore.session.Session.set_stream_logger".msg = "contourne l'expurgation des journaux (amnesia.log)"
 
