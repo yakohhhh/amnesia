@@ -126,6 +126,9 @@ def un_gap(
 class Factice(Check):
     """Check factice : rend le résultat que lui dicte ``comportement``."""
 
+    # question de un_gap() : le moteur refuse un Gap hors des question_ids
+    question_ids: tuple[str, ...] = ("Q-WIN-RDP-LOGON",)
+
     def __init__(
         self, id: str, comportement: Callable[[str, str], CheckResult]
     ) -> None:

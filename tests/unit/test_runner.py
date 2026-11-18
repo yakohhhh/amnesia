@@ -69,6 +69,9 @@ class CollecteurFactice:
 class Factice(Check):
     """Check factice : le comportement est une fonction des faits et du contexte."""
 
+    # question de un_gap() : le moteur refuse un Gap hors des question_ids
+    question_ids: tuple[str, ...] = ("Q-WIN-RDP-LOGON",)
+
     def __init__(
         self,
         id: str,
@@ -781,6 +784,49 @@ def test_gap_de_question_inconnue_du_catalogue_refuse() -> None:
     # le check suivant n'en souffre pas, et l'audit n'est pas complet
     assert resultats["test.gap"].status is Status.GAP
     assert audit.complete is False
+
+
+@pytest.mark.parametrize(
+    "question_id",
+    ["Q-WIN-POWERSHELL", "Q-AD-DCSYNC"],
+    ids=["autre-question-active", "question-prevue"],
+)
+def test_gap_hors_des_question_ids_du_check_refuse(question_id: str) -> None:
+    # le lien checks / question_ids de « catalog validate » vaut a l'execution :
+    # un check ne rend pas un Gap sur une question qu'il ne declare pas, donc
+    # jamais sur une question planned (aucun check ne la declare)
+    assert question_id in load_catalog()
+
+    def autre(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
+        gap = dataclasses.replace(
+            un_gap(check.id, ctx.target.id, "high"), question_id=question_id
+        )
+        return CheckResult.with_gaps(check.id, ctx.target.id, [gap])
+
+    audit = auditer([Factice("test.autre", autre), Factice("test.gap", gap("low"))])
+    resultats = par_id(audit)
+    fautif = resultats["test.autre"]
+    assert (fautif.status, fautif.reason) == (Status.ERROR, Reason.INTERNAL_ERROR)
+    assert fautif.gaps == ()
+    assert fautif.error is not None
+    assert fautif.error.type == "ValueError"
+    assert (
+        f"evaluate() de test.autre a rendu un Gap sur la question {question_id}, "
+        "absente de ses question_ids" in fautif.error.message
+    )
+    assert resultats["test.gap"].status is Status.GAP
+    assert audit.complete is False
+
+
+def test_gap_d_un_check_sans_question_declaree_refuse() -> None:
+    class SansQuestion(Factice):
+        question_ids = ()
+
+    (resultat,) = auditer([SansQuestion("test.sans", gap("low"))]).results
+    assert (resultat.status, resultat.reason) == (
+        Status.ERROR,
+        Reason.INTERNAL_ERROR,
+    )
 
 
 def test_gap_dont_la_question_vient_du_catalogue() -> None:

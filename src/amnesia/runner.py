@@ -30,6 +30,8 @@ rend autre chose que son propre          ``error`` / ``internal_error``
 résultat sur cette cible
 rend un Gap dont ``question_id`` est     ``error`` / ``internal_error``
 inconnu du catalogue
+rend un Gap dont ``question_id`` est     ``error`` / ``internal_error``
+absent de ses ``question_ids``
 dépasse le délai                         ``error`` / ``timeout``
 lève ``KeyboardInterrupt``               arrêt : ``AuditResult`` partiel,
                                          ``interrupted=True``
@@ -257,12 +259,12 @@ class _Executeur:
             self._pool = None
 
 
-def _verifier_resultat(resultat: object, check_id: str, cible: str) -> CheckResult:
+def _verifier_resultat(resultat: object, check: Check, cible: str) -> CheckResult:
     if not isinstance(resultat, CheckResult):
         raise TypeError(
             f"evaluate() doit rendre un CheckResult, reçu {type(resultat).__name__}"
         )
-    if (resultat.check_id, resultat.target) != (check_id, cible):
+    if (resultat.check_id, resultat.target) != (check.id, cible):
         raise ValueError(
             f"evaluate() a rendu le résultat de {resultat.check_id!r} "
             f"sur {resultat.target!r}"
@@ -275,6 +277,14 @@ def _verifier_resultat(resultat: object, check_id: str, cible: str) -> CheckResu
             raise ValueError(
                 f"evaluate() a rendu un Gap dont question_id est inconnu du "
                 f"catalogue {catalogue.version} : {gap.question_id!r}"
+            )
+        # le lien checks / question_ids que valide « catalog validate » vaut
+        # aussi a l'execution : un check ne repond que des questions qu'il
+        # declare, donc jamais d'une question planned ou deprecated
+        if gap.question_id not in check.question_ids:
+            raise ValueError(
+                f"evaluate() de {check.id} a rendu un Gap sur la question "
+                f"{gap.question_id}, absente de ses question_ids"
             )
     return resultat
 
@@ -321,7 +331,7 @@ def _evaluer_brut(
         impose = resolve(check.id, cible.id, check.requires_facts, faits)
         if impose is not None:
             return impose
-        return _verifier_resultat(check.evaluate(faits, contexte), check.id, cible.id)
+        return _verifier_resultat(check.evaluate(faits, contexte), check, cible.id)
     except MissingExtra as exc:
         # levee par le moteur ou par un collecteur (import paresseux) : non
         # evalue, le message donne la commande d'installation ; aucune ErrorInfo,

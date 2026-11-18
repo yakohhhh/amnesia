@@ -201,6 +201,9 @@ class CheckFactice(Check):
     CheckResult : le moteur (#21) peut les executer sur n'importe quelle cible.
     """
 
+    # question des Gaps factices : le moteur refuse un Gap hors des question_ids
+    question_ids: tuple[str, ...] = ("Q-WIN-RDP-LOGON",)
+
     def __init__(self, id: str, title: str, gaps: list[Gap] | None = None) -> None:
         self.id = id
         self.title = title

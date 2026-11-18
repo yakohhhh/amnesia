@@ -73,7 +73,8 @@ catalogue embarqué (`amnesia.catalog`, [`catalogue.md`](catalogue.md)), une
 donnée TOML versionnée. Un check désigne une question par son identifiant
 (`question_id` du Gap) et obtient son texte par `render_question()`. Le moteur
 lit et valide le catalogue avant le premier check, refuse un Gap dont la
-question lui est inconnue, et consigne la version du catalogue dans
+question lui est inconnue ou n'est pas déclarée par le check (`question_ids`),
+et consigne la version du catalogue dans
 l'`AuditResult` ; le rapport la recopie (`tool.catalog_version`).
 
 ## Modules et dépendances autorisées

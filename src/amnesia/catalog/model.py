@@ -33,6 +33,12 @@ from ..checks.registry import Domain
 
 # variables d'un gabarit de question ; {lookback} vient de lookback_days
 PLACEHOLDERS = ("host", "lookback", "account", "share")
+# longueur maximale d'une valeur rendue dans une question : un nom DNS complet
+# fait 255 caracteres au plus. Au-dela, la valeur est tronquee avant
+# assainir(), dont le caviardage est quadratique sur certaines entrees
+# (« a.a.a. ») : un hote hostile ne bloque pas l'audit par un nom demesure
+_LONGUEUR_VALEUR_MAX = 256
+_TRONCATURE = "..."
 
 
 class CatalogError(ValueError):
@@ -325,8 +331,12 @@ class Question:
         ``ValueError`` ; une valeur que le gabarit n'emploie pas est ignorée,
         pour qu'une reformulation du catalogue ne casse aucun check. Les
         valeurs viennent de la cible : elles sont caviardées et rendues
-        imprimables (``assainir``).
+        imprimables (``assainir``), après troncature à 256 caractères (suivis
+        de « ... »). Une valeur démesurée est tronquée, jamais refusée : une
+        exception ferait du Gap une erreur interne, et un hôte hostile
+        masquerait ainsi l'angle mort.
         """
+        employees = self.placeholders
         valeurs: dict[str, str] = {}
         for nom, valeur in (("host", host), ("account", account), ("share", share)):
             if valeur is None:
@@ -335,6 +345,11 @@ class Question:
                 raise TypeError(f"{nom} doit être une chaîne : {valeur!r}")
             if not valeur.strip():
                 raise ValueError(f"{nom} doit être une chaîne non vide")
+            if nom not in employees:
+                # ignoree sans etre caviardee : aucun cout pour une valeur inutile
+                continue
+            if len(valeur) > _LONGUEUR_VALEUR_MAX:
+                valeur = valeur[:_LONGUEUR_VALEUR_MAX] + _TRONCATURE
             valeurs[nom] = assainir(valeur)
         if lookback_days is not None:
             valeurs["lookback"] = humanize_days(lookback_days)

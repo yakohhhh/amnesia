@@ -152,7 +152,10 @@ et sert à comparer deux audits.
 - Le moteur lit et valide le catalogue avant le premier check, et refuse
   (`error` / `internal_error`) un résultat dont un Gap cite une question
   inconnue : le rapport n'annonce `tool.catalog_version` que pour des questions
-  que ce catalogue définit.
+  que ce catalogue définit. Il refuse de même un Gap dont la question est
+  absente des `question_ids` du check qui le rend : le lien déclaré vaut aussi
+  à l'exécution, et aucun Gap ne porte sur une question `planned` ou
+  `deprecated`.
 - `tests/unit/test_catalogue_checks.py` analyse le code de
   `src/amnesia/checks/` (AST) : une chaîne littérale passée à `Gap(question=...)`
   ou un identifiant de question absent du catalogue font échouer la suite.
@@ -164,6 +167,12 @@ remplace les variables du gabarit. Une variable sans valeur est une erreur ; une
 valeur que le gabarit n'emploie pas est ignorée, pour qu'une reformulation ne
 casse aucun check. Les valeurs viennent de la cible : elles sont caviardées et
 rendues imprimables comme tout texte qui entre dans un résultat.
+
+Une valeur de plus de 256 caractères (un nom DNS complet en fait 255 au plus)
+est tronquée et suivie de « ... » avant ce traitement : la question rendue reste
+de longueur bornée, et un hôte audité hostile ne ralentit pas l'audit par un nom
+de compte ou de partage démesuré. Elle est tronquée et non refusée : une erreur
+ferait disparaître l'angle mort du rapport.
 
 `lookback_days` (entier, au moins 1) alimente `{lookback}`, écrit en durée
 lisible :

@@ -8,6 +8,7 @@ import dataclasses
 import pickle
 import re
 import shutil
+import time
 import tomllib
 from importlib import resources
 from pathlib import Path
@@ -27,12 +28,14 @@ from amnesia.catalog import (
     UnknownIdError,
     humanize_days,
     load_catalog,
+    loader,
     read_catalog,
     render_question,
 )
 from amnesia.catalog.loader import FORMAT_SOURCE_ID, FORMAT_VERSION
 from amnesia.catalog.model import placeholders_of
 from amnesia.checks import Domain
+from amnesia.checks import registry as registre_des_checks
 from amnesia.checks.base import FORMAT_QUESTION_ID, ReferenceKind, Severity
 
 EMBARQUE = Path(str(resources.files("amnesia.catalog")))
@@ -478,6 +481,51 @@ def test_valeur_manquante_ou_superflue() -> None:
             render_question("Q-WIN-RDP-LOGON", host=valeur, lookback_days=21)  # type: ignore[arg-type]
 
 
+def test_valeur_demesuree_tronquee_sans_bloquer_le_rendu() -> None:
+    # « a.a.a. » rend quadratique le caviardage des URL d'assainir() : sans
+    # borne, 80 000 caracteres bloquaient le rendu plusieurs secondes, GIL tenu,
+    # donc au-dela du delai du check. La valeur vient de l'hote audite.
+    debut = time.perf_counter()
+    texte = render_question("Q-WIN-RDP-LOGON", host="a." * 40_000, lookback_days=21)
+    assert time.perf_counter() - debut < 1.0
+    assert texte == (
+        f"Qui s'est connecté en RDP sur {'a.' * 128}... il y a trois semaines ?"
+    )
+    # 256 caracteres passent entiers : un nom DNS complet en fait 255 au plus
+    limite = "h" * 256
+    assert f"sur {limite} il" in render_question(
+        "Q-WIN-RDP-LOGON", host=limite, lookback_days=21
+    )
+    # tronquee, jamais refusee : une exception masquerait l'angle mort
+    assert f"sur {limite}... il" in render_question(
+        "Q-WIN-RDP-LOGON", host=limite + "h", lookback_days=21
+    )
+
+
+def test_valeur_superflue_demesuree_ignoree_sans_cout() -> None:
+    # le gabarit n'emploie ni {account} ni {share} : rien n'est caviarde
+    debut = time.perf_counter()
+    texte = render_question(
+        "Q-WIN-RDP-LOGON",
+        host="SRV-FILE",
+        lookback_days=21,
+        account="x-" * 40_000,
+        share="a." * 40_000,
+    )
+    assert time.perf_counter() - debut < 1.0
+    assert texte == "Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?"
+
+
+def test_valeur_tronquee_reste_caviardee_et_imprimable() -> None:
+    question = _question("Qui a lu {share} sur {host} ?")
+    texte = question.render(
+        host="\x1b[2J" + "h" * 400, share="winrm://audit:motdepasse@srv " + "s" * 400
+    )
+    assert "motdepasse" not in texte
+    assert "\x1b" not in texte
+    assert len(texte) < 700
+
+
 def _question(gabarit: str) -> Question:
     return Question(
         id="Q-WIN-ESSAI",
@@ -852,6 +900,160 @@ def test_source_invalide_localisee(
     assert attendu in erreur, erreur
 
 
+# echappements TOML : ESC (sequence ANSI), saut de ligne, U+202E (bidi, invisible
+# dans un diff)
+HOSTILES = pytest.mark.parametrize(
+    "hostile",
+    ["\\u001b[2J", "\\n", "\\u202E"],
+    ids=["esc", "saut-de-ligne", "bidi"],
+)
+
+
+@HOSTILES
+@pytest.mark.parametrize(
+    ("ancien", "nouveau", "attendu"),
+    [
+        (
+            "event_ids = [9999]",
+            'event_ids = [9999]\nfilters = { "Logon%sType" = 10 }',
+            "filters : nom de champ mal formé",
+        ),
+        (
+            "event_ids = [9999]",
+            'event_ids = [9999]\nfilters = { LogonType = "10%s" }',
+            "filters.LogonType : texte vide ou non imprimable",
+        ),
+        (
+            "event_ids = [9999]",
+            'event_ids = [9999]\nfilters = { LogonType = [3, "10%s"] }',
+            "filters.LogonType : texte vide ou non imprimable",
+        ),
+        (
+            '{ kind = "channel_enabled", channel = "Security" }',
+            '{ kind = "registry_value", key = "HKLM", name = "x", value = "1%s" }',
+            "prerequisites[0].value : texte vide ou non imprimable",
+        ),
+        (
+            "event_ids = [9999]",
+            'event_ids = [9999]\n"cle%s" = 1',
+            "clé(s) inconnue(s) : 'cle",
+        ),
+    ],
+    ids=["cle-de-filtre", "valeur-de-filtre", "liste-de-filtre", "value", "cle"],
+)
+def test_source_non_imprimable_refusee(
+    copie: Path, hostile: str, ancien: str, nouveau: str, attendu: str
+) -> None:
+    # affiche tel quel par « catalog show » : une sequence de terminal dans le
+    # catalogue atteindrait le poste de l'auditeur
+    assert SOURCE_MINIMALE.count(ancien) == 1
+    _ajouter(
+        copie,
+        "sources/windows.toml",
+        SOURCE_MINIMALE.replace(ancien, nouveau % hostile),
+    )
+    (erreur,) = _erreurs(copie)
+    assert attendu in erreur, erreur
+    # le message lui-meme ne porte ni ESC, ni saut de ligne, ni bidi
+    assert erreur.isprintable(), ascii(erreur)
+
+
+@pytest.mark.parametrize(
+    "valeur", ['""', '"  "', '[3, ""]'], ids=["vide", "espaces", "liste"]
+)
+def test_valeur_de_filtre_vide_refusee(copie: Path, valeur: str) -> None:
+    source = SOURCE_MINIMALE.replace(
+        "event_ids = [9999]",
+        f"event_ids = [9999]\nfilters = {{ LogonType = {valeur} }}",
+    )
+    _ajouter(copie, "sources/windows.toml", source)
+    (erreur,) = _erreurs(copie)
+    assert "filters.LogonType : " in erreur
+
+
+@HOSTILES
+def test_check_non_imprimable_refuse(copie: Path, hostile: str) -> None:
+    question = QUESTION_MINIMALE.replace(
+        'status = "planned"', f'status = "active"\nchecks = ["win.sysmon{hostile}"]'
+    )
+    _ajouter(copie, "questions/windows.toml", question)
+    (erreur,) = _erreurs(copie)
+    assert "(Q-WIN-NOUVELLE) : checks : id de check mal formé" in erreur
+    assert erreur.isprintable(), ascii(erreur)
+
+
+@HOSTILES
+def test_element_de_liste_non_imprimable_refuse(copie: Path, hostile: str) -> None:
+    # liste sans forme imposee (roles) : l'element est refuse avant tout affichage
+    question = QUESTION_MINIMALE.replace(
+        'roles = ["server"]', f'roles = ["server{hostile}"]'
+    )
+    _ajouter(copie, "questions/windows.toml", question)
+    (erreur,) = _erreurs(copie)
+    assert "(Q-WIN-NOUVELLE) : roles : texte non imprimable" in erreur
+    assert erreur.isprintable(), ascii(erreur)
+
+
+def test_check_mal_forme_refuse(copie: Path) -> None:
+    question = QUESTION_MINIMALE.replace(
+        'status = "planned"', 'status = "active"\nchecks = ["Win Sysmon"]'
+    )
+    _ajouter(copie, "questions/windows.toml", question)
+    (erreur,) = _erreurs(copie)
+    assert "checks : id de check mal formé 'Win Sysmon'" in erreur
+    # meme forme que le registre des checks
+    assert loader._FORMAT_CHECK_ID.pattern == registre_des_checks._FORMAT_ID.pattern
+
+
+@HOSTILES
+def test_identifiant_et_cle_hostiles_neutralises_dans_les_erreurs(
+    copie: Path, hostile: str
+) -> None:
+    # CatalogError se lit aussi hors de la CLI (appelant direct de read_catalog)
+    _ajouter(
+        copie,
+        "questions/windows.toml",
+        QUESTION_MINIMALE.replace("Q-WIN-NOUVELLE", f"Q-WIN-NOUVELLE{hostile}"),
+    )
+    (copie / "questions" / "ad.toml").write_text(
+        f'"titre{hostile}" = 1\n', encoding="utf-8"
+    )
+    erreurs = _erreurs(copie)
+    assert len(erreurs) == 2
+    assert "clé(s) inconnue(s) : 'titre" in erreurs[0]
+    assert "id : texte vide ou non imprimable" in erreurs[1]
+    for erreur in erreurs:
+        assert erreur.isprintable(), ascii(erreur)
+
+
+def test_filet_contre_un_champ_lu_sans_controle(
+    copie: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # champ a venir, lu sans controle : le filet de _entrees() le refuse quand meme
+    def sans_controle(e: object) -> tuple[()]:
+        if e.present("filters"):  # type: ignore[attr-defined]
+            e.brut("filters", dict, "table")  # type: ignore[attr-defined]
+        return ()
+
+    monkeypatch.setattr(loader, "_filtres", sans_controle)
+    source = SOURCE_MINIMALE.replace(
+        "event_ids = [9999]",
+        'event_ids = [9999]\nfilters = { a = [1, { b = "x\\u001b[2J" }] }',
+    )
+    _ajouter(copie, "sources/windows.toml", source)
+    (erreur,) = _erreurs(copie)
+    assert "filters.a[1].b : texte non imprimable : 'x\\x1b[2J'" in erreur
+    cle = SOURCE_MINIMALE.replace(
+        "event_ids = [9999]", 'event_ids = [9999]\nfilters = { "a\\u202E" = 1 }'
+    )
+    (copie / "sources" / "ad.toml").write_text(
+        cle.replace("SRC-SEC-9999", "SRC-AD-9999"), encoding="utf-8"
+    )
+    erreurs = _erreurs(copie)
+    assert "sources/ad.toml" in erreurs[0]
+    assert "filters : texte non imprimable : 'a\\u202e'" in erreurs[0]
+
+
 def test_source_reglage_sans_champs_d_evenement(copie: Path) -> None:
     reglage = """
 [[source]]
@@ -915,6 +1117,13 @@ def test_fichiers_absents_illisibles_ou_inconnus(copie: Path) -> None:
     )
     assert erreurs[3].startswith("questions/ad.toml : fichier illisible")
     assert len(erreurs) == 4
+    # nom de fichier hostile (bidi) : rendu imprimable dans l'erreur
+    (copie / "questions" / "linux.toml").rename(
+        copie / "questions" / "\u202elinux.toml"
+    )
+    erreur = _erreurs(copie)[2]
+    assert erreur.startswith("questions/'\\u202elinux.toml' : nom de fichier inconnu")
+    assert erreur.isprintable()
     shutil.rmtree(copie / "sources")
     assert "sources/ : répertoire absent" in _erreurs(copie)
 

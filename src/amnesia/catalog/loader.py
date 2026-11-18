@@ -65,6 +65,10 @@ _GUID_SOUS_CATEGORIE = re.compile(r"\{" + _GUID + r"\}", re.ASCII)
 # droit etendu ou classe d'objet AD : notation du schema, sans accolades
 _GUID_NU = re.compile(_GUID, re.ASCII)
 _ETIQUETTE = re.compile(r"[a-z][a-z0-9_]*", re.ASCII)
+# id de check : meme forme que le registre (amnesia.checks.registry)
+_FORMAT_CHECK_ID = re.compile(r"[a-z][a-z0-9]*(?:\.[a-z0-9_]+)+", re.ASCII)
+# champ d'evenement d'un filtre : LogonType, Properties, EventData.TargetUserName
+_CHAMP_DE_FILTRE = re.compile(r"[A-Za-z][A-Za-z0-9_.]*", re.ASCII)
 _EVENT_ID_MAX = 65535
 
 _E = TypeVar("_E")
@@ -82,6 +86,36 @@ class _Invalide(Exception):
 def _apercu(valeur: object, limite: int = 64) -> str:
     texte = valeur if isinstance(valeur, str) else repr(valeur)
     return repr(texte if len(texte) <= limite else texte[:limite] + "...")
+
+
+def _lisible(texte: str, limite: int = 64) -> str:
+    """Clé TOML, identifiant ou nom de fichier, sûr dans un message d'erreur.
+
+    Un texte imprimable et court passe tel quel ; sinon sa forme ``repr``
+    bornée : ni séquence ANSI, ni saut de ligne, ni bidi dans ``CatalogError``.
+    """
+    if texte.isprintable() and len(texte) <= limite:
+        return texte
+    return _apercu(texte, limite)
+
+
+def _non_imprimable(valeur: object, chemin: str = "") -> tuple[str, str] | None:
+    """Première clé ou chaîne non imprimable de ``valeur``, avec son chemin."""
+    if isinstance(valeur, str):
+        return None if valeur.isprintable() else (chemin, valeur)
+    if isinstance(valeur, dict):
+        for cle, contenu in valeur.items():
+            if not cle.isprintable():
+                return chemin, cle
+            trouve = _non_imprimable(contenu, f"{chemin}.{cle}" if chemin else cle)
+            if trouve is not None:
+                return trouve
+    elif isinstance(valeur, list):
+        for position, contenu in enumerate(valeur):
+            trouve = _non_imprimable(contenu, f"{chemin}[{position}]")
+            if trouve is not None:
+                return trouve
+    return None
 
 
 class _Entree:
@@ -167,6 +201,9 @@ class _Entree:
                 )
             if forme is not None and not forme.fullmatch(element):
                 self.refuser(champ, f"{libelle} mal formé {_apercu(element)}")
+            # affiche tel quel par « catalog show », meme sans forme imposee
+            if not element.isprintable():
+                self.refuser(champ, f"texte non imprimable : {_apercu(element)}")
         if len(set(elements)) != len(elements):
             self.refuser(champ, f"doublon dans {elements!r}")
         return tuple(elements)
@@ -178,7 +215,8 @@ class _Entree:
     def terminer(self) -> None:
         inconnues = sorted(c for c in self._donnees if c not in self._lues)
         if inconnues:
-            self.refuser(None, f"clé(s) inconnue(s) : {', '.join(inconnues)}")
+            cles = ", ".join(_lisible(c) for c in inconnues)
+            self.refuser(None, f"clé(s) inconnue(s) : {cles}")
 
 
 def _valeurs(enum: Iterable[Any]) -> list[str]:
@@ -217,6 +255,9 @@ def _prerequis(donnees: object, position: int) -> Prerequisite:
         valeur = e.brut("value", object, "chaîne ou entier")
         if not isinstance(valeur, str | int):
             e.refuser("value", f"chaîne ou entier attendu(e), reçu {_apercu(valeur)}")
+        # affichee telle quelle par « catalog show » (Prerequisite.describe)
+        if isinstance(valeur, str) and not (valeur.strip() and valeur.isprintable()):
+            e.refuser("value", f"texte vide ou non imprimable : {_apercu(valeur)}")
         prerequis = Prerequisite(kind=genre, key=cle, name=nom, value=valeur)
     elif genre is PrerequisiteKind.CHANNEL_ENABLED:
         prerequis = Prerequisite(kind=genre, channel=e.texte("channel"))
@@ -234,13 +275,27 @@ def _filtres(e: _Entree) -> tuple[tuple[str, FilterValue], ...]:
     table = e.brut("filters", dict, "table")
     filtres: list[tuple[str, FilterValue]] = []
     for champ, valeur in table.items():
+        # cle et valeurs affichees telles quelles par « catalog show »
+        # (Source.summary) : ni ANSI, ni saut de ligne, ni bidi
+        if not _CHAMP_DE_FILTRE.fullmatch(champ):
+            e.refuser(
+                "filters",
+                f"nom de champ mal formé {_apercu(champ)} (lettres, chiffres, "
+                "« _ » et « . », en commençant par une lettre)",
+            )
         nom = f"filters.{champ}"
         elements = valeur if isinstance(valeur, list) else [valeur]
         if not elements or not all(
             isinstance(v, str | int) and not isinstance(v, bool) and v != ""
             for v in elements
         ):
-            e.refuser(nom, f"chaîne, entier ou liste des deux attendu, reçu {valeur!r}")
+            e.refuser(
+                nom,
+                f"chaîne, entier ou liste des deux attendu, reçu {_apercu(valeur)}",
+            )
+        for v in elements:
+            if isinstance(v, str) and not (v.strip() and v.isprintable()):
+                e.refuser(nom, f"texte vide ou non imprimable : {_apercu(v)}")
         filtres.append((champ, tuple(elements) if isinstance(valeur, list) else valeur))
     return tuple(filtres)
 
@@ -367,7 +422,7 @@ def _question(donnees: Mapping[str, Any], domaine: Domain) -> Question:
     sources = e.textes(
         "sources", vide_permis=False, forme=FORMAT_SOURCE_ID, libelle="identifiant"
     )
-    checks = e.textes("checks")
+    checks = e.textes("checks", forme=_FORMAT_CHECK_ID, libelle="id de check")
     scenarios = e.textes("scenarios", forme=_ETIQUETTE, libelle="étiquette")
     references = _references(e)
     if e.liste("attack"):
@@ -438,8 +493,8 @@ def _fichiers(racine: Traversable, dossier: str, erreurs: list[str]) -> list[Dom
             domaines.append(Domain(nom.removesuffix(".toml")))
         except ValueError:
             erreurs.append(
-                f"{dossier}/{nom} : nom de fichier inconnu (attendu : <domaine>.toml ; "
-                f"domaines : {', '.join(_valeurs(Domain))})"
+                f"{dossier}/{_lisible(nom)} : nom de fichier inconnu (attendu : "
+                f"<domaine>.toml ; domaines : {', '.join(_valeurs(Domain))})"
             )
     return domaines
 
@@ -471,7 +526,8 @@ def _entrees(
             erreurs.append(
                 f"{fichier} : seules des tables [[{cle}]] sont attendues, au moins une"
                 + (
-                    f" (clé(s) inconnue(s) : {', '.join(inconnues)})"
+                    " (clé(s) inconnue(s) : "
+                    f"{', '.join(_lisible(c) for c in inconnues)})"
                     if inconnues
                     else ""
                 )
@@ -480,11 +536,19 @@ def _entrees(
         for numero, donnees in enumerate(tables, start=1):
             lieu = f"{fichier} : {genre} n° {numero}"
             if isinstance(donnees, dict) and isinstance(donnees.get("id"), str):
-                lieu += f" ({donnees['id']})"
+                lieu += f" ({_lisible(donnees['id'])})"
             try:
                 if not isinstance(donnees, dict):
                     raise _Invalide(None, "table attendue")
                 entree = lire(donnees, domaine)
+                # filet pour les champs a venir : aucune cle ni chaine non
+                # imprimable n'entre au catalogue, meme d'un champ lu sans controle
+                trouve = _non_imprimable(donnees)
+                if trouve is not None:
+                    raise _Invalide(
+                        trouve[0] or None,
+                        f"texte non imprimable : {_apercu(trouve[1])}",
+                    )
             except _Invalide as exc:
                 champ = "" if exc.champ is None else f"{exc.champ} : "
                 erreurs.append(f"{lieu} : {champ}{exc.motif}")
