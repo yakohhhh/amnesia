@@ -85,6 +85,15 @@ la première version sera la 0.1.0 (milestone M0).
   politique dans `CONTRIBUTING.md`, modèle open core dans
   `docs/adr/0001-modele-de-licence.md` (#30).
 
+### Modifié
+
+- README, qui est aussi la description du paquet, aligné sur ce qui est livré :
+  la section « État » distingue le socle disponible de ce qui n'existe pas
+  encore (aucun check n'est évalué, aucun fait n'est collecté), « Démarrer » ne
+  donne que des commandes locales, avec leur variante Windows PowerShell, et la
+  section « Vendable » est retirée ; `docs/ROADMAP.md` renvoie vers les
+  milestones GitHub au lieu de recopier les issues (#32).
+
 ### Sécurité
 
 - Lecture seule garantie par une allowlist des opérations : un collecteur ne
