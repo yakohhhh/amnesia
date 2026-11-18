@@ -43,7 +43,9 @@ piloter le terminal ni inverser le texte affiché (Trojan Source).
 Le rapport ne porte ni le nom du compte local qui a lancé l'audit
 (``AuditResult.operator``), ni l'arborescence de son poste : il est remis au
 client. ``run.argv`` omet le programme et ne garde que le nom de fichier des
-options à chemin (``--out``, ``--log-file``).
+options à chemin (``--out``, ``--log-file``, ``--password-file``). La valeur
+d'un secret lu pendant l'audit (``amnesia.secrets``) est masquée dans toute
+chaîne du rapport.
 """
 
 from __future__ import annotations
@@ -59,6 +61,7 @@ from typing import Any
 
 from .checks import REGISTRY
 from .checks.base import CheckResult, Gap, assainir
+from .log import mask_secrets
 from .runner import AuditResult, AuditSummary
 from .target import Target
 
@@ -75,7 +78,7 @@ SENSITIVE_OPTIONS = ("--password", "--token", "--secret", "--client-secret")
 
 MASK = "***"
 
-PATH_OPTIONS = ("--out", "--log-file")
+PATH_OPTIONS = ("--out", "--log-file", "--password-file")
 """Options à chemin : seul le nom de fichier est gardé dans ``run.argv``."""
 
 _CONTROLES_BRUTS = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]")
@@ -124,8 +127,9 @@ def redact_argv(argv: Iterable[str]) -> list[str]:
     ``--token abc`` devient ``--token ***`` et ``--token=abc`` ``--token=***``,
     pour ``--password``, ``--token``, ``--secret``, ``--client-secret`` et
     leurs abréviations. L'argument qui suit une option sensible est masqué quelle
-    que soit sa forme. ``--out`` et ``--log-file`` (abréviations et forme
-    ``--out=...`` comprises) ne gardent que le nom de fichier :
+    que soit sa forme. ``--out``, ``--log-file`` et ``--password-file``
+    (abréviations et forme ``--out=...`` comprises) ne gardent que le nom de
+    fichier :
     ``--out /home/<compte>/r.json`` devient ``--out r.json``. Les autres
     arguments passent par ``assainir()`` : identifiants dans une URL,
     ``password=...``, caractères non imprimables et surrogates rendus visibles
@@ -183,9 +187,14 @@ def _texte_utf8(texte: str) -> str:
 
 
 def _sans_surrogates(valeur: Any) -> Any:
-    """Copie de ``valeur`` (dict, list, str...) sans surrogate isolé."""
+    """Copie de ``valeur`` (dict, list, str...) sans surrogate isolé ni secret.
+
+    Dernier filet avant l'écriture : la valeur d'un ``Secret`` lu pendant
+    l'exécution (``amnesia.secrets``) est remplacée par ``***`` dans toute
+    chaîne du rapport, d'où qu'elle vienne (fait, preuve, message).
+    """
     if isinstance(valeur, str):
-        return _texte_utf8(valeur)
+        return _texte_utf8(mask_secrets(valeur))
     if isinstance(valeur, Mapping):
         return {_texte_utf8(cle): _sans_surrogates(v) for cle, v in valeur.items()}
     if isinstance(valeur, list | tuple):

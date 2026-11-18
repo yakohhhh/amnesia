@@ -55,6 +55,7 @@ from .render import (
 )
 from .report import build_report, dumps_report, schema_bytes, schema_text
 from .runner import run_audit
+from .secrets import Secret, SecretError, resolve
 from .target import FORMES, Target, TargetError, Transport
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,18 @@ MEME_AVEC_OVERWRITE = "même avec --overwrite"
 
 FORMATS_SORTIE = ("text", "json")
 """Ce que ``amnesia audit`` écrit sur stdout : rendu texte ou le rapport JSON."""
+
+ENV_MOT_DE_PASSE_WINRM = "AMNESIA_WINRM_PASSWORD"
+"""Variable d'environnement du mot de passe WinRM, retirée dès sa lecture."""
+
+ENTREE_WINRM = "winrm-password"
+"""Nom du mot de passe WinRM (messages, entrée du trousseau)."""
+
+TRANSPORTS_A_MOT_DE_PASSE: frozenset[Transport] = frozenset()
+"""Transports dont le collecteur exige un mot de passe : s'il n'est désigné par
+aucune source, il est demandé au terminal, et l'audit s'arrête sans terminal.
+Vide tant qu'aucun collecteur distant n'existe : le collecteur WinRM (#63) y
+ajoute son transport selon son mode d'authentification."""
 
 
 def _options_journal(defauts: bool) -> argparse.ArgumentParser:
@@ -271,6 +284,82 @@ def _collecteur(target: Target) -> Collector:
     return _CollecteurAbsent(target.transport)
 
 
+OPTION_FICHIER_MOT_DE_PASSE = "--password-file"
+
+
+def _option_abregee(argv: Sequence[str]) -> bool:
+    """Vrai si ``--password-file`` est abrégée (``--password``, ``--pass``...).
+
+    argparse accepterait ``--password VALEUR`` comme un chemin : l'opérateur
+    croirait passer le mot de passe, et le message « fichier introuvable » le
+    recopierait sur stderr.
+    """
+    for argument in argv:
+        if argument == "--":
+            break
+        option = argument.partition("=")[0]
+        if (
+            len(option) > 2
+            and option != OPTION_FICHIER_MOT_DE_PASSE
+            and OPTION_FICHIER_MOT_DE_PASSE.startswith(option)
+        ):
+            return True
+    return False
+
+
+def _mot_de_passe(
+    args: argparse.Namespace, argv: Sequence[str], parser: argparse.ArgumentParser
+) -> Secret | None:
+    """Mot de passe de la cible, ou ``None`` si elle n'en demande pas.
+
+    Sources (``amnesia.secrets``, docs/SECRETS.md) : ``--password-file``, puis
+    ``AMNESIA_WINRM_PASSWORD``, puis une invite au terminal si le transport
+    exige un mot de passe. Aucune option ne prend la valeur elle-même. Un refus
+    (fichier trop ouvert, aucune source et pas de terminal) est une erreur
+    d'usage : code 2, sans lancer l'audit ni attendre de saisie.
+    """
+    transport = args.target.transport
+    fichier: Path | None = args.password_file
+    if fichier is not None and _option_abregee(argv):
+        # sans echo de la valeur : ce peut etre le mot de passe lui-meme
+        parser.error(
+            f"{OPTION_FICHIER_MOT_DE_PASSE} s'écrit en entier et désigne un "
+            "fichier : aucune option ne prend le mot de passe lui-même"
+        )
+    if transport is not Transport.WINRM:
+        if fichier is not None:
+            parser.error(
+                f"--password-file : sans objet pour une cible {transport.value}, "
+                "qui ne s'authentifie pas (réservé à winrm://)"
+            )
+        # jamais heritee par les sous-processus de la collecte
+        if os.environ.pop(ENV_MOT_DE_PASSE_WINRM, None) is not None:
+            logger.warning(
+                "%s ignorée et retirée de l'environnement : la cible %s ne "
+                "s'authentifie pas",
+                ENV_MOT_DE_PASSE_WINRM,
+                transport.value,
+            )
+        return None
+    requis = transport in TRANSPORTS_A_MOT_DE_PASSE
+    designe = fichier is not None or ENV_MOT_DE_PASSE_WINRM in os.environ
+    if not (requis or designe):
+        return None
+    try:
+        return resolve(
+            ENTREE_WINRM,
+            file=fichier,
+            env=ENV_MOT_DE_PASSE_WINRM,
+            prompt="Mot de passe WinRM : " if requis else None,
+        )
+    except SecretError as exc:
+        # le chemin vient de la ligne de commande : neutralise avant tout echo
+        parser.error(
+            f"mot de passe WinRM : {assainir(str(exc))} (sources admises : "
+            f"--password-file, {ENV_MOT_DE_PASSE_WINRM}, saisie au terminal)"
+        )
+
+
 def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> int:
     """Écrit le rapport par ``amnesia.output.write_private()`` ; rend un code.
 
@@ -365,6 +454,16 @@ def _auditer(
     par git. ``--out -`` : le JSON va sur stdout et le rendu texte sur stderr
     (rien d'autre avec ``--format json``). Écriture : ``amnesia.output``.
     """
+    # avant tout le reste : un refus (code 2) ne laisse rien sur le disque, et
+    # la variable d'environnement a quitte le processus avant le premier
+    # sous-processus (git check-ignore, collecte)
+    mot_de_passe = _mot_de_passe(args, argv, parser)
+    if mot_de_passe is not None:
+        # le collecteur WinRM (#63) le recevra ici, et n'appellera reveal()
+        # qu'au moment de s'authentifier
+        logger.info(
+            "mot de passe WinRM lu ; inutilisé : la collecte WinRM n'existe pas encore"
+        )
     par_defaut = args.out is None
     chemin: Path | None
     if args.out == SORTIE_STANDARD:
@@ -441,6 +540,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     a.add_argument(
         "--target", default="localhost", type=_cible, help=f"cible : {FORMES}"
+    )
+    a.add_argument(
+        "--password-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "fichier d'une ligne qui contient le mot de passe WinRM, lisible de "
+            "ton seul compte (0600) ; aucune option ne prend le mot de passe "
+            f"lui-même (autres sources : {ENV_MOT_DE_PASSE_WINRM}, saisie au "
+            "terminal ; docs/SECRETS.md)"
+        ),
     )
     a.add_argument(
         "--out",

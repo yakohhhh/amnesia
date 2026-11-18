@@ -562,7 +562,7 @@ def test_argv_sans_chemin_du_poste_dans_le_rapport() -> None:
 
 
 def test_options_a_chemin_couvertes() -> None:
-    assert PATH_OPTIONS == ("--out", "--log-file")
+    assert PATH_OPTIONS == ("--out", "--log-file", "--password-file")
 
 
 def test_argv_non_textuel_refuse() -> None:

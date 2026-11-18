@@ -75,7 +75,10 @@ basses. De bas en haut :
 
 1. **socle sans dépendance interne** : `amnesia.target` (cibles et transports),
    `amnesia.log` (journal expurgé), `amnesia.facts.model` (faits),
-   `amnesia.deps` (extras optionnels, importés à la demande) ;
+   `amnesia.deps` (extras optionnels, importés à la demande) ; juste
+   au-dessus, `amnesia.secrets` (type `Secret` et sources des secrets
+   d'authentification, [`SECRETS.md`](SECRETS.md)), qui enregistre chaque
+   valeur lue auprès de `amnesia.log` ;
 2. **modèle des checks** : `amnesia.checks.base` (`Check`, `CheckResult`,
    `Gap`), `amnesia.checks.context`, `amnesia.checks.registry` ;
 3. **collecte et résolution** : `amnesia.facts.collectors`,
@@ -99,26 +102,27 @@ modules.
 |---|---|
 | `amnesia` | `amnesia.runner` |
 | `amnesia.__main__` | `amnesia.cli` |
-| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.cli` | `amnesia`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.secrets`, `amnesia.target` |
 | `amnesia.exitcodes` | `amnesia.checks.base` |
 | `amnesia.output` | `amnesia.facts.collectors` |
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
 | `amnesia.render.markdown` | `amnesia.render.base` |
 | `amnesia.render.text` | `amnesia.render.base` |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.report` |
-| `amnesia.report` | `amnesia.checks`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.report` | `amnesia.checks`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
 | `amnesia.checks.registry` | `amnesia.checks.base`, `amnesia.deps`, `amnesia.target` |
 | `amnesia.checks.context` | `amnesia.target` |
-| `amnesia.checks.base` | aucune |
+| `amnesia.checks.base` | `amnesia.log` |
 | `amnesia.facts` | `amnesia.facts.collectors`, `amnesia.facts.model`, `amnesia.facts.resolution` |
 | `amnesia.facts.resolution` | `amnesia.checks.base`, `amnesia.facts.model` |
 | `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.target` |
 | `amnesia.facts.model` | aucune |
 | `amnesia.deps` | aucune |
 | `amnesia.log` | aucune |
+| `amnesia.secrets` | `amnesia.log` |
 | `amnesia.target` | aucune |
 
 Ce que la table interdit, et pourquoi :

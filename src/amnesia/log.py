@@ -120,12 +120,22 @@ def register_secret(valeur: str | None) -> None:
         _secrets.add(quote(valeur, safe=""))
 
 
-def redact(texte: str) -> str:
-    """Masque les secrets enregistrés et les motifs connus de jetons et de clés."""
+def mask_secrets(texte: str) -> str:
+    """Masque les seuls secrets enregistrés (``register_secret``), sans les motifs.
+
+    Pour ce qui n'est pas un journal (rapport, messages d'erreur) : le texte
+    n'est modifié que s'il contient la valeur d'un secret lu pendant l'exécution.
+    """
     with _verrou:
         secrets = sorted(_secrets, key=len, reverse=True)
     for valeur in secrets:
         texte = texte.replace(valeur, MASQUE)
+    return texte
+
+
+def redact(texte: str) -> str:
+    """Masque les secrets enregistrés et les motifs connus de jetons et de clés."""
+    texte = mask_secrets(texte)
     for motif, remplacement in _MOTIFS:
         texte = motif.sub(remplacement, texte)
     return texte

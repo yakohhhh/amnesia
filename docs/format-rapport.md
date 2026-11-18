@@ -183,7 +183,11 @@ politique de versionnage du projet (#31) reprend cette règle.
   `--token ***` et `--token=abc` devient `--token=***`. Les autres arguments
   sont caviardés comme les messages d'erreur (identifiants dans une URL,
   `password=...`). Le chemin du programme (`sys.argv[0]`) n'est pas repris.
-- **Pas de chemin du poste de l'auditeur** : `--out` et `--log-file`, leurs
+- **Secrets lus pendant l'audit** : la valeur d'un secret d'authentification
+  ([`SECRETS.md`](SECRETS.md)) est remplacée par `***` dans toute chaîne du
+  rapport, d'où qu'elle vienne (message d'erreur, preuve, fait).
+- **Pas de chemin du poste de l'auditeur** : `--out`, `--log-file` et
+  `--password-file` ([`SECRETS.md`](SECRETS.md)), leurs
   abréviations (`--ou`) et leur forme `--out=...` ne gardent que le nom de
   fichier, chemin POSIX ou Windows : `--out /home/<compte>/clients/r.json` et
   `--out C:\Users\<compte>\r.json` deviennent `--out r.json`. Limite : la
