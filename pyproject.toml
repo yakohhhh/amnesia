@@ -80,7 +80,7 @@ all = []
 [dependency-groups]
 # versions exactes ; uv.lock fige aussi les dependances transitives et leurs empreintes
 dev = [
-    "hypothesis==6.170.14",
+    "hypothesis==6.170.15",
     # validation du rapport contre son JSON Schema (#22) : tests seulement, le
     # paquet installe n'en depend pas
     "jsonschema==4.26.0",
@@ -92,7 +92,7 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-socket==0.8.1",
     "pyyaml==6.0.3",
-    "ruff==0.17.3",
+    "ruff==0.17.4",
     # backend de build, meme version que build-constraint-dependencies : les
     # tests construisent le wheel hors ligne (tests/test_paquet.py)
     "setuptools==84.2.1",
