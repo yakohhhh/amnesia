@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Couche de collecte : collecteurs, memoisation, resolve() et API des checks."""
 
 from __future__ import annotations

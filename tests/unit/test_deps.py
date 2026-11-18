@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Extras optionnels : import paresseux, MissingExtra et « non évalué » (#44)."""
 
 from __future__ import annotations

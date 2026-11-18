@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Traduction des faits indisponibles en résultat de check, sans jamais de Gap.
 
 Le moteur (#21) appelle ``resolve()`` avant ``evaluate()`` : si un fait requis

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Faux gh pour les tests de scripts/sync_github.py : aucun appel reseau.
 
 L'etat du depot simule (labels, milestones, issues) est lu et reecrit dans le

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Modele des faits : Fact, FactSet, forme JSON versionnee et JSON Schema."""
 
 from __future__ import annotations

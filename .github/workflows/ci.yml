@@ -367,13 +367,73 @@ jobs:
           uv run --only-group audit pip-audit --strict --locked --aliases=on \
             --progress-spinner=off "${exceptions[@]}" "$RUNNER_TEMP/audit"
 
+  # Conformite REUSE 3.3 : licence et titulaire de chaque fichier, par en-tete
+  # SPDX (code) ou par REUSE.toml (le reste), textes de licence dans LICENSES/.
+  reuse:
+    name: reuse
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          checksum: ${{ env.UV_SHA256_LINUX_X64 }}
+          enable-cache: true
+      - name: reuse lint (version figee dans uv.lock)
+        run: uv run --only-group ci reuse lint
+
+  # DCO (CONTRIBUTING.md, « Licence des contributions ») : chaque commit d'une PR
+  # porte le Signed-off-by de son auteur. Exemptees : les PR du proprietaire,
+  # titulaire des droits, et celles de Dependabot (Signed-off-by au nom de
+  # support@github.com, pas de l'auteur du commit) ; le reste est verifie,
+  # collaborateurs compris. Le job tourne sur chaque evenement pour que ci-ok le
+  # voie reussir : seule l'etape de controle est conditionnelle.
+  dco:
+    name: dco
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # historique complet : commits de la PR absents de la branche cible
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Signed-off-by de l'auteur sur chaque commit de la PR
+        if: >-
+          github.event_name == 'pull_request'
+          && github.event.pull_request.author_association != 'OWNER'
+          && github.event.pull_request.user.login != 'dependabot[bot]'
+        env:
+          BASE: origin/${{ github.base_ref }}
+          TETE: ${{ github.event.pull_request.head.sha }}
+        # bibliotheque standard seulement : Python du runner, aucune installation ;
+        # « -- » : BASE et TETE restent des arguments positionnels
+        run: python3 scripts/verifier_dco.py -- "$BASE" "$TETE"
+
   # Seul check a rendre obligatoire (#13) : son nom ne change pas quand la
   # matrice evolue, et il echoue si un seul job echoue ou est annule.
   ci-ok:
     name: ci-ok
     if: always()
     needs:
-      [lint, typecheck, test, nox-windows, build, lowest-direct, workflow-lint, gitleaks, pip-audit]
+      - lint
+      - typecheck
+      - test
+      - nox-windows
+      - build
+      - lowest-direct
+      - workflow-lint
+      - gitleaks
+      - pip-audit
+      - reuse
+      - dco
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

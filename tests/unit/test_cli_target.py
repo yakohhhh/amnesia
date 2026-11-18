@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Validation de --target par la CLI : erreur d'usage et affichage normalise."""
 
 from pathlib import Path

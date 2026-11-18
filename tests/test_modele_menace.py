@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Structure du modele de menace (docs/threat-model.md).
 
 Le document sert de source a SECURITY.md (#28) : ces tests verifient qu'il reste

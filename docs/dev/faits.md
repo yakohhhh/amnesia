@@ -219,8 +219,12 @@ voir `tests/fixtures/README.md`) :
 
 Le check et ses tests, `tests/unit/test_exemple_faits.py` :
 
+<!-- REUSE-IgnoreStart : en-tete SPDX du fichier cite, pas de ce document -->
 <!-- exemple : tests/unit/test_exemple_faits.py -->
 ```python
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Exemple de docs/dev/faits.md : tester un check avec FixtureCollector."""
 
 from collections.abc import Mapping
@@ -314,6 +318,7 @@ def test_fait_absent_donne_skipped_not_collected() -> None:
     assert resultat.status is Status.SKIPPED
     assert resultat.reason is Reason.NOT_COLLECTED
 ```
+<!-- REUSE-IgnoreEnd -->
 
 La fonction `auditer()` reproduit ce que fera le moteur (#21) : collecter,
 résoudre les indisponibilités, puis évaluer. Le même check donne un `gap` sur

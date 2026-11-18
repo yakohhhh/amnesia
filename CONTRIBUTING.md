@@ -163,6 +163,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 PYTHONWARNDEFAULTENCODING=1 PYTEST_ADDOPTS='-W error::EncodingWarning' uv run pytest -q --cov
+uv run --only-group ci reuse lint   # licence de chaque fichier (job reuse)
 ```
 
 Sous Windows, passer par `uv run nox -s tests-3.11`, qui pose lui-même les deux
@@ -313,7 +314,11 @@ La taxonomie est déclarée dans [`.github/labels.yml`](.github/labels.yml)
 - **1 priorité** (`priority:high`, `priority:medium` ou `priority:low`) ;
 - **1 à 2 domaines** (`area:windows`, `area:core`…).
 
-La priorité et les domaines sont posés au tri par un mainteneur.
+La priorité et les domaines sont posés au tri par un mainteneur. Un ticket rangé
+hors du cœur par le tableau « Fonctionnalités par édition » de
+[l'ADR 0001](docs/adr/0001-modele-de-licence.md) porte en plus le label
+`edition:commerciale` : il relève d'une édition commerciale, développée hors de
+ce dépôt, et aucune PR ne l'implémente ici.
 
 ## CHANGELOG
 
@@ -325,7 +330,89 @@ outillage, refactorisation sans effet visible) n'y figurent pas.
 
 ## Licence des contributions
 
-La politique de licence des contributions (DCO ou CLA) n'est pas encore fixée :
-elle dépend du choix de licence du projet (#11) et sera définie par #30, qui
-complétera cette section. D'ici là, ouvre une issue pour en discuter avant
-d'engager une contribution importante.
+Ce dépôt est le cœur d'amnesia : il est sous licence MIT
+([`LICENSE`](LICENSE)) et le reste, selon le modèle open core décidé dans
+[l'ADR 0001](docs/adr/0001-modele-de-licence.md) (#11). Une contribution est
+publiée sous MIT et son auteur en reste titulaire. Les éditions commerciales sont
+développées hors de ce dépôt et ne reçoivent aucune contribution externe : aucun
+CLA n'est demandé, seulement le DCO.
+
+### DCO : un `Signed-off-by` par commit
+
+Le [Developer Certificate of Origin](https://developercertificate.org/) (DCO 1.1)
+est une attestation : en ajoutant la ligne `Signed-off-by` à un commit, tu
+certifies avoir le droit de soumettre ce code sous la licence du projet. Lis son
+texte avant ta première contribution. `git commit -s` ajoute la ligne, avec le nom
+et l'adresse de `user.name` et `user.email` :
+
+```sh
+git commit -s
+```
+
+```text
+Validation stricte de --target
+
+Une cible invalide devient une erreur d'usage (code 2).
+
+Signed-off-by: Prénom Nom <prenom.nom@example.org>
+```
+
+- L'adresse de la ligne `Signed-off-by` est celle de l'auteur du commit (la casse
+  ne compte pas), et la ligne se trouve dans le dernier paragraphe du message,
+  avec les autres trailers : une ligne au milieu du corps ne compte pas.
+- Le job CI `dco` (agrégé par `ci-ok`, donc bloquant) vérifie chaque commit de la
+  PR absent de `main` avec [`scripts/verifier_dco.py`](scripts/verifier_dco.py).
+  Seules les fusions propres en sont exemptées : celles dont le contenu est
+  exactement la fusion automatique de leurs deux parents, comme la mise à jour de
+  la branche par `git merge upstream/main` ou le bouton « Update branch ». Une
+  fusion qui ajoute du contenu ou résout un conflit à la main se signe comme un
+  autre commit (`git commit -s` pour conclure la fusion). Le job ne s'applique pas
+  aux PR du propriétaire du dépôt, titulaire des droits, ni à celles de
+  Dependabot ; un mainteneur qui pousse un commit sur la branche d'une PR externe
+  le signe donc lui aussi.
+- Un commit fait depuis l'interface web de GitHub (suggestion de relecture
+  appliquée, éditeur en ligne) reçoit automatiquement son `Signed-off-by` : le
+  dépôt exige l'attestation sur les commits web.
+- Commit poussé sans `Signed-off-by` : la branche poussée n'est pas réécrite (voir
+  [« Workflow Git »](#workflow-git)). Copie-la sur une nouvelle branche locale,
+  rejoue-y tes commits en les signant au-dessus de `upstream/main` (le rebase de
+  cette copie, jamais poussée, écarte les fusions et les commits déjà dans
+  `main`), pousse-la et ouvre une nouvelle PR qui remplace la première (à fermer,
+  avec un lien vers la nouvelle) :
+
+  ```sh
+  git fetch upstream
+  git switch -c docs/29-exemple-signe docs/29-exemple
+  git rebase --signoff upstream/main
+  git push -u origin docs/29-exemple-signe
+  ```
+
+### En-têtes SPDX et conformité REUSE
+
+Chaque fichier déclare sa licence et son titulaire, selon la
+[spécification REUSE](https://reuse.software/spec-3.3/) :
+
+- un fichier de code (Python, PowerShell, shell) commence par ces deux lignes,
+  avant la docstring et après un éventuel shebang, avec l'année de création du
+  fichier :
+
+  <!-- REUSE-IgnoreStart -->
+  ```python
+  # SPDX-FileCopyrightText: 2026 Ayman Mazroui
+  # SPDX-License-Identifier: MIT
+  ```
+  <!-- REUSE-IgnoreEnd -->
+
+- tu peux ajouter ta propre ligne de titulaire (`SPDX-FileCopyrightText`, suivi
+  de l'année et de ton nom) sous celles d'un fichier que tu modifies
+  substantiellement ; une ligne existante n'est jamais retirée ;
+- les fichiers qui ne peuvent pas porter de commentaire (JSON, données, fixtures)
+  et la documentation sont couverts par [`REUSE.toml`](REUSE.toml) ; un nouveau
+  type de fichier y est ajouté dans la PR qui l'introduit, jamais un motif qui
+  couvrirait du code ;
+- le texte de la licence est dans [`LICENSES/MIT.txt`](LICENSES/MIT.txt), copie
+  conforme de `LICENSE`.
+
+`uv run --only-group ci reuse lint` vérifie tout le dépôt (job CI `reuse`) ;
+`tests/test_licence.py` vérifie en plus les en-têtes du code avec le reste de la
+suite.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Extras optionnels (#44) : imports paresseux, job lowest-direct, politique écrite.
 
 Métadonnées du wheel (aucune dépendance hors extra, ``all`` complet) et bornes

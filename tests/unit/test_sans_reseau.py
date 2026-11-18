@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Sentinelles « hors ligne par défaut » (#26), sous le blocage réseau de #5.
 
 Chaque commande de la CLI tourne ici avec sockets et DNS coupés par

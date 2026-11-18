@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Couche de collecte : faits bruts d'une cible, séparés de leur évaluation.
 
 Les collecteurs (``Collector``) joignent la cible et rendent un ``FactSet`` ; les

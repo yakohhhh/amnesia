@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Moteur d'audit : isolation des erreurs, délai, interruption, agrégation (#21)."""
 
 from __future__ import annotations

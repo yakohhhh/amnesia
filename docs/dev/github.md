@@ -3,8 +3,8 @@
 Les labels et les milestones du dépôt sont décrits dans deux fichiers versionnés :
 
 - `.github/labels.yml` : la taxonomie (`type:*`, `priority:*`, `area:*`,
-  `good first issue` et les labels par défaut de GitHub conservés), avec couleur et
-  description ;
+  `edition:commerciale`, `good first issue` et les labels par défaut de GitHub
+  conservés), avec couleur et description ;
 - `.github/milestones.yml` : les milestones, identifiées par leur titre exact
   (tiret cadratin compris).
 
@@ -80,9 +80,23 @@ les commandes appliquées relèvent de #13.
   au-delà, l'option vierge n'apparaît que libellée « Maintainers only ».
 - [ ] **Modèle de PR** (#29) : une nouvelle PR ouverte depuis l'interface web
   affiche la checklist du modèle.
+- [ ] **DCO bloquant** (#30) : une PR de test ouverte depuis un autre compte
+  GitHub (fork), avec un commit sans `Signed-off-by`, est marquée en échec par le
+  job `dco`, donc par `ci-ok` ; elle est fermée sans merge. Les PR du
+  propriétaire en sont exemptées : le test ne peut pas venir de son compte.
+- [ ] **Signature des commits web** (#30) : « Require contributors to sign off on
+  web-based commits » activé (`web_commit_signoff_required = true`). Sans lui, une
+  suggestion de relecture appliquée ou une correction faite dans l'éditeur web de
+  GitHub crée un commit sans `Signed-off-by`, que le job `dco` refuse : la PR
+  externe serait à refaire sur une nouvelle branche. Activation, par le
+  propriétaire :
+
+  ```sh
+  gh api -X PATCH repos/yakohhhh/amnesia -F web_commit_signoff_required=true
+  ```
 
 Vérification groupée, en lecture seule :
-`gh api repos/yakohhhh/amnesia --jq '.visibility, .security_and_analysis'`.
+`gh api repos/yakohhhh/amnesia --jq '.visibility, .security_and_analysis, .web_commit_signoff_required'`.
 
 ## Formulaires d'issues et modèle de PR
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Forme de l'ADR 0002 sur le nom et la marque (docs/adr/0002-nom-et-marque.md).
 
 Ces tests vérifient que l'ADR répond aux critères d'acceptation de #12 par sa

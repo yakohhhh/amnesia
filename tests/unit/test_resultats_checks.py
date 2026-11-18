@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Statuts de resultat des checks : invariants, regle « non evalue », to_dict()."""
 
 from __future__ import annotations

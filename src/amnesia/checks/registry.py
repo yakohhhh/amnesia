@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Registre des checks : classes enregistrées, métadonnées validées, ids uniques.
 
 Un check est une sous-classe de ``Check`` décorée par ``@register``. Le registre

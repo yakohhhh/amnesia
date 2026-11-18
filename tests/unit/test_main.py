@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Points d'entree : python -m amnesia et arguments lus dans sys.argv."""
 
 import runpy

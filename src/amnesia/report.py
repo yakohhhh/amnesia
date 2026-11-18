@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Rapport JSON versionné : contrat machine d'un audit.
 
 ``build_report()`` transforme un ``AuditResult`` (#21) en document JSON v1 ;

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """« Hors ligne par défaut » (#26) : la CLI dans un vrai processus sans réseau.
 
 Le blocage en processus de tests/conftest.py (#5) ne filtre pas un

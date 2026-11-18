@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Checks Active Directory : contrôleurs de domaine, GPO, objets de l'annuaire.
 
 Aucun check pour l'instant ; le registre charge déjà ce paquet. Un module par

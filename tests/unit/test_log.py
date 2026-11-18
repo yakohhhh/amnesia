@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Journalisation : verbosite, separation stdout/stderr, loggers tiers, expurgation.
 
 Les faux secrets sont assembles a l'execution, pour ne jamais figurer tels quels

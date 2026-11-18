@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Interface en ligne de commande d'amnesia.
 
 Codes de sortie : ``amnesia.exitcodes`` ; ``main()`` ne renvoie que ceux-là

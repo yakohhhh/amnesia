@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Frontière réseau (#26) : seuls les collecteurs listés peuvent se connecter.
 
 Garde-fous indépendants :

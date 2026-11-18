@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Guide de contribution, formulaires d'issues et modele de PR (#29).
 
 Ces tests verifient la forme (champs obligatoires, labels, renvois, commandes),
@@ -250,6 +253,7 @@ def test_modele_de_pr_unique_avec_checklist() -> None:
         "Fixtures anonymisées",
         "CHANGELOG",
         "Documentation",
+        "Licence",
         "Lecture seule",
         "Modèle de menace",
         "ADR",
@@ -375,8 +379,8 @@ def test_renvois_securite_licence_et_guide_des_checks() -> None:
     assert f"]({DEPOT}/blob/main/SECURITY.md)" in texte
     assert (RACINE / "SECURITY.md").is_file()
     licence = texte.partition("## Licence des contributions")[2]
-    # politique non tranchee ici : renvoi vers la decision de licence et #30
-    for renvoi in ("DCO", "CLA", "#11", "#30"):
+    # politique tranchee par l'ADR 0001 (#11) et detaillee par tests/test_licence.py
+    for renvoi in ("DCO", "](docs/adr/0001-modele-de-licence.md)", "#11"):
         assert renvoi in licence, renvoi
     assert "#81" in texte
 

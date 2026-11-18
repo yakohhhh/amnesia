@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Moteur d'audit : exécute les checks sur une cible et agrège leurs résultats.
 
 Pour chaque check, dans l'ordre reçu :

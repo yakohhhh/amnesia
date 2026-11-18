@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """amnesia render en vrai processus : sortie redirigée en page de code (#23)."""
 
 import os

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Checks Windows : configuration de journalisation d'un hôte Windows.
 
 Un module par check, nommé d'après la fin de son id (``win.sysmon`` →

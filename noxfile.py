@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Sessions nox : lint, typage, tests et build, installes depuis uv.lock.
 
 Lister les sessions : ``uv run nox -l``.

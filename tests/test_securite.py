@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Politique de sécurité : SECURITY.md et ses renvois (#28).
 
 Ces tests vérifient la forme (sections attendues, canal de signalement sans

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Registre des checks : metadonnees validees, ids uniques, chargement (#17)."""
 
 from __future__ import annotations

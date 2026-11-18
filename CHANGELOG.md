@@ -76,6 +76,14 @@ la première version sera la 0.1.0 (milestone M0).
   nom tant qu'il n'est pas publié), sans traceback, et `amnesia list-checks`
   affiche l'extra requis par chaque check (`[aws]`, `-` sans extra). Politique
   d'acceptation des dépendances : `docs/dev/dependances.md` (#209).
+- Licence MIT déclarée au format de la PEP 639 : métadonnée
+  `License-Expression: MIT` et fichier `LICENSE` sous `.dist-info/licenses/` du
+  wheel. Chaque fichier du dépôt déclare sa licence (en-tête SPDX ou
+  `REUSE.toml`), conformité REUSE vérifiée en CI (#30).
+- Contributions acceptées sous DCO, sans CLA : chaque commit d'une PR externe
+  porte le `Signed-off-by` de son auteur (`git commit -s`), vérifié en CI ;
+  politique dans `CONTRIBUTING.md`, modèle open core dans
+  `docs/adr/0001-modele-de-licence.md` (#30).
 
 ### Sécurité
 

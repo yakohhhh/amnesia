@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Le jeu de regles ruff attrape bien ce qu'il doit attraper.
 
 Garde-fou contre un select trop etroit : chaque cas est lint comme s'il etait

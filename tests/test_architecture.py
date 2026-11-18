@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Architecture et registre des décisions (#34).
 
 Ces tests verifient que docs/architecture.md et le code restent alignes (table

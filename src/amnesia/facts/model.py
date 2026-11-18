@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Modèle des faits : ``Fact``, ``FactSet`` et leur forme JSON versionnée.
 
 Un fait est une donnée brute observée sur une cible (``windows.auditpol.backup``,

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Présence et configuration de Sysmon sur un hôte Windows."""
 
 from ...target import Kind

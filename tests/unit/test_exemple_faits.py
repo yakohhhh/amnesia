@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Ayman Mazroui
+# SPDX-License-Identifier: MIT
+
 """Exemple de docs/dev/faits.md : tester un check avec FixtureCollector."""
 
 from collections.abc import Mapping
