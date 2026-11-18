@@ -135,3 +135,70 @@ def test_reseau_accepte_dans_les_collecteurs(fichier: str) -> None:
 def test_urllib_parse_accepte() -> None:
     # amnesia.log expurge des URL : urllib.parse ne joint rien
     assert "TID251" not in _codes("from urllib.parse import quote\n\nquote\n")
+
+
+# Fichiers importes (#35) : ni execution ni deserialisation de code, ni
+# analyseur XML ou extraction d'archive sans garde-fou. S320 (lxml) a ete
+# retiree de ruff.
+ENTREES_HOSTILES = [
+    ("S102", 'exec("X = 1")\n'),
+    ("S301", 'import pickle\n\nX = pickle.loads(b"")\n'),
+    ("S301", 'import shelve\n\nD = shelve.open("etat")\n'),
+    ("S302", 'import marshal\n\nX = marshal.loads(b"")\n'),
+    ("S307", "X = eval(input())\n"),
+    ("S313", 'import xml.etree.cElementTree as ET\n\nX = ET.fromstring("<a/>")\n'),
+    ("S314", 'import xml.etree.ElementTree as ET\n\nX = ET.fromstring("<a/>")\n'),
+    ("S315", "from xml.sax import expatreader\n\nP = expatreader.create_parser()\n"),
+    (
+        "S316",
+        'from xml.dom import expatbuilder\n\nD = expatbuilder.parseString("<a/>")\n',
+    ),
+    ("S317", "import xml.sax\n\nP = xml.sax.make_parser()\n"),
+    ("S318", 'from xml.dom import minidom\n\nD = minidom.parseString("<a/>")\n'),
+    ("S319", 'from xml.dom import pulldom\n\nD = pulldom.parseString("<a/>")\n'),
+    ("S506", 'import yaml\n\nX = yaml.load("a: 1")\n'),
+    ("S202", 'import tarfile\n\ntarfile.open("bundle.tar").extractall()\n'),
+]
+
+
+@pytest.mark.parametrize(
+    ("code", "source"),
+    ENTREES_HOSTILES,
+    ids=[
+        "exec",
+        "pickle",
+        "shelve",
+        "marshal",
+        "eval",
+        "celementtree",
+        "elementtree",
+        "expatreader",
+        "expatbuilder",
+        "sax",
+        "minidom",
+        "pulldom",
+        "yaml-load",
+        "tarfile-extractall",
+    ],
+)
+@pytest.mark.parametrize(
+    "fichier",
+    ["src/amnesia/_cas.py", "src/amnesia/inputs.py", "tests/unit/test_cas.py"],
+)
+def test_regles_des_fichiers_importes_actives(
+    code: str, source: str, fichier: str
+) -> None:
+    # critere d'acceptation de #35 : actives partout, y compris dans
+    # amnesia.inputs (aucune derogation par fichier) et dans les tests
+    assert code in _codes(source, fichier)
+
+
+def test_regles_des_fichiers_importes_toutes_couvertes() -> None:
+    attendues = {"S102", "S202", "S301", "S302", "S307", "S506"} | {
+        f"S{numero}" for numero in range(313, 320)
+    }
+    assert {code for code, _ in ENTREES_HOSTILES} == attendues
+
+
+def test_yaml_safe_load_accepte() -> None:
+    assert _codes('import yaml\n\nX = yaml.safe_load("a: 1")\n') == set()

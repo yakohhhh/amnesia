@@ -83,10 +83,11 @@ Les modules forment des couches ; une couche n'importe que les couches plus
 basses. De bas en haut :
 
 1. **socle sans dépendance interne** : `amnesia.target` (cibles et transports),
-   `amnesia.log` (journal expurgé), `amnesia.facts.model` (faits),
-   `amnesia.deps` (extras optionnels, importés à la demande),
+   `amnesia.log` (journal expurgé), `amnesia.deps` (extras optionnels, importés
+   à la demande), `amnesia.inputs` (analyse sûre des fichiers importés),
    `amnesia.readonly` (allowlist des opérations de lecture seule et gardes
-   qui refusent tout le reste) ;
+   qui refusent tout le reste) ; puis `amnesia.facts.model` (faits), qui ne
+   prend d'amnesia que `amnesia.inputs` pour lire un fichier de faits ;
 2. **modèle des checks** : `amnesia.checks.base` (`Check`, `CheckResult`,
    `Gap`), `amnesia.checks.context`, `amnesia.checks.registry` ;
 3. **catalogue des questions** : `amnesia.catalog` (`model`, puis `loader`),
@@ -120,9 +121,9 @@ modules.
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
 | `amnesia.render.markdown` | `amnesia.render.base` |
 | `amnesia.render.text` | `amnesia.render.base` |
-| `amnesia.render.base` | `amnesia.checks.base`, `amnesia.report` |
+| `amnesia.render.base` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.report` |
 | `amnesia.report` | `amnesia.checks`, `amnesia.runner`, `amnesia.target` |
-| `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.log`, `amnesia.target` |
+| `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.inputs`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.catalog`, `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
 | `amnesia.catalog` | `amnesia.catalog.loader`, `amnesia.catalog.model` |
@@ -134,8 +135,9 @@ modules.
 | `amnesia.facts` | `amnesia.facts.collectors`, `amnesia.facts.model`, `amnesia.facts.resolution` |
 | `amnesia.facts.resolution` | `amnesia.checks.base`, `amnesia.facts.model` |
 | `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.readonly`, `amnesia.target` |
-| `amnesia.facts.model` | aucune |
+| `amnesia.facts.model` | `amnesia.inputs` |
 | `amnesia.deps` | aucune |
+| `amnesia.inputs` | aucune |
 | `amnesia.log` | aucune |
 | `amnesia.readonly` | aucune |
 | `amnesia.target` | aucune |
@@ -171,6 +173,18 @@ Ce que la table interdit, et pourquoi :
   passent par `ReadOnlyLdap`, `protect_aws_client()` et `HttpGuard`.
   `amnesia.readonly` n'importe ni SDK ni autre module d'amnesia : la liste
   se relit, et [`READ-ONLY.md`](READ-ONLY.md) en est généré ;
+- **un format importé ne se lit que par `amnesia.inputs`** : configuration
+  Sysmon, sauvegarde de GPO, bundle ou fichier de mission viennent peut-être
+  d'un SI compromis (H4). Aucun autre module n'importe `xml.etree`, `xml.dom`,
+  `xml.sax`, `xml.parsers.expat`, `zipfile` ni `tarfile`, ni les modules qui
+  donnent le même analyseur sous un autre nom (`pyexpat`, `_elementtree`,
+  `plistlib`, `xmlrpc`, `zipimport`), même sous `if TYPE_CHECKING:` ou par
+  `importlib` (un élément XML s'annote avec `amnesia.inputs.XmlElement`), ni
+  n'appelle `shutil.unpack_archive`. Le module
+  plafonne les octets lus, la profondeur et le nombre d'enregistrements, refuse
+  DTD et entités XML, chemins piégés et bombes de décompression, et lève
+  `UnsafeInputError`, dont le message ne reprend jamais le contenu du fichier
+  ([`dev/entrees.md`](dev/entrees.md)) ;
 - **le catalogue ne connaît ni les checks de domaine, ni le moteur** : il lit
   ses fichiers TOML dans le paquet (`importlib.resources`), jamais ailleurs, et
   se valide seul. Son lien avec le registre (`checks` d'une question,
@@ -186,7 +200,7 @@ Ce que la table interdit, et pourquoi :
   ([ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md)). Du code du moteur,
   `amnesia.render.base` n'importe que le vocabulaire commun : les énumérations
   `Severity`, `Status` et `Reason` de `amnesia.checks.base` et `SCHEMA_VERSION`
-  de `amnesia.report` ;
+  de `amnesia.report` ; le fichier du rapport se lit par `amnesia.inputs` ;
 - **`amnesia.cli` n'est importé que par `__main__`** : l'API Python
   (`from amnesia import run_audit`) ne dépend pas de la ligne de commande.
 
@@ -208,7 +222,7 @@ redéfinit pas, il dit quelle étape du flux les traverse.
 | Frontière | Étape du flux | Ce qui la traverse | Mesures |
 |---|---|---|---|
 | Z1 → Z2, Z1 → Z3 (poste → cibles) | Transport | authentification, puis lecture de configurations | lecture seule : allowlist des opérations ([ADR 0006](adr/0006-garantie-lecture-seule.md), [`READ-ONLY.md`](READ-ONLY.md)), périmètre autorisé (#37), transports chiffrés et authentifiés ([ADR 0007](adr/0007-transports.md)) |
-| Z2 → Z1 (cibles → poste) | Collecte | sorties de commandes, fichiers, bundles : données d'une cible **peut-être compromise** (H4) | tout texte venu de la cible est caviardé et rendu imprimable avant d'entrer dans un résultat (`assainir`) ; valeurs figées et bornées (`Evidence`) ; bundle vérifié par empreintes (#52) ; aucune analyse de texte localisé |
+| Z2 → Z1 (cibles → poste) | Collecte | sorties de commandes, fichiers, bundles : données d'une cible **peut-être compromise** (H4) | fichiers importés analysés par `amnesia.inputs` seul : octets, profondeur et enregistrements plafonnés, DTD et entités XML refusées, archives extraites sans chemin piégé ni bombe ([`dev/entrees.md`](dev/entrees.md)) ; tout texte venu de la cible est caviardé et rendu imprimable avant d'entrer dans un résultat (`assainir`) ; valeurs figées et bornées (`Evidence`) ; bundle vérifié par empreintes (#52) ; aucune analyse de texte localisé |
 | Z1 → Z4 (poste → destinataires) | Rapport, rendus | le rapport : la carte des angles morts du client | déterminisme, caractères de contrôle échappés, `argv` expurgé ([`format-rapport.md`](format-rapport.md)) ; fichier lisible du seul opérateur, écrit atomiquement, jamais à travers un lien ni par-dessus un fichier existant (`amnesia.output`) ; règles de remise dans `SECURITY.md` |
 | Z5 → Z1 (chaîne d'approvisionnement → poste) | installation | code d'amnesia et de ses dépendances | versions exactes, lock avec empreintes, délai de carence ([`dev/dependances.md`](dev/dependances.md)) |
 
@@ -236,6 +250,8 @@ Ce que produit un audit, où cela vit et quand cela disparaît (minimisation :
   écriture d'un check ;
 - [`docs/READ-ONLY.md`](READ-ONLY.md) : opérations qu'un collecteur a le
   droit d'exécuter sur une cible ;
+- [`docs/dev/entrees.md`](dev/entrees.md) : lecture d'un fichier importé
+  (`amnesia.inputs`), plafonds et erreurs ;
 - [`docs/catalogue.md`](catalogue.md) : questions d'enquête, sources de
   télémétrie, identifiants stables ;
 - [`docs/format-rapport.md`](format-rapport.md) : champs et compatibilité du
