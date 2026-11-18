@@ -285,9 +285,9 @@ def _enveloppe_brute(valeur: str) -> str:
             "JSON trop imbriqué",
         ),
         # latin-1 : 0xe9 seul n'est pas de l'UTF-8
-        (_enveloppe_brute('"s\xe9curit\xe9"').encode("latin-1"), "non UTF-8"),
+        (_enveloppe_brute('"s\xe9curit\xe9"').encode("latin-1"), "UTF-8 attendu"),
         # au-dela de sys.get_int_max_str_digits()
-        (_enveloppe_brute("9" * 5000).encode(), "nombre JSON hors limites"),
+        (_enveloppe_brute("9" * 5000).encode(), "nombre hors limites"),
         # avant datetime.min une fois ramene en UTC
         (
             _enveloppe_brute("1")

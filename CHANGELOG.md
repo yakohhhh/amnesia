@@ -123,5 +123,17 @@ la première version sera la 0.1.0 (milestone M0).
   jonction sous Windows), qui appartient à un autre compte ou qui reste ouvert
   en écriture à d'autres comptes. Une destination située dans un dépôt git sans
   y être ignorée déclenche un avertissement sur stderr (#25).
+- Analyse sûre des fichiers importés : tout fichier produit ailleurs (XML, ZIP,
+  JSON, TOML, CSV, Registry.pol) se lit par une couche unique, `amnesia.inputs`,
+  qui plafonne les octets réellement lus (200 Mio par fichier), l'imbrication et
+  le nombre d'enregistrements, refuse DTD et entités XML (XXE, *billion
+  laughs*) et, dans une archive, chemins absolus, `..`, liens symboliques, noms
+  en double et bombes de décompression ; l'extraction se fait dans un dossier
+  temporaire en 0700. Un fichier refusé n'est jamais compté conforme (`skipped`
+  / `not_collected`) et son contenu n'apparaît dans aucun message d'erreur.
+  `amnesia render` et les fichiers de faits passent par cette couche : un
+  rapport de plus de 200 Mio, aux clés JSON en double ou imbriqué sur plus de
+  128 niveaux est refusé, et un rapport en UTF-16 avec BOM (redirection de
+  Windows PowerShell 5.1) est accepté (#35).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main
