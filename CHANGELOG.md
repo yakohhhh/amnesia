@@ -39,7 +39,7 @@ la première version sera la 0.1.0 (milestone M0).
   prérequis d'audit). Commandes `amnesia catalog list`, `amnesia catalog show
   <id>` et `amnesia catalog validate` ; le rapport JSON porte la version du
   catalogue (`tool.catalog_version`) et un `question_id` pour chaque angle mort
-  (#46).
+  (#218).
 - Moteur d'audit, utilisable comme API Python (`from amnesia import run_audit,
   AuditResult`) : faits collectés une fois par audit, délai par check (120 s par
   défaut), un check en échec ou bloqué n'arrête pas les autres, résultats triés
