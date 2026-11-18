@@ -125,7 +125,7 @@ envoyer un script distant directement à un shell (`curl … | sh`, `irm … | i
 ```sh
 git clone https://github.com/yakohhhh/amnesia.git
 cd amnesia
-uv sync --locked                          # Python 3.11, projet et groupe dev depuis uv.lock
+uv sync --locked --all-extras             # Python 3.11, projet, extras et groupe dev (uv.lock)
 uv run pre-commit install                 # hooks lancés à chaque commit
 uv run nox -s lint typecheck tests-3.11   # ruff, mypy --strict, pytest et couverture
 ```
@@ -135,7 +135,9 @@ plutôt son fork (section
 [« Une issue, une branche, une PR »](#une-issue-une-branche-une-pr)).
 
 `--locked` fait échouer `uv sync` si `uv.lock` ne correspond plus à
-`pyproject.toml`, au lieu de le régénérer en silence.
+`pyproject.toml`, au lieu de le régénérer en silence. `--all-extras` installe
+aussi le SDK de chaque extra, que mypy et les tests doivent voir comme en CI :
+`uv sync` seul n'en installe aucun.
 
 La suite est verte quand le bilan de nox affiche `lint: success`,
 `typecheck: success` et `tests-3.11: success`, couverture d'au moins 80 %
@@ -150,7 +152,7 @@ le lab Active Directory, un tenant cloud ou le réseau (marqueurs `windows`,
 ```sh
 uv run nox -l                       # liste des sessions
 uv run nox                          # lint, typecheck et tests de Python 3.11 à 3.15
-uv run nox -s lint typecheck tests build   # comme la CI, build du paquet compris
+uv run nox -s lint typecheck tests build lowest-direct   # comme la CI
 ```
 
 nox télécharge par uv les interpréteurs absents. Les mêmes vérifications, une à
@@ -200,9 +202,12 @@ Pour les rejouer sur tout le dépôt : `uv run pre-commit run --all-files`.
   coupé, les marqueurs sont déclarés (`--strict-markers`), et aucun test n'écrit
   dans le dépôt (répertoire courant isolé dans `tmp_path`, vérifié en CI).
 - **Dépendances** ([`docs/dev/dependances.md`](docs/dev/dependances.md)) :
-  version exacte (`==`) dans `pyproject.toml`, publiée depuis plus de 7 jours
-  (`exclude-newer`), lock régénéré avec la version d'uv de la CI, puis `uv.lock`
-  commité dans la même PR :
+  outil de développement en version exacte (`==`) ; dépendance d'exécution
+  seulement dans un extra optionnel, à borne basse (`>=`), importée à la demande
+  après `require_extra()` et accompagnée de sa fiche d'acceptation (licence,
+  maintenance, surface d'attaque). Toujours une version publiée depuis plus de
+  7 jours (`exclude-newer`), lock régénéré avec la version d'uv de la CI, puis
+  `uv.lock` commité dans la même PR :
 
   ```sh
   uvx uv@0.13.0 lock
