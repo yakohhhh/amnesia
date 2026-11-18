@@ -101,8 +101,11 @@ la première version sera la 0.1.0 (milestone M0).
   compte courant, héritage désactivé), écrit de façon atomique (ni fichier
   partiel ni temporaire après une erreur ou un Ctrl+C) et jamais écrasé sans
   `--overwrite`, même s'il apparaît pendant l'audit (code 2). Une destination qui
-  est un lien symbolique est refusée, même avec `--overwrite` (code 2), et une
-  destination située dans un dépôt git sans y être ignorée déclenche un
-  avertissement sur stderr (#25).
+  est un lien symbolique, ou qui n'est pas un fichier ordinaire (dossier, FIFO,
+  périphérique comme `/dev/null`), est refusée, même avec `--overwrite`
+  (code 2) ; de même, avant l'audit, un `amnesia-out` qui est un lien (ou une
+  jonction sous Windows), qui appartient à un autre compte ou qui reste ouvert
+  en écriture à d'autres comptes. Une destination située dans un dépôt git sans
+  y être ignorée déclenche un avertissement sur stderr (#25).
 
 [Unreleased]: https://github.com/yakohhhh/amnesia/commits/main

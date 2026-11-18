@@ -61,6 +61,22 @@ def _lien(lien: Path, cible: Path) -> None:
         pytest.skip("liens symboliques indisponibles")
 
 
+def _fchmod_refuse(fd: int, mode: int) -> None:
+    raise PermissionError(errno.EPERM, "Operation not permitted")
+
+
+def _fifo(chemin: Path) -> None:
+    # if et non skip seul : mypy n'analyse os.mkfifo que hors Windows
+    if sys.platform == "win32":
+        pytest.skip("FIFO : POSIX seulement")
+    else:
+        os.mkfifo(chemin)
+
+
+def _audit_interdit(*args: Any, **kwargs: Any) -> Any:
+    raise AssertionError("audit lancé malgré une destination refusée")
+
+
 @pytest.fixture
 def umask_022() -> Iterator[None]:
     ancien = os.umask(0o022)
@@ -126,14 +142,66 @@ def test_dossier_existant_droits_refuses_signales(
     dossier.mkdir()
     dossier.chmod(0o755)
 
-    def refus(self: Path, mode: int) -> None:
-        raise PermissionError(errno.EPERM, "Operation not permitted")
-
-    monkeypatch.setattr(Path, "chmod", refus)
+    monkeypatch.setattr(os, "fchmod", _fchmod_refuse)
     # pas bloquant : le dossier reste utilisable, l'auditeur est prevenu
     prepare_default_dir(dossier)
     assert "droits 0700 impossibles à appliquer" in caplog.text
     assert (dossier / ".gitignore").read_bytes() == GITIGNORE
+
+
+@posix
+@pytest.mark.usefixtures("registre_factice", "umask_022")
+def test_dossier_cree_droits_refuses_signales_audit_mene(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    # montage FAT ou SMB : le dossier neuf ignore le mode demande et ne peut
+    # pas etre ramene en 0700 ; meme regle qu'un dossier deja la
+    caplog.set_level(logging.WARNING, logger="amnesia.output")
+
+    reel = Path.mkdir
+
+    def mkdir_sans_droits(self: Path, *args: Any, **kwargs: Any) -> None:
+        reel(self, 0o755)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir_sans_droits)
+    monkeypatch.setattr(os, "fchmod", _fchmod_refuse)
+    assert main(["audit"]) == CODE_AUDIT_FACTICE
+    dossier = tmp_path / DEFAULT_DIR
+    assert "droits 0700 impossibles à appliquer" in caplog.text
+    assert (dossier / ".gitignore").read_bytes() == GITIGNORE
+    assert (dossier / DEFAULT_REPORT).is_file()
+
+
+@posix
+def test_dossier_ouvert_aux_autres_sans_chmod_refuse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dossier = tmp_path / DEFAULT_DIR
+    dossier.mkdir()
+    dossier.chmod(0o777)
+    monkeypatch.setattr(os, "fchmod", _fchmod_refuse)
+    # un autre compte pourrait y substituer le rapport : refus, pas avertissement
+    with pytest.raises(UnsafeDestinationError, match="ouvert en écriture"):
+        prepare_default_dir(dossier)
+    assert list(dossier.iterdir()) == []
+
+
+@posix
+@pytest.mark.usefixtures("registre_factice")
+def test_dossier_d_un_autre_compte_refuse_code_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dossier = tmp_path / DEFAULT_DIR
+    dossier.mkdir()
+    dossier.chmod(0o755)
+    autre = dossier.stat().st_uid + 1
+    monkeypatch.setattr(os, "geteuid", lambda: autre)
+    monkeypatch.setattr(cli, "run_audit", _audit_interdit)
+    assert main(["audit"]) == exitcodes.USAGE
+    assert "appartient à un autre compte" in capsys.readouterr().err
+    # ni chmod ni .gitignore dans le dossier d'autrui
+    assert _mode(dossier) == 0o755
+    assert list(dossier.iterdir()) == []
 
 
 @posix
@@ -216,9 +284,75 @@ def test_dossier_par_defaut_occupe_par_un_fichier_code_4(
 def test_dossier_par_defaut_occupe_par_un_lien_casse(tmp_path: Path) -> None:
     dossier = tmp_path / DEFAULT_DIR
     _lien(dossier, tmp_path / "absent")
-    with pytest.raises(NotADirectoryError):
+    with pytest.raises(UnsafeDestinationError, match="lien symbolique refusé"):
         prepare_default_dir(dossier)
     assert not (tmp_path / "absent").exists()
+
+
+@pytest.mark.usefixtures("registre_factice", "umask_022")
+def test_dossier_par_defaut_lien_vers_un_dossier_code_2_cible_intacte(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # clone qui contient un lien commite amnesia-out -> ../ailleurs
+    cible = tmp_path / "ailleurs"
+    cible.mkdir()
+    cible.chmod(0o755)
+    mode = _mode(cible)
+    (cible / "index.html").write_bytes(b"public\n")
+    try:
+        (tmp_path / DEFAULT_DIR).symlink_to(cible, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("liens symboliques indisponibles")
+    monkeypatch.setattr(cli, "run_audit", _audit_interdit)
+    assert main(["audit"]) == exitcodes.USAGE
+    assert "lien symbolique refusé" in capsys.readouterr().err
+    # ni droits, ni .gitignore, ni rapport dans la cible
+    assert _mode(cible) == mode
+    assert sorted(p.name for p in cible.iterdir()) == ["index.html"]
+
+
+@posix
+def test_dossier_par_defaut_lien_substitue_apres_verification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # course : amnesia-out remplace par un lien entre lstat et l'ouverture
+    cible = tmp_path / "ailleurs"
+    cible.mkdir()
+    cible.chmod(0o755)
+    dossier = tmp_path / DEFAULT_DIR
+    dossier.mkdir()
+    reel = os.open
+
+    def ouvrir(chemin: Any, drapeaux: int, *args: Any, **kwargs: Any) -> int:
+        # seule l'ouverture du dossier lui-meme vise ce chemin
+        if Path(chemin) == dossier:
+            dossier.rmdir()
+            dossier.symlink_to(cible, target_is_directory=True)
+        return reel(chemin, drapeaux, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", ouvrir)
+    with pytest.raises(UnsafeDestinationError, match="lien symbolique refusé"):
+        prepare_default_dir(dossier)
+    assert _mode(cible) == 0o755
+    assert list(cible.iterdir()) == []
+
+
+@pytest.mark.windows
+@pytest.mark.usefixtures("registre_factice")
+def test_windows_dossier_par_defaut_jonction_code_2_cible_intacte(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cible = tmp_path / "ailleurs"
+    cible.mkdir()
+    # if et non skip : mypy n'analyse _winapi que sous Windows
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(cible), str(tmp_path / DEFAULT_DIR))
+    monkeypatch.setattr(cli, "run_audit", _audit_interdit)
+    assert main(["audit"]) == exitcodes.USAGE
+    assert "lien symbolique refusé" in capsys.readouterr().err
+    assert list(cible.iterdir()) == []
 
 
 # --- non-ecrasement ---------------------------------------------------------
@@ -244,13 +378,51 @@ def test_force_remplace_le_fichier(tmp_path: Path) -> None:
 def test_dossier_a_la_destination_jamais_remplace(tmp_path: Path) -> None:
     dossier = tmp_path / "r.json"
     dossier.mkdir()
-    with pytest.raises(FileExistsError):
-        write_private(dossier, b"{}")
-    with pytest.raises(OSError) as exc:
-        write_private(dossier, b"{}", force=True)
-    assert not isinstance(exc.value, FileExistsError | UnsafeDestinationError)
+    for force in (False, True):
+        with pytest.raises(UnsafeDestinationError, match="pas un fichier ordinaire"):
+            write_private(dossier, b"{}", force=force)
     assert dossier.is_dir()
     assert _temporaires(tmp_path) == []
+
+
+@posix
+@pytest.mark.parametrize("force", [False, True])
+def test_fifo_jamais_remplacee(tmp_path: Path, force: bool) -> None:
+    # comme /dev/null pour root : un fichier special n'est jamais remplace
+    fifo = tmp_path / "r.json"
+    _fifo(fifo)
+    with pytest.raises(UnsafeDestinationError, match="pas un fichier ordinaire"):
+        write_private(fifo, b"{}", force=force)
+    assert stat.S_ISFIFO(os.lstat(fifo).st_mode)
+    assert _temporaires(tmp_path) == []
+
+
+@posix
+@pytest.mark.usefixtures("registre_factice")
+def test_cli_fifo_avec_overwrite_code_2_avant_l_audit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fifo = tmp_path / "r.json"
+    _fifo(fifo)
+    monkeypatch.setattr(cli, "run_audit", _audit_interdit)
+    with pytest.raises(SystemExit) as exc:
+        main(["audit", "--out", str(fifo), "--overwrite"])
+    assert exc.value.code == exitcodes.USAGE
+    assert "pas un fichier ordinaire" in capsys.readouterr().err
+    assert stat.S_ISFIFO(os.lstat(fifo).st_mode)
+    assert _temporaires(tmp_path) == []
+
+
+@posix
+@pytest.mark.usefixtures("registre_factice")
+def test_cli_fifo_apparue_pendant_l_audit_code_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fifo = tmp_path / "r.json"
+    _audit_puis(lambda: _fifo(fifo), monkeypatch)
+    assert main(["audit", "--out", str(fifo), "--overwrite"]) == exitcodes.USAGE
+    assert "pas un fichier ordinaire" in capsys.readouterr().err
+    assert stat.S_ISFIFO(os.lstat(fifo).st_mode)
 
 
 def _audit_puis(action: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -645,15 +817,17 @@ def test_parent_illisible_pas_de_depot(
 def test_destination_illisible_code_4_avant_l_audit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def refus(self: Path) -> bool:
-        raise PermissionError(errno.EACCES, "Permission denied")
+    rapport = tmp_path / "r.json"
+    reel = os.lstat
 
-    def interdit(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("audit lancé malgré une destination illisible")
+    def refus(chemin: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        if Path(chemin) == rapport:
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return reel(chemin, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "is_symlink", refus)
-    monkeypatch.setattr(cli, "run_audit", interdit)
-    assert main(["audit", "--out", str(tmp_path / "r.json")]) == exitcodes.FATAL
+    monkeypatch.setattr(os, "lstat", refus)
+    monkeypatch.setattr(cli, "run_audit", _audit_interdit)
+    assert main(["audit", "--out", str(rapport)]) == exitcodes.FATAL
     assert "écriture impossible : Permission denied" in capsys.readouterr().err
 
 

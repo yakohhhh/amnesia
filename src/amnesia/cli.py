@@ -37,6 +37,7 @@ from .facts import Collector, Fact, FactSet, LocalCollector, UnavailableReason
 from .log import FORMATS, setup_logging
 from .output import (
     UnsafeDestinationError,
+    check_destination,
     default_report_path,
     prepare_default_dir,
     warn_if_not_ignored,
@@ -70,7 +71,7 @@ répertoire courant (``amnesia.output``)."""
 
 # refus de --out, avant l'audit comme au moment d'ecrire
 EXISTE_DEJA = "existe déjà (--overwrite pour l'écraser)"
-LIEN_REFUSE = "lien symbolique refusé, même avec --overwrite"
+MEME_AVEC_OVERWRITE = "même avec --overwrite"
 
 FORMATS_SORTIE = ("text", "json")
 """Ce que ``amnesia audit`` écrit sur stdout : rendu texte ou le rapport JSON."""
@@ -275,13 +276,19 @@ def _ecrire_rapport(chemin: Path, octets: bytes, *, overwrite: bool) -> int:
 
     0600 (ACL du seul compte courant sous Windows), écriture atomique, jamais
     à travers un lien symbolique. Une entrée apparue à ce chemin pendant
-    l'audit, ou un lien symbolique, donne le code 2 sans rien modifier ; toute
-    autre erreur, le code 4.
+    l'audit, un lien symbolique ou une entrée qui n'est pas un fichier
+    ordinaire donnent le code 2 sans rien modifier ; toute autre erreur, le
+    code 4.
     """
     try:
         write_private(chemin, octets, force=overwrite)
-    except UnsafeDestinationError:
-        logger.error("rapport %s : %s", chemin, LIEN_REFUSE)
+    except UnsafeDestinationError as exc:
+        logger.error(
+            "rapport %s : %s, %s ; rapport non écrit",
+            chemin,
+            exc.strerror or exc,
+            MEME_AVEC_OVERWRITE,
+        )
         return USAGE
     except FileExistsError:
         logger.error("rapport %s : %s ; rapport non écrit", chemin, EXISTE_DEJA)
@@ -300,32 +307,43 @@ def _refus_out(chemin: Path, *, overwrite: bool) -> str | None:
 
     Perdre un audit entier pour un fichier déjà là serait pire : le test est
     fait avant. ``write_private()`` le refait de façon atomique au moment
-    d'écrire.
+    d'écrire. Un lien symbolique, ou une entrée qui n'est pas un fichier
+    ordinaire (``/dev/null``, FIFO, dossier), n'est jamais remplacé.
     """
-    if chemin.is_symlink():
-        return LIEN_REFUSE
-    if not overwrite and chemin.exists():
+    try:
+        check_destination(chemin, force=overwrite)
+    except UnsafeDestinationError as exc:
+        return f"{exc.strerror or exc}, {MEME_AVEC_OVERWRITE}"
+    except FileExistsError:
         return EXISTE_DEJA
     return None
 
 
-def _preparer_out(chemin: Path, *, par_defaut: bool) -> bool:
+def _preparer_out(chemin: Path, *, par_defaut: bool) -> int:
     """Prépare ``amnesia-out/`` sans ``--out`` ; avertit si git peut voir le rapport.
 
-    Faux (et journal) si le dossier par défaut ne peut pas être créé.
+    Rend 0, ou un code (et un journal) si le dossier par défaut est refusé
+    (lien, autre propriétaire : 2) ou ne peut pas être créé (4).
     """
     if par_defaut:
         try:
             prepare_default_dir(chemin.parent)
+        except UnsafeDestinationError as exc:
+            logger.error(
+                "dossier %s : %s ; audit non lancé (--out pour écrire ailleurs)",
+                chemin.parent,
+                exc.strerror or exc,
+            )
+            return USAGE
         except OSError as exc:
             logger.error(
                 "dossier %s : création impossible : %s",
                 chemin.parent,
                 exc.strerror or exc,
             )
-            return False
+            return FATAL
     warn_if_not_ignored(chemin)
-    return True
+    return OK
 
 
 def _rendu_texte(rapport: dict[str, Any], flux: Any, *, no_color: bool) -> str:
@@ -367,8 +385,9 @@ def _auditer(
             return FATAL
         if refus is not None:
             parser.error(f"--out {chemin_affiche} : {refus}")
-        if not _preparer_out(chemin, par_defaut=par_defaut):
-            return FATAL
+        code = _preparer_out(chemin, par_defaut=par_defaut)
+        if code != OK:
+            return code
     # instances neuves : aucun etat ne passe d'un audit a l'autre
     checks = default_checks()
     audit = run_audit(checks, args.target, _collecteur(args.target), debug=args.debug)
@@ -435,7 +454,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "--overwrite",
         action="store_true",
-        help="remplace un rapport existant (refusé sinon), jamais un lien symbolique",
+        help=(
+            "remplace un rapport existant (refusé sinon) ; jamais un lien "
+            "symbolique ni ce qui n'est pas un fichier ordinaire"
+        ),
     )
     a.add_argument(
         "--format",

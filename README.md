@@ -57,13 +57,17 @@ angles morts du client, d'où ces règles d'écriture :
 
 - sans `--out`, il va dans `amnesia-out/amnesia-report.json` : dossier créé en
   0700 et doté d'un `.gitignore` réduit à `*`, pour qu'un audit lancé dans un
-  clone ne finisse pas commité ;
+  clone ne finisse pas commité ; un `amnesia-out` qui est un lien symbolique
+  (ou une jonction), qui appartient à un autre compte, ou qui reste ouvert en
+  écriture à d'autres comptes est refusé avant l'audit (code 2) ;
 - le fichier est lisible du seul compte courant : 0600 sous Linux et macOS quel
   que soit l'umask, ACL réduite au compte courant et sans héritage sous Windows ;
 - l'écriture est atomique : un audit interrompu ou une erreur ne laissent ni
   fichier partiel ni temporaire ;
 - un rapport existant n'est jamais écrasé sans `--overwrite` (code 2), et une
-  destination qui est un lien symbolique est refusée, même avec `--overwrite` ;
+  destination qui est un lien symbolique ou qui n'est pas un fichier ordinaire
+  (dossier, FIFO, périphérique comme `/dev/null`) est refusée, même avec
+  `--overwrite` ;
 - une destination située dans un dépôt git sans y être ignorée déclenche un
   avertissement sur stderr ;
 - `--out -` envoie le JSON sur stdout et le rendu texte sur stderr.
@@ -79,7 +83,7 @@ table ; constantes dans `amnesia.exitcodes`) :
 | --- | --- |
 | `0` | Audit complet, aucun angle mort de sévérité >= `--fail-on`. |
 | `1` | Au moins un angle mort de sévérité >= `--fail-on` (prioritaire sur 3). |
-| `2` | Erreur d'usage ou de configuration (option, cible invalide, rapport déjà présent sans `--overwrite`, destination qui est un lien symbolique). |
+| `2` | Erreur d'usage ou de configuration (option, cible invalide, rapport déjà présent sans `--overwrite`, destination refusée : lien symbolique, fichier spécial, `amnesia-out` d'un autre compte). |
 | `3` | Audit incomplet : un check en erreur, non exécuté ou en délai dépassé, sans angle mort au-dessus du seuil. « Pas pu vérifier » n'est pas « conforme » ; un check sans objet (`not_applicable`) ne rend pas l'audit incomplet. |
 | `4` | Erreur fatale : aucune cible exploitable, rapport impossible à écrire ou à lire. |
 | `130` | Interruption (Ctrl-C) : un rapport partiel est écrit, avec `run.interrupted = true`. |

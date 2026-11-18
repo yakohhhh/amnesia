@@ -397,16 +397,19 @@ def test_lien_physique_avec_overwrite_cible_intacte(
     assert _rapport(lien)["summary"]["total"] == 1
 
 
-def test_overwrite_sur_un_repertoire_code_4(
+def test_overwrite_sur_un_repertoire_code_2(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _registre(monkeypatch, conforme())
     dossier = tmp_path / "r.json"
     dossier.mkdir()
     (dossier / "temoin").write_text("", encoding="utf-8")
-    assert main(["audit", "--out", str(dossier), "--overwrite"]) == exitcodes.FATAL
+    # refuse avant l'audit : seul un fichier ordinaire peut etre remplace
+    with pytest.raises(SystemExit) as exc:
+        main(["audit", "--out", str(dossier), "--overwrite"])
+    assert exc.value.code == exitcodes.USAGE
     assert (dossier / "temoin").exists()
-    assert "écriture impossible" in capsys.readouterr().err
+    assert "pas un fichier ordinaire" in capsys.readouterr().err
 
 
 # nom d'ESC et de BEL : NTFS refuse les controles C0 dans un nom de fichier
