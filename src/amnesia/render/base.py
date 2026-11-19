@@ -9,12 +9,9 @@ refaire l'audit. ``read_report()`` valide les champs qu'ils affichent et refuse
 une version MAJEURE de format inconnue.
 
 Données hostiles : questions, raisons, cibles et messages viennent d'un hôte
-audité, potentiellement compromis, ou d'un fichier modifiable. Avant affichage,
-``neutralize()`` rend visibles les caractères capables d'agir sur un terminal
-(séquences ANSI/OSC, C0, C1, bidi, séparateurs de ligne) et
-``escape_markdown()`` échappe en plus ce qui formerait un lien, une image, du
-HTML brut ou un tableau cassé. La neutralisation générique de toutes les sorties
-relève de #45.
+audité, potentiellement compromis, ou d'un fichier modifiable. Les vues
+ci-dessous les gardent brutes ; chaque rendu les fait passer, avant affichage,
+par la fonction de son contexte de sortie (``amnesia.render.safe``).
 """
 
 from __future__ import annotations
@@ -85,7 +82,9 @@ DOMAINES = {
 }
 """Libellé de chaque domaine, désigné par le premier segment de ``check_id``."""
 
-_VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+# composantes bornees a 9 chiffres : schema_version est affichee telle quelle
+# par les rendus, sans autre plafond
+_VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 
 
 class ReportError(ValueError):
@@ -415,59 +414,7 @@ def load_report(path: Path) -> dict[str, Any]:
     return donnees
 
 
-# --- textes : neutralisation, echappement, repli ASCII ------------------------
-
-
-def _visible(caractere: str) -> str:
-    # \x1b, \u202e, \n... : la valeur reste lisible par l'analyste
-    return caractere.encode("unicode_escape").decode("ascii")
-
-
-def neutralize(text: str) -> str:
-    """Texte venu du rapport, sans caractère capable d'agir sur un terminal.
-
-    Les caractères non imprimables (contrôles C0 et C1 dont ESC, DEL, formats
-    bidi comme U+202E, séparateurs U+2028/U+2029, surrogates isolés, zones
-    privées et non attribuées) sont remplacés par leur échappement visible
-    (``\\x1b``, ``\\u202e``) ; les espaces Unicode (espace insécable...) restent.
-    Le texte rendu tient donc sur une ligne et ne peut ni colorer, ni déplacer
-    le curseur, ni retourner l'affichage.
-    """
-    return "".join(
-        c if c.isprintable() or unicodedata.category(c) == "Zs" else _visible(c)
-        for c in text
-    )
-
-
-# caracteres qui ouvrent un lien, une image, du HTML, une entite, du code, de
-# l'emphase, une cellule de tableau, une mention, une reference ou des maths (GFM)
-_MARKDOWN = re.compile(r"[\\`*_~\[\]()<>!|&#@$]")
-# liens automatiques etendus de GFM : https://, mailto:, xmpp:..., et www.
-_SCHEMA = re.compile(r"(?<=[A-Za-z]):")
-_WWW = re.compile(r"(?i)(?<![A-Za-z0-9])(www)\.")
-
-
-def escape_markdown(text: str, encoding: str | None = None) -> str:
-    """Texte venu du rapport, neutralisé puis échappé pour Markdown (GFM).
-
-    Aucun lien, image, HTML brut, entité, code ou emphase ne peut s'y former, et
-    il ne casse pas une cellule de tableau : les caractères concernés sont
-    précédés d'une barre oblique inverse, et les liens automatiques de GFM
-    (``https://``, ``mailto:``, ``www.``, adresses électroniques) sont rompus.
-    Le texte tient sur une ligne (``neutralize()``).
-
-    Avec ``encoding``, le repli ASCII (``fallback()``) est appliqué avant
-    l'échappement, qui voit donc les caractères finals : une lettre pleine
-    chasse (U+FF48 pour ``h``) ou accentuée (``ẁẁẁ.``) ramenée à l'ASCII ne
-    reforme pas, après coup, un lien automatique (``https:``, ``www.``). Le
-    résultat est alors encodable dans ``encoding``.
-    """
-    texte = neutralize(text)
-    if encoding is not None:
-        texte = fallback(texte, encoding)
-    texte = _MARKDOWN.sub(lambda m: "\\" + m.group(), texte.strip())
-    texte = _SCHEMA.sub(r"\\:", texte)
-    return _WWW.sub(r"\1\\.", texte)
+# --- textes : repli ASCII -----------------------------------------------------
 
 
 _REPLIS = {
@@ -515,9 +462,11 @@ def fallback(text: str, encoding: str) -> str:
                 if not unicodedata.combining(c)
             )
             # lettres et chiffres seulement : la forme de compatibilite d'un
-            # caractere pleine chasse (U+FF1C) serait un « < » ; les valeurs du
-            # rapport sont repliees avant l'echappement (escape_markdown), mais
-            # le repli final du document ne doit rien produire a echapper
+            # caractere pleine chasse (U+FF1C) serait un « < ». Le repli porte
+            # sur le document entier, apres la neutralisation des valeurs du
+            # rapport (amnesia.render.safe) : il ne doit produire aucun
+            # caractere actif ; ceux de _REPLIS (->, guillemets droits) sont
+            # inertes au milieu d'une ligne Markdown
             repli = base if base.isalnum() and _encodable(base, encoding) else ""
         if not repli or not _encodable(repli, encoding):
             repli = caractere.encode("ascii", "backslashreplace").decode("ascii")

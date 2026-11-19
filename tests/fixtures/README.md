@@ -2,6 +2,9 @@
 
 Données d'entrée des tests (exports `auditpol`, journaux, réponses Graph...),
 rangées par source : `tests/fixtures/windows/`, `tests/fixtures/cloud/`...
+`tests/fixtures/hostile/` regroupe les charges hostiles (séquences ANSI et OSC,
+HTML, formules de tableur, liens, chaînes de 1 Mo) que chaque rendu doit
+neutraliser (#45).
 
 - Uniquement des données synthétiques ou anonymisées : aucun nom d'hôte, compte,
   GUID de tenant ou secret réel.

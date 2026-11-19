@@ -51,7 +51,7 @@ flowchart LR
 | Évaluation | `amnesia.checks` (`Check.evaluate`, registre, `resolve()`) | `FactSet`, `Context` | `CheckResult` : `pass`, `gap` (avec des `Gap`), `error`, `skipped` ou `not_applicable` | [ADR 0004](adr/0004-separation-collecte-evaluation.md) |
 | Résultats | `amnesia.runner` (`run_audit`, `AuditResult`, `AuditSummary`) | checks, cible, collecteur | résultats triés par sévérité, comptes, `complete`, `interrupted` | — |
 | Rapport JSON | `amnesia.report` (`build_report`, `dumps_report`, schéma `report-v1`) | `AuditResult`, `argv` | document versionné, déterministe, validé par le schéma ([`format-rapport.md`](format-rapport.md)) | [ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md) |
-| Rendus | `amnesia.render` (`render_report`, `read_report`, texte et Markdown) ; HTML et PDF : #77 | le rapport JSON (un rapport archivé se re-rend), jamais les objets d'un audit | documents lisibles, texte venu de la cible neutralisé ; hors des surfaces publiques ([`RELEASING.md`](RELEASING.md)) | [ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md) |
+| Rendus | `amnesia.render` (`render_report`, `read_report`, texte et Markdown ; `amnesia.render.safe` neutralise chaque valeur selon son contexte de sortie) ; HTML et PDF : #77 | le rapport JSON (un rapport archivé se re-rend), jamais les objets d'un audit | documents lisibles, texte venu de la cible neutralisé ; hors des surfaces publiques ([`RELEASING.md`](RELEASING.md)) | [ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md) |
 
 Deux règles traversent toute la chaîne :
 
@@ -101,7 +101,7 @@ basses. De bas en haut :
    `amnesia.facts.resolution` ;
 5. **checks de domaine** : `amnesia.checks.windows`, `amnesia.checks.ad` ;
 6. **moteur, rapport et rendus** : `amnesia.runner`, puis `amnesia.report`,
-   puis `amnesia.render` (`base`, puis `text` et `markdown`) ; à côté,
+   puis `amnesia.render` (`base` et `safe`, puis `text` et `markdown`) ; à côté,
    `amnesia.exitcodes` (codes de sortie, d'après les sévérités de
    `amnesia.checks.base`) et `amnesia.output` (écriture des livrables sur le
    poste de l'auditeur, qui ne prend de la collecte que `subprocess_env()` pour
@@ -126,9 +126,10 @@ modules.
 | `amnesia.exitcodes` | `amnesia.checks.base` |
 | `amnesia.output` | `amnesia.facts.collectors` |
 | `amnesia.config` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.output` |
-| `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
-| `amnesia.render.markdown` | `amnesia.render.base` |
-| `amnesia.render.text` | `amnesia.render.base` |
+| `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.safe`, `amnesia.render.text` |
+| `amnesia.render.markdown` | `amnesia.render.base`, `amnesia.render.safe` |
+| `amnesia.render.text` | `amnesia.render.base`, `amnesia.render.safe` |
+| `amnesia.render.safe` | aucune |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.report` |
 | `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.inputs`, `amnesia.log`, `amnesia.target` |
@@ -210,6 +211,9 @@ Ce que la table interdit, et pourquoi :
   `amnesia.render.base` n'importe que le vocabulaire commun : les énumérations
   `Severity`, `Status` et `Reason` de `amnesia.checks.base` et `SCHEMA_VERSION`
   de `amnesia.report` ; le fichier du rapport se lit par `amnesia.inputs` ;
+  `amnesia.render.safe` (neutralisation d'une valeur par contexte de sortie :
+  terminal, Markdown, HTML, cellule CSV) n'importe rien d'amnesia, pour servir
+  tel quel aux rendus à venir (HTML #77, CSV #76) ;
 - **`amnesia.cli` n'est importé que par `__main__`** : l'API Python
   (`from amnesia import run_audit`) ne dépend pas de la ligne de commande.
 
