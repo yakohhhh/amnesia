@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "tool": {
     "name": "amnesia",
     "version": "0.1.0",
@@ -13,6 +13,7 @@
     "complete": false,
     "interrupted": false,
     "profile": null,
+    "config_source": null,
     "argv": [
       "audit",
       "--target",
@@ -23,6 +24,15 @@
       "rapport-srv-file.json"
     ]
   },
+  "mission": {
+    "client": null,
+    "reference": null,
+    "auditor": null,
+    "start": null,
+    "end": null,
+    "tlp": null
+  },
+  "config_hash": "2741158908f5312e23b1edf715049c2c11d4067bb35c0ee19d8bc4d9e0cf31a9",
   "targets": [
     {
       "id": "winrm://srv-file.exemple.invalid",

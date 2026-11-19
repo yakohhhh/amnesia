@@ -43,8 +43,13 @@ Version de développement, jamais publiée. Sont fusionnés sur `main` le socle
 élément de [M1](https://github.com/yakohhhh/amnesia/milestone/2), le catalogue
 des questions d'enquête :
 
-- la commande `amnesia` et ses sous-commandes `audit`, `catalog`,
-  `list-checks`, `render` et `schema` ;
+- la commande `amnesia` et ses sous-commandes `audit`, `catalog`, `config`,
+  `init`, `list-checks`, `render` et `schema` ;
+- le fichier de mission `amnesia.toml` (client, référence, auditeur, dates,
+  marquage TLP, profil, langue, seuils) : `amnesia init` en écrit un exemple
+  commenté, `amnesia config show` affiche la configuration effective et
+  l'origine de chaque valeur
+  ([`docs/mission.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/mission.md)) ;
 - le catalogue embarqué des questions d'enquête : 31 questions (Windows et
   Active Directory), chacune avec les sources de télémétrie qui permettent d'y
   répondre ; il se consulte par `amnesia catalog list` et `amnesia catalog
@@ -312,8 +317,8 @@ défaut** :
   plantage ni d'envoi de rapport : une erreur interne est journalisée sur
   stderr, et c'est tout ;
 - il fonctionne entièrement sans accès Internet, hors connecteurs cloud
-  explicitement demandés ; `catalog`, `list-checks`, `render`, `schema` et
-  `audit --target local` n'ouvrent aucune connexion ;
+  explicitement demandés ; `catalog`, `config`, `init`, `list-checks`,
+  `render`, `schema` et `audit --target local` n'ouvrent aucune connexion ;
 - ses rendus (texte, Markdown) ne chargent aucune ressource externe : ni image,
   ni feuille de style, ni script, ni police ; les liens de référence restent du
   texte ;
@@ -337,7 +342,8 @@ Ces engagements sont tenus par le code, pas seulement par ce texte :
 - un test vérifie que chaque sous-processus lancé par amnesia reçoit
   l'environnement de `amnesia.facts.subprocess_env()` ;
 - les tests coupent le réseau, et chaque commande (`--help`, `--version`,
-  `list-checks`, `schema`, `catalog`, `render`, `audit`) est aussi lancée dans
+  `list-checks`, `schema`, `catalog`, `render`, `audit`, `init`, `config`) est
+  aussi lancée dans
   un processus dont le réseau est coupé avant le moindre import d'amnesia.
 
 Le futur contrôle de licence (#154) restera vérifiable hors ligne. Une
