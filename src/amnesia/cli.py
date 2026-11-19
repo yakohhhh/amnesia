@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import codecs
 import io
+import json
 import logging
 import os
 import sys
@@ -36,6 +37,15 @@ from .catalog import (
 )
 from .checks import REGISTRY, CheckMeta, default_checks
 from .checks.base import ErrorInfo, assainir
+from .config import (
+    DEFAULT_FILE,
+    LANGS,
+    SOURCE_CWD,
+    Config,
+    ConfigError,
+    example_toml,
+    load_config,
+)
 from .exitcodes import (
     DEFAULT_FAIL_ON,
     FAIL_ON,
@@ -162,6 +172,120 @@ def _options_journal(defauts: bool) -> argparse.ArgumentParser:
         help="text (défaut) ou json : une ligne JSON par entrée",
     )
     return p
+
+
+def _options_mission() -> argparse.ArgumentParser:
+    """Options du fichier de mission, communes à ``audit`` et ``config show``."""
+    p = argparse.ArgumentParser(add_help=False)
+    g = p.add_argument_group("fichier de mission (modèle : amnesia init)")
+    g.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        metavar="FICHIER",
+        help=(
+            f"fichier de mission TOML (défaut : ./{DEFAULT_FILE} s'il existe) ; "
+            "aucun secret dedans"
+        ),
+    )
+    g.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="surcharges",
+        metavar="CLE=VALEUR",
+        help=(
+            "surcharge une clé du fichier de mission, par ex. "
+            "thresholds.security_log_min_retention_days=180 ; répétable"
+        ),
+    )
+    g.add_argument(
+        "--lang",
+        choices=LANGS,
+        default=None,
+        help=(
+            "langue du livrable ; l'emporte sur report.lang du fichier (les "
+            "rendus restent en français pour l'instant)"
+        ),
+    )
+    return p
+
+
+def _configuration(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Config:
+    """Configuration effective : ligne de commande, puis fichier, puis défauts.
+
+    Un fichier illisible, une clé inconnue, une valeur refusée ou une clé au
+    nom de secret sont des erreurs d'usage : code 2, sans lancer l'audit.
+    """
+    surcharges = list(args.surcharges)
+    if args.lang is not None:
+        # apres --set : l'option dediee l'emporte
+        surcharges.append(f"report.lang={args.lang}")
+    try:
+        config = load_config(args.config, overrides=surcharges)
+    except ConfigError as exc:
+        # chemin et cles viennent de l'utilisateur : neutralises avant tout echo
+        parser.error(f"configuration : {assainir(str(exc))}")
+    if config.source_kind == SOURCE_CWD:
+        # personne ne l'a designe : visible sans -v, et inscrit dans le rapport
+        logger.warning(
+            "fichier de mission %s trouvé dans le répertoire courant et appliqué "
+            "sans avoir été désigné : vérifie son contenu (amnesia config show), "
+            "ou désigne-le par --config %s",
+            config.source,
+            config.source,
+        )
+    elif config.source is not None:
+        logger.info("fichier de mission : %s", config.source)
+    return config
+
+
+SANS_VALEUR = "(non renseigné)"
+SANS_FICHIER = "aucun (valeurs par défaut)"
+
+
+def _montrer_configuration(config: Config) -> None:
+    """``amnesia config show`` : une ligne par clé, valeur et origine."""
+    source = SANS_FICHIER if config.source is None else assainir(str(config.source))
+    if config.source_kind == SOURCE_CWD:
+        source += " (trouvé dans le répertoire courant, sans --config)"
+    print(f"Fichier de mission : {source}")
+    lignes = [
+        (
+            chemin,
+            SANS_VALEUR if valeur is None else json.dumps(valeur, ensure_ascii=False),
+            origine.value,
+        )
+        for chemin, valeur, origine in config.rows()
+    ]
+    largeur_cle = max(len(ligne[0]) for ligne in lignes)
+    largeur_valeur = max(len(ligne[1]) for ligne in lignes)
+    for chemin, valeur, origine in lignes:
+        print(f"{chemin:<{largeur_cle}}  {valeur:<{largeur_valeur}}  {origine}")
+    print(f"config_hash : {config.config_hash()}")
+
+
+def _initialiser(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """``amnesia init`` : écrit un fichier de mission d'exemple, sans rien écraser.
+
+    Écriture par ``amnesia.output.write_private()`` : 0600 (le fichier nomme le
+    client), atomique, jamais à travers un lien symbolique.
+    """
+    chemin: Path = args.fichier
+    affiche = assainir(str(chemin))
+    try:
+        write_private(chemin, example_toml().encode("utf-8"), force=args.overwrite)
+    except UnsafeDestinationError as exc:
+        parser.error(f"{affiche} : {exc.strerror or exc}, {MEME_AVEC_OVERWRITE}")
+    except FileExistsError:
+        parser.error(f"{affiche} : {EXISTE_DEJA}")
+    except OSError as exc:
+        logger.error("%s : écriture impossible : %s", chemin, exc.strerror or exc)
+        return FATAL
+    # il nomme le client : meme avertissement que pour un rapport
+    warn_if_not_ignored(chemin)
+    print(f"Fichier de mission écrit : {affiche}")
+    return OK
 
 
 # gestionnaires d'erreurs qui levent UnicodeEncodeError sur un caractere absent
@@ -588,6 +712,7 @@ def _auditer(
     # la variable d'environnement a quitte le processus avant le premier
     # sous-processus (git check-ignore, collecte)
     mot_de_passe = _mot_de_passe(args, argv, parser)
+    config = _configuration(args, parser)
     if mot_de_passe is not None:
         # le collecteur WinRM (#63) le recevra ici, et n'appellera reveal()
         # qu'au moment de s'authentifier
@@ -619,8 +744,14 @@ def _auditer(
             return code
     # instances neuves : aucun etat ne passe d'un audit a l'autre
     checks = default_checks()
-    audit = run_audit(checks, args.target, _collecteur(args.target), debug=args.debug)
-    rapport = build_report(audit, argv=argv)
+    audit = run_audit(
+        checks,
+        args.target,
+        _collecteur(args.target),
+        config=config.for_checks(),
+        debug=args.debug,
+    )
+    rapport = build_report(audit, argv=argv, config=config)
     texte_json = dumps_report(rapport)
     octets = texte_json.encode("utf-8")
     if chemin is None:
@@ -655,10 +786,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"amnesia {__version__}")
     sub = p.add_subparsers(dest="cmd")
     journal = _options_journal(defauts=False)
+    mission = _options_mission()
 
     a = sub.add_parser(
         "audit",
-        parents=[journal],
+        parents=[journal, mission],
         help="Lance les checks et liste les angles morts",
         description=(
             "Lance les checks sur la cible, écrit le rapport JSON (--out) et "
@@ -777,6 +909,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Affiche le JSON Schema du rapport (docs/format-rapport.md)",
     )
 
+    i = sub.add_parser(
+        "init",
+        parents=[journal],
+        help=f"Écrit un fichier de mission d'exemple ({DEFAULT_FILE})",
+        description=(
+            "Écrit un fichier de mission d'exemple, chaque clé commentée, créé "
+            "en 0600. Un fichier existant n'est jamais écrasé sans --overwrite."
+        ),
+    )
+    i.add_argument(
+        "fichier",
+        nargs="?",
+        type=Path,
+        default=Path(DEFAULT_FILE),
+        metavar="FICHIER",
+        help=f"fichier à écrire (défaut : {DEFAULT_FILE})",
+    )
+    i.add_argument(
+        "--overwrite",
+        action="store_true",
+        help=(
+            "remplace un fichier existant ; jamais un lien symbolique ni ce qui "
+            "n'est pas un fichier ordinaire"
+        ),
+    )
+
+    g = sub.add_parser(
+        "config",
+        parents=[journal],
+        help="Configuration effective de l'audit (fichier de mission)",
+    )
+    gsub = g.add_subparsers(dest="config_cmd", required=True, metavar="COMMANDE")
+    gsub.add_parser(
+        "show",
+        parents=[journal, mission],
+        help="Affiche chaque valeur effective et son origine",
+        description=(
+            "Affiche la configuration effective, une ligne par clé : valeur et "
+            "origine (défaut, fichier ou cli), puis config_hash, le SHA-256 que "
+            "porte le rapport. Configuration refusée : code 2."
+        ),
+    )
+
     c = sub.add_parser(
         "catalog",
         parents=[journal],
@@ -832,6 +1007,13 @@ def _executer(
 
     if args.cmd == "audit":
         return _auditer(args, argv, parser)
+
+    if args.cmd == "init":
+        return _initialiser(args, parser)
+
+    if args.cmd == "config":
+        _montrer_configuration(_configuration(args, parser))
+        return OK
 
     # sans sous-commande : aide sur stderr, stdout reste vide (JSON avec --out -)
     parser.print_help(sys.stderr)

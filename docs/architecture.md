@@ -105,7 +105,11 @@ basses. De bas en haut :
    `amnesia.exitcodes` (codes de sortie, d'après les sévérités de
    `amnesia.checks.base`) et `amnesia.output` (écriture des livrables sur le
    poste de l'auditeur, qui ne prend de la collecte que `subprocess_env()` pour
-   lancer `git check-ignore`) ;
+   lancer `git check-ignore`) et `amnesia.config` (fichier de mission
+   `amnesia.toml` et configuration effective : il lit le fichier par
+   `amnesia.inputs`, ne prend d'`amnesia.output` que le dossier par défaut
+   des livrables et d'`amnesia.checks.base` que `assainir`, pour refuser un
+   texte qui ressemble à un secret) ;
 7. **entrée** : `amnesia.cli`, `amnesia.__main__`.
 
 Table des dépendances internes autorisées (imports exécutés au chargement ;
@@ -118,14 +122,15 @@ modules.
 |---|---|
 | `amnesia` | `amnesia.runner` |
 | `amnesia.__main__` | `amnesia.cli` |
-| `amnesia.cli` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.secrets`, `amnesia.target` |
+| `amnesia.cli` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.config`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.secrets`, `amnesia.target` |
 | `amnesia.exitcodes` | `amnesia.checks.base` |
 | `amnesia.output` | `amnesia.facts.collectors` |
+| `amnesia.config` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.output` |
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
 | `amnesia.render.markdown` | `amnesia.render.base` |
 | `amnesia.render.text` | `amnesia.render.base` |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.report` |
-| `amnesia.report` | `amnesia.checks`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.inputs`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.catalog`, `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
