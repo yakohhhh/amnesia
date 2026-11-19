@@ -3,16 +3,19 @@
 
 """Rendu Markdown (GFM) : un titre par groupe et un tableau récapitulatif.
 
-Toute valeur du rapport passe par ``escape_markdown()`` : ni lien, ni image,
-ni HTML brut, ni entité, et aucune cellule de tableau cassée. Pas de couleur.
-Le repli ASCII d'une valeur précède son échappement : une lettre ramenée à
-l'ASCII par l'encodage de sortie (cp1252...) ne reforme pas un lien.
+Toute valeur du rapport passe par ``for_markdown()`` (``amnesia.render.safe``) :
+une phrase (question, raison, message) a toute sa ponctuation ASCII échappée,
+un nom ou un identifiant (cible, check, exécution) devient un span de code. Le
+rendu ne contient donc ni lien, même automatique, ni image, ni HTML brut, ni
+entité, et aucune cellule de tableau cassée. Pas de couleur. Le repli ASCII de
+l'encodage de sortie (cp1252...) porte sur le document final : il ne produit que
+des lettres, des chiffres ou des échappements visibles (``\\u4e2d``), qui ne
+reforment aucun lien.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import partial
 from typing import Any
 
 from .base import (
@@ -22,7 +25,6 @@ from .base import (
     RenderOptions,
     ReportView,
     empty_line,
-    escape_markdown,
     fallback,
     filter_gaps,
     group_gaps,
@@ -36,15 +38,20 @@ from .base import (
     synthesis,
     unverified_detail,
 )
+from .safe import Limit, for_markdown
 
 
-def _gap(gap: GapView, encodage: str) -> list[str]:
-    raison = lowercase_first(escape_markdown(gap.reason, encodage))
+def _nom(valeur: str, *, table: bool = False) -> str:
+    """Nom ou identifiant venu du rapport, en span de code."""
+    return for_markdown(valeur, limit=Limit.NAME, code=True, table=table)
+
+
+def _gap(gap: GapView) -> list[str]:
     lignes = [
-        f"- **{escape_markdown(gap.question, encodage)}**",
-        f"  - → Impossible : {raison}",
+        f"- **{for_markdown(gap.question)}**",
+        f"  - → Impossible : {lowercase_first(for_markdown(gap.reason))}",
         f"  - Sévérité : {NIVEAUX[gap.severity.value]} ({gap.severity.value})",
-        f"  - Cible : {escape_markdown(gap.target, encodage)}",
+        f"  - Cible : {_nom(gap.target)}",
     ]
     quantite = quantification(gap)
     if quantite is not None:
@@ -52,7 +59,7 @@ def _gap(gap: GapView, encodage: str) -> list[str]:
     return lignes
 
 
-def _section_non_verifie(rapport: ReportView, encodage: str) -> list[str]:
+def _section_non_verifie(rapport: ReportView) -> list[str]:
     nombre = rapport.unverified_count
     lignes = ["", f"## Non vérifié : {plural(nombre, 'check')}", ""]
     if nombre == 0:
@@ -67,11 +74,11 @@ def _section_non_verifie(rapport: ReportView, encodage: str) -> list[str]:
     for nv in rapport.unverified:
         statut, motif, message = unverified_detail(nv)
         cellules = (
-            escape_markdown(nv.check_id, encodage),
-            escape_markdown(nv.target, encodage),
+            _nom(nv.check_id, table=True),
+            _nom(nv.target, table=True),
             statut,
             motif,
-            "" if message is None else escape_markdown(message, encodage),
+            "" if message is None else for_markdown(message, table=True),
         )
         lignes.append("| " + " | ".join(cellules) + " |")
     if len(rapport.unverified) < nombre:
@@ -89,16 +96,13 @@ class MarkdownRenderer:
     def render(self, report: Mapping[str, Any], options: RenderOptions) -> str:
         """Texte du rendu, encodable dans ``options.encoding``."""
         rapport = read_report(report)
-        # repli ASCII de chaque valeur avant son echappement (voir le module)
-        echappe = partial(escape_markdown, encoding=options.encoding)
-        cibles = ", ".join(echappe(c) for c in rapport.targets)
+        cibles = ", ".join(_nom(c) for c in rapport.targets)
         lignes = [
             f"# {TITLE}",
             "",
-            f"- Rapport : {echappe(rapport.run_id)} (amnesia "
-            f"{echappe(rapport.tool_version)}, format "
-            f"{rapport.schema_version})",
-            f"- Audit du : {echappe(rapport.started_at)}",
+            f"- Rapport : {_nom(rapport.run_id)} (amnesia "
+            f"{_nom(rapport.tool_version)}, format {rapport.schema_version})",
+            f"- Audit du : {_nom(rapport.started_at)}",
             f"- Cibles : {cibles}",
         ]
         avertissement = status_line(rapport)
@@ -110,12 +114,12 @@ class MarkdownRenderer:
         if not groupes:
             lignes += ["", empty_line(rapport, options.min_severity, masques)]
         for valeur, gaps in groupes:
-            titre = group_title(options.group_by, valeur, len(gaps), echappe)
+            titre = group_title(options.group_by, valeur, len(gaps), _nom)
             lignes += ["", f"## {titre}", ""]
             for gap in gaps:
-                lignes += _gap(gap, options.encoding)
+                lignes += _gap(gap)
 
-        lignes += _section_non_verifie(rapport, options.encoding)
+        lignes += _section_non_verifie(rapport)
         lignes += [
             "",
             "## Résumé",

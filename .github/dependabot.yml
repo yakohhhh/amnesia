@@ -49,6 +49,8 @@ updates:
           - "check-wheel-contents"
           - "hypothesis"
           - "jsonschema"
+          - "linkify-it-py"
+          - "markdown-it-py"
           - "mypy"
           - "nox"
           - "pip-audit"

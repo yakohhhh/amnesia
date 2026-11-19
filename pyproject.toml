@@ -84,6 +84,10 @@ dev = [
     # validation du rapport contre son JSON Schema (#22) : tests seulement, le
     # paquet installe n'en depend pas
     "jsonschema==4.26.0",
+    # parseurs CommonMark et GFM (autoliens linkify) : les tests verifient que le
+    # rendu Markdown ne forme ni lien ni HTML avec des valeurs hostiles (#45)
+    "linkify-it-py==2.2.0",
+    "markdown-it-py==4.2.0",
     "mypy==2.4.1",
     "nox==2026.10.20",
     "pre-commit==4.7.0",

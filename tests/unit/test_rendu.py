@@ -27,10 +27,9 @@ from amnesia.render import (
     ReportError,
     TextRenderer,
     color_enabled,
-    escape_markdown,
     fallback,
+    for_markdown,
     load_report,
-    neutralize,
     read_report,
     render_report,
 )
@@ -51,9 +50,8 @@ GOLDENS = {
 RAPPORT_22 = RACINE / "tests" / "golden" / "report.json"
 
 QUESTION_RDP = "Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?"
-IMPOSSIBLE_RDP = (
-    "→ Impossible : le journal Security fait 20 Mo et a été écrasé il y a 4 jours."
-)
+RAISON_RDP = "le journal Security fait 20 Mo et a été écrasé il y a 4 jours."
+IMPOSSIBLE_RDP = f"→ Impossible : {RAISON_RDP}"
 CIBLE = "winrm://srv-file.exemple.invalid"
 
 # ESC, CSI (C1), BEL, NUL, DEL, retour chariot, saut de ligne, bidi, U+2028 et
@@ -177,14 +175,16 @@ def test_format_du_readme() -> None:
 
 def test_format_du_readme_markdown() -> None:
     sortie = markdown(rapport())
-    assert f"- **{QUESTION_RDP}**\n  - {IMPOSSIBLE_RDP}\n" in sortie
+    question, raison = for_markdown(QUESTION_RDP), for_markdown(RAISON_RDP)
+    assert f"- **{question}**\n  - → Impossible : {raison}\n" in sortie
+    assert f"  - Cible : `{CIBLE}`\n" in sortie
 
 
 def test_rapport_de_22() -> None:
     # le golden du rapport JSON (#22) se rend sans erreur, dans les deux formats
     donnees = json.loads(RAPPORT_22.read_text(encoding="utf-8"))
-    for fmt in RENDERERS:
-        assert QUESTION_RDP in render_report(donnees, fmt)
+    assert QUESTION_RDP in render_report(donnees, "text")
+    assert for_markdown(QUESTION_RDP) in render_report(donnees, "md")
 
 
 # --- tri, regroupements et filtre ----------------------------------------------
@@ -205,7 +205,7 @@ def _cinq_gaps() -> dict[str, Any]:
 @pytest.mark.parametrize("group_by", GROUP_BY)
 def test_gaps_de_critical_a_info(rendre: Callable[..., str], group_by: str) -> None:
     sortie = rendre(_cinq_gaps(), group_by=group_by)
-    positions = [sortie.index(f"Question {s} ?") for s in SEVERITIES]
+    positions = [sortie.index(f"Question {s} ") for s in SEVERITIES]
     assert positions == sorted(positions)
 
 
@@ -228,7 +228,8 @@ def test_group_by_domain() -> None:
         gap("critical", "Question win 2 ?", check_id="win.audit_policy"),
         gap("low", "Question inconnue ?", check_id="xyz.autre"),
     )
-    for rendre, prefixe in ((texte, ""), (markdown, "## ")):
+    # domaine inconnu : valeur du rapport, en span de code en Markdown
+    for rendre, prefixe, inconnu in ((texte, "", "xyz"), (markdown, "## ", "`xyz`")):
         sortie = rendre(donnees, group_by="domain")
         titres = [
             ligne.removeprefix(prefixe)
@@ -238,10 +239,10 @@ def test_group_by_domain() -> None:
         assert titres == [
             "Domaine Active Directory (ad) : 1 angle mort",
             "Domaine Windows (win) : 2 angles morts",
-            "Domaine xyz : 1 angle mort",
+            f"Domaine {inconnu} : 1 angle mort",
         ]
         # dans un groupe : de critical a info
-        assert sortie.index("Question win 2 ?") < sortie.index("Question win 1 ?")
+        assert sortie.index("Question win 2 ") < sortie.index("Question win 1 ")
 
 
 def test_group_by_target() -> None:
@@ -257,8 +258,8 @@ def test_group_by_target() -> None:
         "Cible winrm://b.exemple.invalid : 1 angle mort",
     ]
     md = markdown(donnees, group_by="target")
-    assert "## Cible winrm\\://a.exemple.invalid : 2 angles morts" in md
-    assert "## Cible winrm\\://b.exemple.invalid : 1 angle mort" in md
+    assert "## Cible `winrm://a.exemple.invalid` : 2 angles morts" in md
+    assert "## Cible `winrm://b.exemple.invalid` : 1 angle mort" in md
 
 
 def test_min_severity_high_par_la_cli(
@@ -269,10 +270,10 @@ def test_min_severity_high_par_la_cli(
         args = ["render", str(chemin), "--format", fmt, "--min-severity", "high"]
         assert main(args) == 0
         sortie = capsys.readouterr().out
-        assert "Question critical ?" in sortie
-        assert "Question high ?" in sortie
+        assert "Question critical " in sortie
+        assert "Question high " in sortie
         for masquee in ("medium", "low", "info"):
-            assert f"Question {masquee} ?" not in sortie
+            assert f"Question {masquee} " not in sortie
         assert "Masqués par --min-severity high" in sortie
 
 
@@ -479,45 +480,14 @@ def test_aucune_sequence_de_controle(rendre: Callable[..., str], group_by: str) 
     assert all(c == "\n" or c.isprintable() for c in sortie)
     # aucune fausse entree forgee par un saut de ligne
     assert not any(ligne.startswith("FAUX") for ligne in sortie.splitlines())
-    assert "\\x1b[2J" in sortie or "\\\\x1b\\[2J" in sortie
+    # sequences supprimees avec leur contenu (cible de l'hyperlien OSC 8)
+    assert "clicabc FAUX x" in sortie
+    assert "evil.example" not in sortie
 
 
 def test_couleurs_et_valeurs_hostiles() -> None:
     sortie = texte(_hostile(), color=True)
     assert "\x1b" not in re.sub(r"\x1b\[[0-9;]*m", "", sortie)
-
-
-def test_neutralize() -> None:
-    assert neutralize("a\x1b[31mb") == "a\\x1b[31mb"
-    assert neutralize("\u202eabc\r\n") == "\\u202eabc\\r\\n"
-    assert neutralize("\x9b\udcff\ue000") == "\\x9b\\udcff\\ue000"
-    # espaces Unicode et accents conserves
-    assert neutralize("été\u00a0: «\u202fx\u202f»") == "été\u00a0: «\u202fx\u202f»"
-
-
-def test_escape_markdown() -> None:
-    hostile = (
-        "[clic](https://evil.example) ![pixel](https://evil.example/p.png) "
-        "<img src=x onerror=alert(1)> &#x202e; www.evil.example WWW.evil.example "
-        "a@b.example mailto:a@b.example `code` *gras* _it_ ~barre~ | cellule | "
-        "#12 $x$ \\[ \x1b[31m"
-    )
-    echappe = escape_markdown(hostile)
-    # aucun caractere special qui ne soit precede d'une barre oblique inverse
-    assert re.search(r"(?<!\\)[\[\]()<>&|`*_~!@#$]", echappe) is None
-    assert "\\[clic\\]\\(https\\://evil.example\\)" in echappe
-    assert "\\!\\[pixel\\]" in echappe
-    assert "\\<img" in echappe
-    assert "\\&\\#x202e;" in echappe
-    assert "www\\.evil" in echappe
-    assert "WWW\\.evil" in echappe
-    assert "a\\@b" in echappe
-    assert "mailto\\:" in echappe
-    assert "\\|" in echappe
-    assert "\\\\x1b\\[31m" in echappe
-    assert "\x1b" not in echappe
-    # texte ordinaire inchange : heures, tirets, apostrophes
-    assert escape_markdown(" 09:30 SRV-FILE l'hôte ") == "09:30 SRV-FILE l'hôte"
 
 
 def test_markdown_hostile_sans_lien_ni_html() -> None:
@@ -552,49 +522,6 @@ def test_markdown_pleine_chasse_en_cp1252() -> None:
     assert "<img" not in sortie
     assert "[x](y)" not in sortie
     assert "\\uff1cimg" in sortie
-
-
-def test_escape_markdown_repli_avant_echappement() -> None:
-    # pleine chasse et accents absents de l'encodage : replies, puis echappes
-    assert escape_markdown("\uff48\uff54\uff54\uff50\uff53://x", "cp1252") == (
-        "https\\://x"
-    )
-    assert escape_markdown("http\u015b://x", "ascii") == "https\\://x"
-    assert escape_markdown("\u1e81\u1e81\u1e81.x", "cp850") == "www\\.x"
-    assert escape_markdown("\uff1cb", "cp1252") == "\\\\uff1cb"
-    # sans encodage, ou si tout est representable : aucun repli
-    assert escape_markdown("http\u015b://x") == "http\u015b://x"
-    assert escape_markdown("http\u015b://x", "utf-8") == "http\u015b://x"
-
-
-# lettres pleine chasse ou accentuees que le repli ASCII ramene a un schema
-# ou a « www » : apres repli, un lien automatique GFM si l'echappement precede
-LIENS_REPLIES = [
-    ("\uff48\uff54\uff54\uff50\uff53://evil.example/x", "https\\:"),
-    ("http\u015b://evil.example/x", "https\\:"),
-    ("\uff4d\uff41\uff49\uff4c\uff54\uff4f:a", "mailto\\:"),
-    ("\uff57\uff57\uff57.evil.example", "www\\."),
-    ("\u1e81\u1e81\u1e81.evil.example", "www\\."),
-]
-
-
-@pytest.mark.parametrize("encodage", ["cp1252", "cp850", "ascii"])
-@pytest.mark.parametrize(("hostile", "echappe"), LIENS_REPLIES)
-@pytest.mark.parametrize("group_by", GROUP_BY)
-def test_markdown_lettres_repliees_sans_lien(
-    encodage: str, hostile: str, echappe: str, group_by: str
-) -> None:
-    donnees = avec_gaps(gap("high", f"Voir {hostile}", target=hostile))
-    sysmon = next(r for r in donnees["results"] if r["check_id"] == "win.sysmon")
-    sysmon["message"] = hostile
-    sysmon["target"] = hostile
-    donnees["run"]["targets"] = [hostile]
-    sortie = markdown(donnees, encoding=encodage, group_by=group_by)
-    sortie.encode(encodage)
-    minuscules = sortie.lower()
-    for lien in ("https:", "mailto:", "www."):
-        assert lien not in minuscules
-    assert echappe in sortie
 
 
 @pytest.mark.parametrize("encodage", ["cp1252", "cp850", "ascii"])
