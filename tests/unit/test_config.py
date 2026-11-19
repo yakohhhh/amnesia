@@ -446,7 +446,9 @@ def test_fichier_non_designe_d_un_autre_compte_refuse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     chemin = _fichier(tmp_path, 'profile = "pme"\n')
-    autre = os.geteuid() + 1
+    # uid du fichier et non os.geteuid() : mypy ne connait pas cet attribut
+    # sous win32, ou le marqueur skipif ne retrecit rien
+    autre = chemin.stat().st_uid + 1
     monkeypatch.setattr(os, "geteuid", lambda: autre)
     with pytest.raises(ConfigError, match="appartient à un autre compte"):
         load_config(directory=tmp_path)
