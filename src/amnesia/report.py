@@ -11,11 +11,15 @@ draft 2020-12 embarqué dans le paquet : ``amnesia/schemas/report-v1.schema.json
 
 Structure :
 
-- ``schema_version`` : SemVer du format (``1.0.0``) ;
+- ``schema_version`` : SemVer du format (``1.1.0``) ;
 - ``tool`` : nom, version d'amnesia, version du catalogue de questions (#46) ;
 - ``run`` : identifiant (UUID4), horodatages RFC 3339 en UTC (suffixe ``Z``),
-  durée, ``complete``, ``interrupted``, profil (``null`` avant #47) et
-  arguments de la ligne de commande, valeurs sensibles masquées ;
+  durée, ``complete``, ``interrupted``, nom du profil (fichier de mission,
+  ``null`` s'il n'en désigne aucun) et arguments de la ligne de commande,
+  valeurs sensibles masquées ;
+- ``mission`` : client, référence, auditeur, dates et marquage TLP du fichier
+  de mission (``amnesia.config``), ``null`` pour ce qu'il ne renseigne pas ;
+- ``config_hash`` : SHA-256 du JSON canonique de la configuration effective ;
 - ``targets`` : cibles auditées (identifiant, type, transport) ;
 - ``results`` : un résultat par check et par cible, quel que soit son statut ;
 - ``gaps`` : Gaps v1 (#16), du plus grave au moins grave ;
@@ -61,11 +65,12 @@ from typing import Any
 
 from .checks import REGISTRY
 from .checks.base import CheckResult, Gap, assainir
+from .config import Config
 from .log import mask_secrets
 from .runner import AuditResult, AuditSummary
 from .target import Target
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 """Version du format (SemVer) : MAJEURE si incompatible, MINEURE si champ ajouté."""
 
 SCHEMA_RESOURCE = "schemas/report-v1.schema.json"
@@ -78,7 +83,7 @@ SENSITIVE_OPTIONS = ("--password", "--token", "--secret", "--client-secret")
 
 MASK = "***"
 
-PATH_OPTIONS = ("--out", "--log-file", "--password-file")
+PATH_OPTIONS = ("--out", "--log-file", "--password-file", "--config")
 """Options à chemin : seul le nom de fichier est gardé dans ``run.argv``."""
 
 _CONTROLES_BRUTS = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]")
@@ -192,8 +197,9 @@ def _texte_utf8(texte: str) -> str:
 # invalide (« severity » : « *** »), fausserait le code de sortie, et le masque
 # posé sur un vocabulaire connu révélerait le secret au lecteur.
 _STRUCTURELS: Mapping[str, frozenset[str]] = {
-    "": frozenset({"schema_version", "tool", "summary"}),
+    "": frozenset({"schema_version", "tool", "summary", "config_hash"}),
     "run": frozenset({"id", "started_at", "finished_at"}),
+    "mission": frozenset({"start", "end", "tlp"}),
     "targets": frozenset({"kind", "transport"}),
     "results": frozenset({"check_id", "status", "reason"}),
     "gaps": frozenset(
@@ -330,6 +336,7 @@ def build_report(
     *,
     argv: Sequence[str] = (),
     check_versions: Mapping[str, int] | None = None,
+    config: Config | None = None,
 ) -> dict[str, Any]:
     """Rapport v1 d'un audit, prêt pour ``dumps_report()``.
 
@@ -337,7 +344,9 @@ def build_report(
     (``sys.argv[1:]``, dont le chemin révélerait le poste de l'auditeur),
     masqués par ``redact_argv()``. ``check_versions`` : version de chaque check
     par id ; par défaut celles du registre. Un check absent a une version
-    ``null``.
+    ``null``. ``config`` : configuration effective (``amnesia.config``), dont
+    viennent ``run.profile``, ``mission`` et ``config_hash`` ; par défaut, la
+    configuration sans fichier de mission.
 
     ``results`` est trié par ``check_id`` puis cible ; ``gaps`` par sévérité
     décroissante (de ``critical`` à ``info``), puis domaine, ``check_id``,
@@ -349,6 +358,7 @@ def build_report(
     """
     versions = _versions_du_registre() if check_versions is None else check_versions
     _verifier_versions(versions)
+    configuration = Config.defaults() if config is None else config
     resultats = sorted(audit.results, key=lambda r: (r.check_id, r.target))
     gaps = sorted((g for r in resultats for g in r.gaps), key=_cle_gap)
     rapport = {
@@ -366,9 +376,11 @@ def build_report(
             "duration_s": audit.duration_s,
             "complete": audit.complete,
             "interrupted": audit.interrupted,
-            "profile": None,
+            "profile": configuration.profile,
             "argv": redact_argv(argv),
         },
+        "mission": configuration.section("mission"),
+        "config_hash": configuration.config_hash(),
         "targets": [_cible(audit.target)],
         "results": [_resultat(r, versions) for r in resultats],
         "gaps": [g.to_dict() for g in gaps],

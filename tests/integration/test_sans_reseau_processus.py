@@ -53,6 +53,8 @@ def _amnesia(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         ("render", str(FIXTURE)),
         ("render", str(FIXTURE), "--format", "md"),
         ("audit", "--target", "local", "--out", "rapport.json"),
+        ("init", "mission.toml"),
+        ("config", "show"),
     ],
     ids=[
         "help",
@@ -65,6 +67,8 @@ def _amnesia(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         "render",
         "render-md",
         "audit",
+        "init",
+        "config-show",
     ],
 )
 def test_commande_sans_connexion(tmp_path: Path, args: tuple[str, ...]) -> None:

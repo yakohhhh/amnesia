@@ -340,7 +340,7 @@ def test_rapport_de_checks_factices_valide_contre_le_schema() -> None:
 def test_version_horodatages_et_duree() -> None:
     audit = auditer([Factice("win.conforme", conforme)])
     rapport = build_report(audit)
-    assert rapport["schema_version"] == SCHEMA_VERSION == "1.0.0"
+    assert rapport["schema_version"] == SCHEMA_VERSION == "1.1.0"
     assert rapport["tool"] == {
         "name": "amnesia",
         "version": amnesia.__version__,
@@ -465,12 +465,14 @@ def test_mise_en_forme_deterministe() -> None:
     # ensure_ascii=False : accents lisibles ; indentation de 2
     assert "écrasé" in texte
     assert "\\u00e9" not in texte
-    assert '\n  "schema_version": "1.0.0",\n' in texte
+    assert '\n  "schema_version": "1.1.0",\n' in texte
     assert texte.startswith('{\n  "schema_version"')
     assert list(json.loads(texte)) == [
         "schema_version",
         "tool",
         "run",
+        "mission",
+        "config_hash",
         "targets",
         "results",
         "gaps",
@@ -572,7 +574,7 @@ def test_argv_sans_chemin_du_poste_dans_le_rapport() -> None:
 
 
 def test_options_a_chemin_couvertes() -> None:
-    assert PATH_OPTIONS == ("--out", "--log-file", "--password-file")
+    assert PATH_OPTIONS == ("--out", "--log-file", "--password-file", "--config")
 
 
 def test_argv_non_textuel_refuse() -> None:

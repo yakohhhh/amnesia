@@ -98,8 +98,25 @@ la première version sera la 0.1.0 (milestone M0).
   est refusée avec le code 2 sans que sa valeur soit affichée. La saisie au
   terminal sans écho sera active avec le collecteur WinRM (#63). Sources,
   ordre de priorité et limites dans `docs/SECRETS.md` (#38).
+- Fichier de mission `amnesia.toml` : client, référence, auditeur, dates,
+  marquage TLP 2.0, profil, langue, formats et seuils des checks. `amnesia
+  init` en écrit un exemple commenté (0600), `amnesia audit` et `amnesia config
+  show` le lisent (`--config FICHIER`, sinon `./amnesia.toml`) ; la ligne de
+  commande (`--lang`, `--set CLÉ=VALEUR`) l'emporte sur le fichier, qui
+  l'emporte sur les valeurs par défaut, et `config show` affiche l'origine de
+  chaque valeur. Une clé inconnue (avec suggestion), une valeur refusée
+  (`TLP:WHITE`, date non ISO 8601, seuil hors bornes) ou une clé au nom de
+  secret (`password`, `token`, `*_key`…) arrêtent la commande avec le code 2.
+  Le rapport JSON porte `mission`, le nom du profil (`run.profile`) et
+  `config_hash`, SHA-256 de la configuration effective. La langue, les formats
+  et le dossier des livrables ne sont pas encore appliqués par `audit`.
+  Référence : `docs/mission.md` (#36).
 
 ### Modifié
+
+- Format du rapport `1.1.0` : champs `mission` et `config_hash` ajoutés,
+  `run.profile` renseigné par le fichier de mission ; un rapport `1.0.0` reste
+  lisible (#36).
 
 - README, qui est aussi la description du paquet, aligné sur ce qui est livré :
   la section « État » distingue le socle disponible de ce qui n'existe pas

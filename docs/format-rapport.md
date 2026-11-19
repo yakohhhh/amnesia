@@ -50,13 +50,29 @@ Tous les champs sont toujours présents ; une valeur absente vaut `null`.
 
 | Champ | Type | Contenu |
 | --- | --- | --- |
-| `schema_version` | chaîne | Version SemVer du format : `1.0.0`. Le schéma v1 accepte toute version `1.x.y`. |
+| `schema_version` | chaîne | Version SemVer du format : `1.1.0`. Le schéma v1 accepte toute version `1.x.y`. |
 | `tool` | objet | Outil qui a produit le rapport. |
 | `run` | objet | Exécution de l'audit. |
+| `mission` | objet | Mission décrite par le fichier de mission ([`mission.md`](mission.md)) ; depuis `1.1.0`. |
+| `config_hash` | chaîne | SHA-256 (hexadécimal) du JSON canonique de la configuration effective (mission, profil, rapport, seuils), tel qu'affiché par `amnesia config show` ; depuis `1.1.0`. |
 | `targets` | tableau | Cibles auditées, au moins une. |
 | `results` | tableau | Un résultat par check et par cible, quel que soit son statut. |
 | `gaps` | tableau | Angles morts (Gaps v1, #16). |
 | `summary` | objet | Comptes dérivés de `results` et de `gaps`. |
+
+### `mission`
+
+Depuis `1.1.0`. Valeurs du fichier de mission, déclarées par l'auditeur ; une
+valeur non renseignée vaut `null`.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `client` | chaîne ou `null` | Client audité. |
+| `reference` | chaîne ou `null` | Référence de la mission. |
+| `auditor` | chaîne ou `null` | Auditeur ou équipe, tel que déclaré dans le fichier de mission. |
+| `start` | chaîne ou `null` | Début de la mission, date ISO 8601 (`2026-01-12`). |
+| `end` | chaîne ou `null` | Fin de la mission, même forme, jamais avant `start`. |
+| `tlp` | chaîne ou `null` | Marquage TLP 2.0 : `TLP:CLEAR`, `TLP:GREEN`, `TLP:AMBER`, `TLP:AMBER+STRICT` ou `TLP:RED`. |
 
 ### `tool`
 
@@ -76,7 +92,7 @@ Tous les champs sont toujours présents ; une valeur absente vaut `null`.
 | `duration_s` | nombre | Durée de l'audit en secondes (horloge monotone). |
 | `complete` | booléen | Vrai si chaque check a été évalué ou exclu par l'utilisateur, sans interruption. Faux dès qu'un résultat est en `error`, ou en `skipped` pour un autre motif que `user_excluded`. |
 | `interrupted` | booléen | Vrai si l'audit a été interrompu (Ctrl+C) : résultats partiels. |
-| `profile` | chaîne ou `null` | Profil d'audit ; `null` tant que les profils (#47) n'existent pas. |
+| `profile` | chaîne ou `null` | Nom du profil d'audit retenu par le fichier de mission (`profile`) ; `null` s'il n'en désigne aucun. Le contenu des profils relève de #47. |
 | `argv` | tableau de chaînes | Arguments de la ligne de commande, sans le programme ; valeurs sensibles masquées, chemins réduits au nom de fichier (voir plus bas). |
 
 ### `targets[]`
@@ -180,6 +196,12 @@ Ces règles s'appliquent à partir de la première publication d'amnesia
 une fois sans changer de version : depuis le catalogue de questions (#46),
 `tool.catalog_version` et `question_id` ne valent plus jamais `null`.
 
+Versions du format :
+
+- `1.1.0` : `mission` et `config_hash` ajoutés ; `run.profile` porte le nom du
+  profil désigné par le fichier de mission ;
+- `1.0.0` : première version.
+
 ## Sécurité et confidentialité
 
 - **Arguments masqués** : dans `run.argv`, la valeur de `--password`,
@@ -228,7 +250,7 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "tool": {
     "name": "amnesia",
     "version": "0.1.0",
@@ -252,6 +274,15 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
       "rapport-srv-file.json"
     ]
   },
+  "mission": {
+    "client": null,
+    "reference": null,
+    "auditor": null,
+    "start": null,
+    "end": null,
+    "tlp": null
+  },
+  "config_hash": "2741158908f5312e23b1edf715049c2c11d4067bb35c0ee19d8bc4d9e0cf31a9",
   "targets": [
     {
       "id": "winrm://srv-file.exemple.invalid",
