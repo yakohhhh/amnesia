@@ -69,8 +69,12 @@
           "type": "boolean"
         },
         "profile": {
-          "description": "Profil d'audit ; null tant que les profils n'existent pas.",
+          "description": "Nom du profil d'audit retenu par le fichier de mission ; null si aucun.",
           "type": ["string", "null"]
+        },
+        "config_source": {
+          "description": "D'où vient le fichier de mission appliqué : « --config » s'il a été désigné, « cwd » s'il a été trouvé dans le répertoire courant sans être désigné, null sans fichier ; depuis 1.1.0.",
+          "enum": ["cwd", "--config", null]
         },
         "argv": {
           "description": "Arguments de la ligne de commande, sans le programme ; valeurs sensibles remplacées par ***.",
@@ -95,7 +99,24 @@
       "type": "array",
       "items": { "$ref": "#/$defs/gap" }
     },
-    "summary": { "$ref": "#/$defs/summary" }
+    "summary": { "$ref": "#/$defs/summary" },
+    "mission": {
+      "description": "Mission décrite par le fichier de mission (amnesia.toml) ; depuis 1.1.0. Une valeur non renseignée vaut null.",
+      "type": "object",
+      "properties": {
+        "client": { "description": "Client audité.", "type": ["string", "null"], "minLength": 1 },
+        "reference": { "description": "Référence de la mission.", "type": ["string", "null"], "minLength": 1 },
+        "auditor": { "description": "Auditeur ou équipe, tel que déclaré dans le fichier de mission.", "type": ["string", "null"], "minLength": 1 },
+        "start": { "description": "Début de la mission, date ISO 8601.", "type": ["string", "null"], "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "end": { "description": "Fin de la mission, date ISO 8601, jamais avant le début.", "type": ["string", "null"], "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "tlp": { "description": "Marquage TLP 2.0 du livrable.", "enum": ["TLP:CLEAR", "TLP:GREEN", "TLP:AMBER", "TLP:AMBER+STRICT", "TLP:RED", null] }
+      }
+    },
+    "config_hash": {
+      "description": "SHA-256 (hexadécimal) du JSON canonique de la configuration effective : mission, profil, rapport et seuils ; depuis 1.1.0.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
   },
   "$defs": {
     "timestamp": {
