@@ -99,6 +99,7 @@ from traceback import extract_tb
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from ..log import mask_secrets
+from ..privacy import check_evidence, check_evidence_value
 
 if TYPE_CHECKING:
     from ..facts import FactSet
@@ -418,7 +419,14 @@ class Evidence:
       message d'une ``ErrorInfo`` (identifiants dans une URL, /p:, -Password,
       password=...), en filet de sécurité ;
     - ``details`` : valeurs brutes (``max_size_bytes``, ``log_mode``,
-      ``oldest_event_utc``...).
+      ``oldest_event_utc``...), dans le schéma fermé
+      ``amnesia.privacy.EVIDENCE_FIELDS``.
+
+    Minimisation (#41, docs/DONNEES.md) : une preuve ne porte que des nombres,
+    des durées, des horodatages et des noms de paramètres. Une clé de
+    ``details`` hors schéma est refusée (``ValueError``), comme un texte de plus
+    de 256 caractères dans ``observed`` ou ``expected`` ; un dictionnaire
+    passé à ``observed`` ou ``expected`` suit le même schéma.
 
     Le contenu est validé et figé à la construction : tout doit être
     sérialisable en JSON, un datetime (avec fuseau) devient une chaîne ISO 8601
@@ -443,6 +451,10 @@ class Evidence:
                 f"details doit être un dictionnaire : {type(self.details).__name__}"
             )
         object.__setattr__(self, "details", _figer(self.details, ("details",)))
+        # minimisation (#41) : schema ferme, aucune cle ni texte libre
+        for champ in ("observed", "expected"):
+            check_evidence_value(getattr(self, champ), champ)
+        check_evidence(self.details)
         if self.unit is not None:
             _verifier_identifiant(self.unit, "unit")
         _verifier_jours(self.observed_window_days, "observed_window_days")

@@ -119,6 +119,14 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
   `amnesia.facts` (vérifié sur l'AST) : programme hors allowlist, sans chemin
   complet ou avec d'autres arguments que ses formes figées, et
   `ReadOnlyViolation` est levée avant tout lancement ;
+- minimisation ([`docs/DONNEES.md`](../DONNEES.md), #41) : un collecteur ne
+  rend que des configurations et des métadonnées de journaux. Un fait dont la
+  valeur porte un champ de contenu d'événement (`Message`, `Properties`,
+  `UserId`, `MachineName`, champs d'`EventData` comme `TargetUserName` ou
+  `IpAddress`) est refusé (`FactsFormatError`), et un script PowerShell passe
+  `amnesia.privacy.check_script_privacy` en plus du verdict de lecture seule.
+  Une sortie brute ne s'écrit jamais sur disque : `run_command(..., raw=)` ne
+  reçoit une destination que si l'auditeur a passé `--keep-raw` ;
 - argv passé en liste, jamais `shell=True`, programme désigné par son chemin
   complet : les règles ruff S602, S604, S605 et S607 sont actives sur `src/`
   (`tests/test_regles_ruff.py`), et un test parcourt l'AST de `src/` ;

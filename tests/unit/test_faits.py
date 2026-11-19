@@ -391,7 +391,10 @@ def test_json_schema_motif_des_noms() -> None:
 
 
 def test_fixtures_conformes_au_modele() -> None:
-    fichiers = sorted(FIXTURES.glob("*.json"))
+    # evenement_4624.json porte le contenu d'un evenement : refuse (#41,
+    # tests/unit/test_minimisation.py)
+    refusees = {"evenement_4624.json"}
+    fichiers = sorted(f for f in FIXTURES.glob("*.json") if f.name not in refusees)
     assert fichiers
     for chemin in fichiers:
         brut = json.loads(chemin.read_text(encoding="utf-8"))

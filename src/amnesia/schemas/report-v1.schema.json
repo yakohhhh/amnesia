@@ -261,7 +261,26 @@
         "required_window_days": { "type": ["number", "null"], "minimum": 0 },
         "confidence": { "enum": ["measured", "estimated", "assumed"] },
         "source": { "$ref": "#/$defs/text" },
-        "details": { "type": "object" }
+        "details": {
+          "description": "Valeurs brutes, aux clés d'un schéma fermé (docs/DONNEES.md).",
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "max_size_bytes",
+              "file_size_bytes",
+              "record_count",
+              "log_mode",
+              "oldest_event_utc",
+              "newest_event_utc",
+              "events_per_day",
+              "retention_days",
+              "enabled",
+              "setting",
+              "settings",
+              "channels"
+            ]
+          }
+        }
       }
     },
     "reference": {

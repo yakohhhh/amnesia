@@ -15,6 +15,7 @@ from .collectors import (
     Collector,
     FixtureCollector,
     LocalCollector,
+    RawSink,
     run_command,
     subprocess_env,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "FixtureCollector",
     "JSONValue",
     "LocalCollector",
+    "RawSink",
     "UnavailableReason",
     "load_facts",
     "resolve",

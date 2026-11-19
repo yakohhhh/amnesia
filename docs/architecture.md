@@ -134,14 +134,15 @@ modules.
 | `amnesia.catalog.model` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.registry` | `amnesia.checks.base`, `amnesia.deps`, `amnesia.target` |
 | `amnesia.checks.context` | `amnesia.target` |
-| `amnesia.checks.base` | `amnesia.log` |
+| `amnesia.checks.base` | `amnesia.log`, `amnesia.privacy` |
 | `amnesia.facts` | `amnesia.facts.collectors`, `amnesia.facts.model`, `amnesia.facts.resolution` |
 | `amnesia.facts.resolution` | `amnesia.checks.base`, `amnesia.facts.model` |
 | `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.readonly`, `amnesia.target` |
-| `amnesia.facts.model` | `amnesia.inputs` |
+| `amnesia.facts.model` | `amnesia.inputs`, `amnesia.privacy` |
 | `amnesia.deps` | aucune |
 | `amnesia.inputs` | aucune |
 | `amnesia.log` | aucune |
+| `amnesia.privacy` | aucune |
 | `amnesia.readonly` | aucune |
 | `amnesia.secrets` | `amnesia.log` |
 | `amnesia.target` | aucune |

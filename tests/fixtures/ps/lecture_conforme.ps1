@@ -3,7 +3,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $journal = Get-WinEvent -ListLog 'Security' 2>$null
-$plusAncien = Get-WinEvent -LogName 'Security' -MaxEvents 1 -Oldest
+# minimisation (#41) : seul l'horodatage du plus ancien evenement est lu
+$plusAncien = (Get-WinEvent -LogName 'Security' -MaxEvents 1 -Oldest).TimeCreated
+$plusRecent = Get-WinEvent -LogName 'Security' -MaxEvents 1 |
+    Select-Object -Property TimeCreated, RecordId
 $cle = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging'
 $journalisation = $null
 if (Test-Path -LiteralPath $cle) {
@@ -17,7 +20,9 @@ $sortie = [ordered]@{
     compte         = $compte.Name
     collecte       = (Get-Date).ToUniversalTime().ToString('o')
     taille_max     = $journal.MaximumSizeInBytes
-    plus_ancien    = $plusAncien.ToXml()
+    enregistrements = $journal.RecordCount
+    plus_ancien    = $plusAncien.ToUniversalTime().ToString('o')
+    plus_recent    = $plusRecent
     journalisation = $journalisation
     services       = $services
 }

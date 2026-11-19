@@ -46,12 +46,20 @@ from .exitcodes import (
     exit_code,
     table_text,
 )
-from .facts import Collector, Fact, FactSet, LocalCollector, UnavailableReason
+from .facts import (
+    Collector,
+    Fact,
+    FactSet,
+    LocalCollector,
+    RawSink,
+    UnavailableReason,
+)
 from .log import FORMATS, redact, setup_logging
 from .output import (
     UnsafeDestinationError,
     check_destination,
     default_report_path,
+    keep_raw,
     prepare_default_dir,
     warn_if_not_ignored,
     write_private,
@@ -398,10 +406,22 @@ class _CollecteurAbsent:
         )
 
 
-def _collecteur(target: Target) -> Collector:
+def _collecteur(target: Target, raw: RawSink | None = None) -> Collector:
     if target.transport is Transport.LOCAL:
-        return LocalCollector()
+        return LocalCollector(raw=raw)
     return _CollecteurAbsent(target.transport)
+
+
+def _sorties_brutes() -> RawSink | int:
+    """Dossier des sorties brutes (``--keep-raw``), ou un code s'il est refusé."""
+    try:
+        return keep_raw()
+    except UnsafeDestinationError as exc:
+        logger.error("--keep-raw : dossier refusé : %s", exc.strerror or exc)
+        return USAGE
+    except OSError as exc:
+        logger.error("--keep-raw : création impossible : %s", exc.strerror or exc)
+        return FATAL
 
 
 OPTION_FICHIER_MOT_DE_PASSE = "--password-file"
@@ -619,7 +639,15 @@ def _auditer(
             return code
     # instances neuves : aucun etat ne passe d'un audit a l'autre
     checks = default_checks()
-    audit = run_audit(checks, args.target, _collecteur(args.target), debug=args.debug)
+    if args.keep_raw:
+        # opt-in (#41) : sans lui, aucune sortie brute n'est ecrite sur disque
+        brut = _sorties_brutes()
+        if isinstance(brut, int):
+            return brut
+        collecteur = _collecteur(args.target, brut)
+    else:
+        collecteur = _collecteur(args.target)
+    audit = run_audit(checks, args.target, collecteur, debug=args.debug)
     rapport = build_report(audit, argv=argv)
     texte_json = dumps_report(rapport)
     octets = texte_json.encode("utf-8")
@@ -698,6 +726,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "remplace un rapport existant (refusé sinon) ; jamais un lien "
             "symbolique ni ce qui n'est pas un fichier ordinaire"
+        ),
+    )
+    a.add_argument(
+        "--keep-raw",
+        action="store_true",
+        help=(
+            "garde les sorties brutes des commandes de collecte dans "
+            "amnesia-out/raw (0700) ; par défaut rien n'est gardé : elles "
+            "peuvent contenir des données personnelles (docs/DONNEES.md)"
         ),
     )
     a.add_argument(

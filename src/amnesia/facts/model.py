@@ -60,6 +60,7 @@ from types import MappingProxyType
 from typing import Any, TypeAlias
 
 from ..inputs import UnsafeInputError, load_json
+from ..privacy import event_content_field
 
 SCHEMA = "amnesia.facts/1"
 FACT_DOMAINS = ("windows", "ad", "m365", "aws", "siem")
@@ -136,6 +137,15 @@ def _figer(valeur: object, chemin: str, profondeur: int = 0) -> JSONValue:
         for cle, v in valeur.items():
             if not isinstance(cle, str):
                 raise FactsFormatError(f"{chemin} : clé non textuelle {cle!a}")
+            # minimisation (#41) : le contenu d'un evenement ne devient jamais
+            # un fait ; le nom cite est celui du module, pas la cle recue
+            refuse = event_content_field(cle)
+            if refuse is not None:
+                raise FactsFormatError(
+                    f"{chemin} : champ de contenu d'événement refusé ({refuse}) ; "
+                    "seules des configurations et des métadonnées de journaux "
+                    "sont collectées (docs/DONNEES.md)"
+                )
             # cle lue d'un fichier : echappee et tronquee, pour qu'aucun
             # message n'agisse sur un terminal
             copie[cle] = _figer(v, f"{chemin}.{ascii(cle)[:80]}", profondeur + 1)

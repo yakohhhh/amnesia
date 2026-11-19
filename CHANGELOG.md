@@ -110,6 +110,15 @@ la première version sera la 0.1.0 (milestone M0).
 
 ### Sécurité
 
+- Minimisation des données collectées (RGPD) : seules des configurations et
+  des métadonnées de journaux sortent de la cible. Un fait qui porte le contenu
+  d'un événement (`Message`, `Properties`, `UserId`, `MachineName`, champs
+  d'`EventData`) est refusé, la preuve d'un angle mort suit un schéma fermé
+  (nombres, durées, horodatages, noms de paramètres) et un script de collecte
+  qui rend un événement sans projection explicite est refusé en CI. Les
+  sorties brutes ne sont jamais écrites sur disque, sauf
+  `amnesia audit --keep-raw` (dossier `amnesia-out/raw` en 0700, avec un
+  avertissement). Inventaire des données traitées : `docs/DONNEES.md` (#41).
 - Lecture seule garantie par une allowlist des opérations : un collecteur ne
   peut exécuter sur une cible qu'un exécutable à arguments figés, un script
   PowerShell inscrit avec son empreinte, une opération LDAP ou AWS ou une

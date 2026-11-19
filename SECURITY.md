@@ -168,7 +168,11 @@ que les checks lisent ([M06][menaces]). Il lit des configurations (politique
 d'audit, Sysmon, journalisation PowerShell, taille et rétention des journaux,
 synchronisation horaire, paramètres d'audit d'Active Directory, de Microsoft 365
 et d'AWS) et des métadonnées de journaux, jamais de contenu métier : ni fichiers,
-ni messages, ni bases de données.
+ni messages, ni bases de données. Le contenu d'un événement (compte, adresse IP,
+poste) ne sort pas de la cible : l'inventaire des données traitées, leur
+finalité et les contrôles qui le garantissent sont dans
+[`docs/DONNEES.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/DONNEES.md)
+(#41).
 
 ### Ce que contient un rapport
 

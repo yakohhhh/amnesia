@@ -36,6 +36,13 @@ compte : son propriétaire pourrait y substituer le rapport.
 ``warn_if_not_ignored()`` avertit quand une destination est dans un dépôt git
 sans y être ignorée.
 
+Sorties brutes (#41) : la sortie d'une commande de collecte n'est jamais écrite
+sur disque, sauf ``amnesia audit --keep-raw``. ``keep_raw()`` prépare alors
+``amnesia-out/raw/`` comme ``amnesia-out/`` (0700, ``.gitignore``), avertit, et
+rend le ``RawStore`` qui y écrit chaque sortie par ``write_private()``. Ces
+fichiers peuvent contenir des données personnelles ; ils n'entrent jamais dans
+le rapport.
+
 Limite : les livrables sont ensuite écrits par chemin, pas relativement à un
 descripteur du dossier vérifié ; un compte qui peut renommer les entrées du
 répertoire courant (sans bit sticky) garde une fenêtre entre la vérification et
@@ -51,11 +58,13 @@ import contextlib
 import errno
 import logging
 import os
+import re
 import secrets
 import shutil
 import stat
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from .facts.collectors import subprocess_env
@@ -67,6 +76,9 @@ DEFAULT_DIR = "amnesia-out"
 
 DEFAULT_REPORT = "amnesia-report.json"
 """Nom du rapport JSON par défaut, dans ``DEFAULT_DIR``."""
+
+RAW_DIR = "raw"
+"""Sous-dossier de ``amnesia-out/`` des sorties brutes gardées (``--keep-raw``)."""
 
 FILE_MODE = 0o600
 """Droits POSIX d'un livrable, quel que soit l'umask."""
@@ -218,6 +230,59 @@ def prepare_default_dir(directory: Path) -> None:
     if not (gitignore.is_symlink() or gitignore.exists()):
         with contextlib.suppress(FileExistsError):
             write_private(gitignore, GITIGNORE)
+
+
+_HORS_NOM_DE_FICHIER = re.compile(r"[^A-Za-z0-9_-]")
+_LONGUEUR_NOM_BRUT = 48
+
+
+class RawStore:
+    """Dossier des sorties brutes gardées sur demande (``--keep-raw``).
+
+    Appelable comme un ``amnesia.facts.RawSink`` : chaque sortie devient un
+    fichier ``<rang>-<commande>.bin``, écrit par ``write_private()`` (0600,
+    atomique, sans écrasement). Le rang, propre à l'instance, garde l'ordre
+    des commandes ; le nom de la commande est réduit à ``[A-Za-z0-9_-]``.
+    """
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self._rang = 0
+        self._verrou = threading.Lock()
+
+    def __call__(self, name: str, data: bytes) -> None:
+        with self._verrou:
+            self._rang += 1
+            rang = self._rang
+        commande = _HORS_NOM_DE_FICHIER.sub("_", name)[:_LONGUEUR_NOM_BRUT] or "sortie"
+        write_private(self.directory / f"{rang:04d}-{commande}.bin", data)
+
+
+def keep_raw(directory: Path | None = None) -> RawStore:
+    """Prépare le dossier des sorties brutes et avertit ; rend son ``RawStore``.
+
+    ``directory`` vaut par défaut ``amnesia-out/raw`` dans le répertoire
+    courant. Le dossier et son parent sont préparés par
+    ``prepare_default_dir()`` : 0700 (ACL du seul compte courant sous Windows),
+    ``.gitignore`` réduit à ``*``, lien symbolique et dossier d'un autre compte
+    refusés. L'avertissement est émis à chaque appel : garder des sorties
+    brutes est un choix explicite, à assumer à chaque audit.
+
+    Raises:
+        UnsafeDestinationError, OSError: comme ``prepare_default_dir()``.
+    """
+    dossier = Path(DEFAULT_DIR) / RAW_DIR if directory is None else directory
+    if directory is None:
+        prepare_default_dir(dossier.parent)
+    prepare_default_dir(dossier)
+    logger.warning(
+        "--keep-raw : les sorties brutes des commandes de collecte sont gardées "
+        "dans %s (0700). Elles peuvent contenir des données personnelles, "
+        "n'entrent jamais dans le rapport et sont à supprimer dès la fin de "
+        "l'analyse (docs/DONNEES.md)",
+        dossier,
+    )
+    return RawStore(dossier)
 
 
 def git_repository(path: Path) -> Path | None:
@@ -672,10 +737,13 @@ __all__ = [
     "GITIGNORE",
     "LIEN_REFUSE",
     "NON_ORDINAIRE",
+    "RAW_DIR",
+    "RawStore",
     "UnsafeDestinationError",
     "check_destination",
     "default_report_path",
     "git_repository",
+    "keep_raw",
     "prepare_default_dir",
     "warn_if_not_ignored",
     "write_private",

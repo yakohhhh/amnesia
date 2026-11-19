@@ -135,7 +135,11 @@ Forme de `Gap.to_dict()` (modèle Gap v1, #16 ; grille de sévérité :
 | `required_window_days` | nombre ou `null` | Fenêtre exigée, en jours. |
 | `confidence` | énumération | `measured` (lue), `estimated` (extrapolée) ou `assumed` (supposée). |
 | `source` | chaîne | Commande ou API lue, caviardée. |
-| `details` | objet | Valeurs brutes ; un horodatage y est en RFC 3339 UTC. |
+| `details` | objet | Valeurs brutes, aux clés d'un schéma fermé ([`DONNEES.md`](DONNEES.md)) ; un horodatage y est en RFC 3339 UTC. |
+
+Une preuve ne porte que des nombres, des durées, des horodatages et des noms de
+paramètres (#41) : `details` refuse toute clé hors schéma, et un texte de
+`observed` ou `expected` ne dépasse pas 256 caractères.
 
 `references[]` :
 

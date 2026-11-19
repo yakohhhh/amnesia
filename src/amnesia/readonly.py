@@ -743,6 +743,10 @@ def _element_ps(element: Mapping[str, Any]) -> str | None:
         if element.get("name") == "Namespace":
             return None
         return "instruction using autre que « using namespace »"
+    if genre == "property":
+        # lire une propriete n'ecrit rien ; ce qu'elle fait sortir de la cible
+        # est juge par amnesia.privacy.check_script_privacy (minimisation, #41)
+        return None
     return "élément d'inventaire inconnu"
 
 
@@ -751,10 +755,11 @@ def check_script_inventory(inventory: Mapping[str, Any]) -> list[str]:
 
     ``inventory`` est une entrée de la sortie de ``scripts/inventaire_ps.ps1`` :
     ``errors`` (erreurs d'analyse) et ``items`` (commandes et leurs paramètres,
-    appels de méthodes, types, affectations, redirections, ``using``). Rend un
-    message par écart, liste
-    vide si le script ne fait que des lectures admises. Tout ce qui n'est pas
-    reconnu est un écart.
+    appels de méthodes, types, affectations, redirections, ``using``, lectures
+    de propriétés). Rend un message par écart, liste vide si le script ne fait
+    que des lectures admises. Tout ce qui n'est pas reconnu est un écart. Ce
+    que le script fait sortir de la cible relève d'un second verdict,
+    ``amnesia.privacy.check_script_privacy`` (#41).
     """
     erreurs, elements = inventory.get("errors"), inventory.get("items")
     if not isinstance(erreurs, list) or not isinstance(elements, list):

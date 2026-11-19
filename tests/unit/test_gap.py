@@ -80,9 +80,10 @@ def _gap_complet() -> Gap:
                 "oldest_event_utc": datetime(
                     2026, 10, 17, 11, 30, tzinfo=timezone(timedelta(hours=2))
                 ),
-                "canaux": ["Security", {"nom": "System", "taille_mo": 20.5}],
-                "absent": None,
-                "archivage": False,
+                # cles du schema ferme des preuves (amnesia.privacy, #41)
+                "channels": ["Security", "System"],
+                "retention_days": None,
+                "enabled": False,
             },
         ),
         remediation_id="REM-LOG-SIZE",
@@ -279,10 +280,8 @@ def test_to_dict_cles_stables() -> None:
 def test_to_dict_preuve_et_references() -> None:
     d = _gap_complet().to_dict()
     assert d["evidence"]["observed"] == [20971520, "Circular"]
-    assert d["evidence"]["details"]["canaux"] == [
-        "Security",
-        {"nom": "System", "taille_mo": 20.5},
-    ]
+    assert d["evidence"]["details"]["channels"] == ["Security", "System"]
+    assert d["evidence"]["details"]["retention_days"] is None
     assert d["references"][0] == {
         "kind": "attack",
         "id": "T1021.001",
@@ -441,9 +440,14 @@ def test_chemin_d_erreur_construit_seulement_en_cas_d_erreur() -> None:
     # formate pour chaque element (cout quadratique, plusieurs secondes avant)
     cle = "A" * 1_000_000
     debut = time.process_time()
-    preuve = _preuve(details={cle: [0] * 300_000})
+    preuve = _preuve(observed=[0] * 300_000, details={"channels": ["S"] * 300_000})
+    # une cle hors du schema des preuves (#41) est refusee une fois la preuve
+    # figee, sans etre reprise dans le message
+    with pytest.raises(ValueError, match="hors du schéma des preuves") as hors_schema:
+        _preuve(details={cle: [0] * 300_000})
     assert time.process_time() - debut < 1
-    assert len(preuve.details[cle]) == 300_000  # type: ignore[arg-type]
+    assert len(str(hors_schema.value)) < 200
+    assert len(preuve.details["channels"]) == 300_000  # type: ignore[arg-type]
     # en cas d'erreur, la cle est tronquee dans le message
     with pytest.raises(TypeError) as erreur:
         _preuve(details={cle: [0, object()]})
@@ -492,16 +496,17 @@ def test_preuve_trop_imbriquee_refusee() -> None:
 
 
 def test_preuve_figee() -> None:
-    details: dict[str, Any] = {"max_size_bytes": 20971520, "canaux": ["Security"]}
+    details: dict[str, Any] = {"max_size_bytes": 20971520, "channels": ["Security"]}
     preuve = _preuve(details=details)
     # la preuve ne suit pas les modifications ulterieures de l'appelant
     details["max_size_bytes"] = 0
-    details["canaux"].append("System")
+    details["channels"].append("System")
     assert preuve.details["max_size_bytes"] == 20971520
-    assert preuve.details["canaux"] == ("Security",)
+    assert preuve.details["channels"] == ("Security",)
     assert len(preuve.details) == 2
     assert (
-        repr(preuve.details) == "{'max_size_bytes': 20971520, 'canaux': ('Security',)}"
+        repr(preuve.details)
+        == "{'max_size_bytes': 20971520, 'channels': ('Security',)}"
     )
     with pytest.raises(TypeError):
         preuve.details["max_size_bytes"] = 0  # type: ignore[index]
@@ -578,22 +583,30 @@ def test_confiance_en_chaine_convertie() -> None:
         _preuve(confidence="sure")
 
 
-# valeurs JSON arbitraires (sans NaN ni infini, hors JSON)
-VALEURS_JSON: st.SearchStrategy[JSON] = st.recursive(
-    st.none()
-    | st.booleans()
-    | st.integers(min_value=-(2**63), max_value=2**64 - 1)
-    | st.floats(allow_nan=False, allow_infinity=False)
-    | st.text(),
-    lambda enfants: (
-        st.lists(enfants, max_size=4) | st.dictionaries(st.text(), enfants, max_size=4)
-    ),
-    max_leaves=10,
+# preuves du schema ferme (amnesia.privacy, #41) : nombres, booleens, noms de
+# parametres de 256 caracteres au plus (sans NaN ni infini, hors JSON)
+ENTIERS = st.integers(min_value=-(2**63), max_value=2**64 - 1)
+FLOTTANTS = st.floats(allow_nan=False, allow_infinity=False)
+PARAMETRES = st.text(max_size=256)
+SCALAIRES: st.SearchStrategy[JSON] = (
+    st.none() | st.booleans() | ENTIERS | FLOTTANTS | PARAMETRES
+)
+OBSERVES: st.SearchStrategy[JSON] = SCALAIRES | st.lists(SCALAIRES, max_size=4)
+DETAILS: st.SearchStrategy[dict[str, JSON]] = st.fixed_dictionaries(
+    {},
+    optional={
+        "max_size_bytes": st.none() | ENTIERS,
+        "events_per_day": st.none() | FLOTTANTS,
+        "retention_days": st.none() | st.floats(min_value=0, allow_infinity=False),
+        "enabled": st.none() | st.booleans(),
+        "log_mode": st.none() | PARAMETRES,
+        "channels": st.lists(PARAMETRES, max_size=4),
+    },
 )
 
 
-@given(observe=VALEURS_JSON, details=st.dictionaries(st.text(), VALEURS_JSON))
-def test_aller_retour_de_toute_preuve_json(
+@given(observe=OBSERVES, details=DETAILS)
+def test_aller_retour_de_toute_preuve_du_schema(
     observe: JSON, details: dict[str, JSON]
 ) -> None:
     g = _gap(evidence=_preuve(observed=observe, details=details))
