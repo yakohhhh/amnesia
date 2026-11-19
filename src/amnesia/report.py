@@ -198,7 +198,7 @@ def _texte_utf8(texte: str) -> str:
 # posé sur un vocabulaire connu révélerait le secret au lecteur.
 _STRUCTURELS: Mapping[str, frozenset[str]] = {
     "": frozenset({"schema_version", "tool", "summary", "config_hash"}),
-    "run": frozenset({"id", "started_at", "finished_at"}),
+    "run": frozenset({"id", "started_at", "finished_at", "config_source"}),
     "mission": frozenset({"start", "end", "tlp"}),
     "targets": frozenset({"kind", "transport"}),
     "results": frozenset({"check_id", "status", "reason"}),
@@ -345,7 +345,8 @@ def build_report(
     masqués par ``redact_argv()``. ``check_versions`` : version de chaque check
     par id ; par défaut celles du registre. Un check absent a une version
     ``null``. ``config`` : configuration effective (``amnesia.config``), dont
-    viennent ``run.profile``, ``mission`` et ``config_hash`` ; par défaut, la
+    viennent ``run.profile``, ``run.config_source``, ``mission`` et
+    ``config_hash`` ; par défaut, la
     configuration sans fichier de mission.
 
     ``results`` est trié par ``check_id`` puis cible ; ``gaps`` par sévérité
@@ -377,6 +378,7 @@ def build_report(
             "complete": audit.complete,
             "interrupted": audit.interrupted,
             "profile": configuration.profile,
+            "config_source": configuration.source_kind,
             "argv": redact_argv(argv),
         },
         "mission": configuration.section("mission"),

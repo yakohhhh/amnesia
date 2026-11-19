@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import sys
 import warnings
 from datetime import date
 from pathlib import Path
@@ -17,6 +19,8 @@ import pytest
 from amnesia.config import (
     DEFAULT_FILE,
     KEYS,
+    SOURCE_CWD,
+    SOURCE_OPTION,
     THRESHOLDS,
     TLP,
     Config,
@@ -34,6 +38,9 @@ def _fichier(tmp_path: Path, texte: str, nom: str = DEFAULT_FILE) -> Path:
     chemin = tmp_path / nom
     # octets : memes fins de ligne sous Windows que sous Linux
     chemin.write_bytes(texte.encode("utf-8"))
+    # droits fixes : un fichier non designe est refuse s'il est inscriptible
+    # par le groupe, ce que donnerait un umask 002
+    chemin.chmod(0o600)
     return chemin
 
 
@@ -67,6 +74,9 @@ def test_fichier_du_repertoire_courant(
     monkeypatch.chdir(tmp_path)
     config = load_config()
     assert config.source == Path(DEFAULT_FILE)
+    assert config.source_kind == SOURCE_CWD == "cwd"
+    assert load_config(Path(DEFAULT_FILE)).source_kind == SOURCE_OPTION == "--config"
+    assert load_config(directory=tmp_path / "vide").source_kind is None
     assert config.profile == "pme"
     assert config.origins["profile"] is Origin.FILE
 
@@ -385,3 +395,253 @@ def test_rows_dans_l_ordre_d_affichage() -> None:
     lignes = Config.defaults().rows()
     assert [chemin for chemin, _, _ in lignes][:7] == [cle.path for cle in KEYS][:7]
     assert ("report.formats", ["json"], Origin.DEFAULT) in lignes
+
+
+# --- fichier non designe (repertoire courant) ----------------------------------
+
+
+def _lien(cible: Path, lien: Path) -> None:
+    try:
+        lien.symlink_to(cible)
+    except (OSError, NotImplementedError):
+        pytest.skip("liens symboliques indisponibles")
+
+
+def test_fichier_non_designe_lien_symbolique_refuse(tmp_path: Path) -> None:
+    ailleurs = _fichier(tmp_path, 'profile = "pme"\n', "ailleurs.toml")
+    dossier = tmp_path / "ici"
+    dossier.mkdir()
+    _lien(ailleurs, dossier / DEFAULT_FILE)
+    with pytest.raises(ConfigError, match="lien symbolique refusé") as exc:
+        load_config(directory=dossier)
+    assert "--config" in str(exc.value)
+    # designe, le meme lien est lu
+    assert load_config(dossier / DEFAULT_FILE).profile == "pme"
+
+
+def test_fichier_non_designe_lien_casse_refuse(tmp_path: Path) -> None:
+    _lien(tmp_path / "absent.toml", tmp_path / DEFAULT_FILE)
+    with pytest.raises(ConfigError, match="lien symbolique refusé"):
+        load_config(directory=tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="droits POSIX")
+@pytest.mark.parametrize("droits", [0o620, 0o602, 0o666, 0o664])
+def test_fichier_non_designe_inscriptible_par_d_autres_refuse(
+    tmp_path: Path, droits: int
+) -> None:
+    chemin = _fichier(tmp_path, 'profile = "pme"\n')
+    chemin.chmod(droits)
+    with pytest.raises(ConfigError, match=f"droits {droits:04o}") as exc:
+        load_config(directory=tmp_path)
+    assert "chmod go-w" in str(exc.value)
+    # designe par --config, il est lu ; lisible par d'autres, il reste admis
+    assert load_config(chemin).profile == "pme"
+    chemin.chmod(0o644)
+    assert load_config(directory=tmp_path).profile == "pme"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="droits POSIX")
+def test_fichier_non_designe_d_un_autre_compte_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chemin = _fichier(tmp_path, 'profile = "pme"\n')
+    autre = os.geteuid() + 1
+    monkeypatch.setattr(os, "geteuid", lambda: autre)
+    with pytest.raises(ConfigError, match="appartient à un autre compte"):
+        load_config(directory=tmp_path)
+    assert load_config(chemin).profile == "pme"
+
+
+# --- constats de revue ---------------------------------------------------------
+
+GEANT = "0x" + "F" * 6000
+
+
+@pytest.mark.parametrize(
+    ("texte", "chemin"),
+    [
+        (f"[thresholds]\nsecurity_log_min_retention_days = {GEANT}\n", SEUIL),
+        (f"[thresholds]\nntp_max_offset_seconds = {GEANT}\n", "ntp_max_offset"),
+        (f"[mission]\ntlp = {GEANT}\n", "mission.tlp"),
+        (f"[report]\nformats = [{GEANT}]\n", "report.formats"),
+        (f"[report]\nlang = {GEANT}\n", "report.lang"),
+    ],
+)
+def test_entier_geant_refuse_proprement(
+    tmp_path: Path, texte: str, chemin: str
+) -> None:
+    message = _refus(tmp_path, texte)
+    assert chemin in message
+    assert "FFFF" not in message
+
+
+@pytest.mark.parametrize(
+    "valeur",
+    [
+        "password=hunter2",
+        "Client Exemple pwd: hunter2",
+        "https://bob:motdepasse@hote.exemple.invalid/x",
+        "api_key=abcdef",
+        "Bearer abcdef",
+    ],
+)
+@pytest.mark.parametrize("cle", ["mission.client", "mission.auditor"])
+def test_texte_libre_qui_ressemble_a_un_secret_refuse(
+    tmp_path: Path, cle: str, valeur: str
+) -> None:
+    section, nom = cle.split(".")
+    for erreur in (
+        _refus(tmp_path, f'[{section}]\n{nom} = "{valeur}"\n'),
+        _refus_cli(tmp_path, f"{cle}={valeur}"),
+    ):
+        assert cle in erreur
+        assert "ressemble à un secret" in erreur
+        assert "docs/SECRETS.md" in erreur
+        assert "hunter2" not in erreur
+        assert "motdepasse" not in erreur
+        assert "abcdef" not in erreur
+
+
+def _refus_cli(tmp_path: Path, surcharge: str) -> str:
+    with pytest.raises(ConfigError) as exc:
+        load_config(directory=tmp_path / "vide", overrides=[surcharge])
+    return str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "dossier",
+    [
+        "/ailleurs/livrables",
+        "../ailleurs",
+        "livrables/../../ailleurs",
+        "livrables\\\\..\\\\..",
+        "C:\\\\ailleurs",
+        "C:ailleurs",
+        "\\\\\\\\serveur\\\\partage\\\\x",
+        "\\\\ailleurs",
+        "..",
+    ],
+)
+def test_output_dir_du_fichier_relatif_sans_remontee(
+    tmp_path: Path, dossier: str
+) -> None:
+    message = _refus(tmp_path, f'[report]\noutput_dir = "{dossier}"\n')
+    assert "report.output_dir : chemin relatif sans « .. » attendu" in message
+    assert "--set report.output_dir=" in message
+
+
+def test_output_dir_absolu_admis_depuis_la_ligne_de_commande(tmp_path: Path) -> None:
+    absolu = str(tmp_path / "livrables")
+    config = load_config(directory=tmp_path, overrides=[f"report.output_dir={absolu}"])
+    assert config.values["report.output_dir"] == absolu
+    assert config.origins["report.output_dir"] is Origin.CLI
+    relatif = load_config(
+        _fichier(tmp_path, '[report]\noutput_dir = "livrables/2026..01/a..b"\n')
+    )
+    assert relatif.values["report.output_dir"] == "livrables/2026..01/a..b"
+
+
+@pytest.mark.parametrize(
+    "client", ["Dupont\u00a0& Fils", "Société X\u00a0: siège", "Client\u202fExemple"]
+)
+def test_espace_insecable_admise(tmp_path: Path, client: str) -> None:
+    config = load_config(_fichier(tmp_path, f'[mission]\nclient = "{client}"\n'))
+    assert config.values["mission.client"] == client
+    assert json.loads(config.canonical_json())["mission"]["client"] == client
+
+
+@pytest.mark.parametrize(
+    "caractere",
+    ["\\u0000", "\\u009b", "\\u200b", "\\u2028", "\\u2029", "\\ue000", "\\n"],
+)
+def test_caracteres_de_controle_et_de_format_refuses(
+    tmp_path: Path, caractere: str
+) -> None:
+    message = _refus(tmp_path, f'[mission]\nclient = "a{caractere}b"\n')
+    assert "mission.client : caractère" in message
+
+
+def test_cle_racine_apres_une_section(tmp_path: Path) -> None:
+    message = _refus(
+        tmp_path, '[mission]\nclient = "Client Exemple"\nprofile = "pme"\n'
+    )
+    assert "clé « profile » lue dans la section [mission]" in message
+    assert "avant la première section" in message
+    assert "voulais-tu dire" not in message
+
+
+def test_cle_connue_au_nom_de_secret_admise(tmp_path: Path) -> None:
+    seuil = Threshold(
+        "krbtgt_password_max_age_days", 180, 1, 3650, "jours", "âge du mot de passe"
+    )
+    chemin = _fichier(tmp_path, "[thresholds]\nkrbtgt_password_max_age_days = 90\n")
+    cle = "thresholds.krbtgt_password_max_age_days"
+    assert load_config(chemin, thresholds=[seuil]).values[cle] == 90
+    surcharge = load_config(
+        directory=tmp_path / "vide", thresholds=[seuil], overrides=[f"{cle}=365"]
+    )
+    assert surcharge.values[cle] == 365
+    # inconnue, la meme cle reste un secret refuse ; une voisine aussi
+    with pytest.raises(ConfigError, match="aucun secret"):
+        load_config(chemin)
+    with pytest.raises(ConfigError, match="aucun secret"):
+        load_config(
+            directory=tmp_path / "vide",
+            thresholds=[seuil],
+            overrides=["thresholds.krbtgt_password=x"],
+        )
+
+
+@pytest.mark.parametrize(
+    "surcharge",
+    [
+        f"{SEUIL}=5_0",
+        f"{SEUIL}= 50 ",
+        f"{SEUIL}=+50",
+        f"{SEUIL}=\u0665\u0660",
+        "thresholds.ntp_max_offset_seconds=1_0",
+        "thresholds.ntp_max_offset_seconds= 1 ",
+        "thresholds.ntp_max_offset_seconds=1e2",
+        "thresholds.ntp_max_offset_seconds=nan",
+        "thresholds.ntp_max_offset_seconds=inf",
+    ],
+)
+def test_nombre_de_la_cli_en_chiffres_stricts(tmp_path: Path, surcharge: str) -> None:
+    with pytest.raises(ConfigError, match="thresholds"):
+        load_config(directory=tmp_path, overrides=[surcharge])
+
+
+def test_bornes_incluses(tmp_path: Path) -> None:
+    config = load_config(
+        _fichier(
+            tmp_path,
+            "[thresholds]\nsecurity_log_min_retention_days = 3650\n"
+            "ntp_max_offset_seconds = 3600\n",
+        )
+    )
+    assert config.values[SEUIL] == 3650
+    assert config.values["thresholds.ntp_max_offset_seconds"] == 3600.0
+    bas = load_config(
+        directory=tmp_path / "vide",
+        overrides=[f"{SEUIL}=1", "thresholds.ntp_max_offset_seconds=0.001"],
+    )
+    assert bas.values[SEUIL] == 1
+    assert bas.values["thresholds.ntp_max_offset_seconds"] == 0.001
+
+
+def test_seuil_decimal_entier_ou_flottant_meme_condensat(tmp_path: Path) -> None:
+    entier = load_config(
+        _fichier(tmp_path, "[thresholds]\nntp_max_offset_seconds = 5\n")
+    )
+    flottant = load_config(
+        _fichier(tmp_path, "[thresholds]\nntp_max_offset_seconds = 5.0\n", "b.toml")
+    )
+    valeur = entier.values["thresholds.ntp_max_offset_seconds"]
+    assert isinstance(valeur, float)
+    assert entier.canonical_json() == flottant.canonical_json()
+    assert (
+        entier.config_hash()
+        == flottant.config_hash()
+        == Config.defaults().config_hash()
+    )

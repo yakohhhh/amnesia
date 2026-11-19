@@ -13,6 +13,7 @@
     "complete": false,
     "interrupted": false,
     "profile": null,
+    "config_source": null,
     "argv": [
       "audit",
       "--target",

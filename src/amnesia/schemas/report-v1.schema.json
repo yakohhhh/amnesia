@@ -72,6 +72,10 @@
           "description": "Nom du profil d'audit retenu par le fichier de mission ; null si aucun.",
           "type": ["string", "null"]
         },
+        "config_source": {
+          "description": "D'où vient le fichier de mission appliqué : « --config » s'il a été désigné, « cwd » s'il a été trouvé dans le répertoire courant sans être désigné, null sans fichier ; depuis 1.1.0.",
+          "enum": ["cwd", "--config", null]
+        },
         "argv": {
           "description": "Arguments de la ligne de commande, sans le programme ; valeurs sensibles remplacées par ***.",
           "type": "array",

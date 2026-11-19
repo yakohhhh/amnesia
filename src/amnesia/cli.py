@@ -37,7 +37,15 @@ from .catalog import (
 )
 from .checks import REGISTRY, CheckMeta, default_checks
 from .checks.base import ErrorInfo, assainir
-from .config import DEFAULT_FILE, LANGS, Config, ConfigError, example_toml, load_config
+from .config import (
+    DEFAULT_FILE,
+    LANGS,
+    SOURCE_CWD,
+    Config,
+    ConfigError,
+    example_toml,
+    load_config,
+)
 from .exitcodes import (
     DEFAULT_FAIL_ON,
     FAIL_ON,
@@ -218,7 +226,16 @@ def _configuration(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     except ConfigError as exc:
         # chemin et cles viennent de l'utilisateur : neutralises avant tout echo
         parser.error(f"configuration : {assainir(str(exc))}")
-    if config.source is not None:
+    if config.source_kind == SOURCE_CWD:
+        # personne ne l'a designe : visible sans -v, et inscrit dans le rapport
+        logger.warning(
+            "fichier de mission %s trouvé dans le répertoire courant et appliqué "
+            "sans avoir été désigné : vérifie son contenu (amnesia config show), "
+            "ou désigne-le par --config %s",
+            config.source,
+            config.source,
+        )
+    elif config.source is not None:
         logger.info("fichier de mission : %s", config.source)
     return config
 
@@ -230,6 +247,8 @@ SANS_FICHIER = "aucun (valeurs par défaut)"
 def _montrer_configuration(config: Config) -> None:
     """``amnesia config show`` : une ligne par clé, valeur et origine."""
     source = SANS_FICHIER if config.source is None else assainir(str(config.source))
+    if config.source_kind == SOURCE_CWD:
+        source += " (trouvé dans le répertoire courant, sans --config)"
     print(f"Fichier de mission : {source}")
     lignes = [
         (
@@ -263,6 +282,8 @@ def _initialiser(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
     except OSError as exc:
         logger.error("%s : écriture impossible : %s", chemin, exc.strerror or exc)
         return FATAL
+    # il nomme le client : meme avertissement que pour un rapport
+    warn_if_not_ignored(chemin)
     print(f"Fichier de mission écrit : {affiche}")
     return OK
 

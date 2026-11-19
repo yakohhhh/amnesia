@@ -107,15 +107,20 @@ la première version sera la 0.1.0 (milestone M0).
   chaque valeur. Une clé inconnue (avec suggestion), une valeur refusée
   (`TLP:WHITE`, date non ISO 8601, seuil hors bornes) ou une clé au nom de
   secret (`password`, `token`, `*_key`…) arrêtent la commande avec le code 2.
-  Le rapport JSON porte `mission`, le nom du profil (`run.profile`) et
-  `config_hash`, SHA-256 de la configuration effective. La langue, les formats
+  Un `./amnesia.toml` appliqué sans `--config` est signalé par un
+  avertissement, et refusé s'il est un lien symbolique, s'il appartient à un
+  autre compte ou si d'autres comptes peuvent l'écrire.
+  Le rapport JSON porte `mission`, le nom du profil (`run.profile`), l'origine
+  du fichier (`run.config_source`) et `config_hash`, SHA-256 de la
+  configuration effective. La langue, les formats
   et le dossier des livrables ne sont pas encore appliqués par `audit`.
   Référence : `docs/mission.md` (#36).
 
 ### Modifié
 
-- Format du rapport `1.1.0` : champs `mission` et `config_hash` ajoutés,
-  `run.profile` renseigné par le fichier de mission ; un rapport `1.0.0` reste
+- Format du rapport `1.1.0` : champs `mission`, `config_hash` et
+  `run.config_source` ajoutés, `run.profile` renseigné par le fichier de
+  mission ; un rapport `1.0.0` reste
   lisible (#36).
 
 - README, qui est aussi la description du paquet, aligné sur ce qui est livré :

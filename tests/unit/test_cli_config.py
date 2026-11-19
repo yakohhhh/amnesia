@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import stat
 import sys
 import warnings
@@ -54,6 +55,9 @@ def _repertoire(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def _mission(texte: str = MISSION, nom: str = DEFAULT_FILE) -> Path:
     chemin = Path(nom)
     chemin.write_bytes(texte.encode("utf-8"))
+    # droits fixes : un fichier non designe est refuse s'il est inscriptible
+    # par le groupe, ce que donnerait un umask 002
+    chemin.chmod(0o600)
     return chemin
 
 
@@ -108,7 +112,7 @@ def test_init_ecrit_un_exemple_qui_se_charge_sans_avertissement(
 
     with warnings.catch_warnings(), caplog.at_level(logging.DEBUG):
         warnings.simplefilter("error")
-        assert main(["config", "show"]) == exitcodes.OK
+        assert main(["config", "show", "--config", DEFAULT_FILE]) == exitcodes.OK
     sortie = capsys.readouterr()
     assert sortie.err == ""
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -267,6 +271,7 @@ def test_rapport_porte_mission_profil_et_config_hash(
         "tlp": "TLP:AMBER+STRICT",
     }
     assert rapport["run"]["profile"] == "pme"
+    assert rapport["run"]["config_source"] == "--config"
     attendu = load_config(chemin, overrides=[f"{SEUIL}=500"])
     assert rapport["config_hash"] == attendu.config_hash()
     assert rapport["config_hash"] != load_config(chemin).config_hash()
@@ -286,6 +291,7 @@ def test_rapport_sans_fichier_de_mission(
     VALIDATEUR.validate(rapport)
     assert set(rapport["mission"].values()) == {None}
     assert rapport["run"]["profile"] is None
+    assert rapport["run"]["config_source"] is None
     assert rapport["config_hash"] == Config.defaults().config_hash()
 
 
@@ -297,3 +303,112 @@ def test_fichier_refuse_rien_n_est_ecrit(
     erreur = _refus(capsys, "audit")
     assert "mission.end" in erreur
     assert [p.name for p in Path().iterdir()] == [DEFAULT_FILE]
+
+
+# --- fichier non designe et constats de revue ----------------------------------
+
+
+def test_fichier_non_designe_avertissement_visible_par_defaut(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _mission()
+    # sans -v : l'avertissement sort quand meme, une fois, sur stderr
+    assert main(["config", "show"]) == exitcodes.OK
+    sortie = capsys.readouterr()
+    assert sortie.err.count("WARNING") == 1
+    assert "sans avoir été désigné" in sortie.err
+    assert f"--config {DEFAULT_FILE}" in sortie.err
+    assert "(trouvé dans le répertoire courant, sans --config)" in sortie.out
+
+    # designe : ni avertissement ni mention
+    assert main(["config", "show", "--config", DEFAULT_FILE]) == exitcodes.OK
+    sortie = capsys.readouterr()
+    assert sortie.err == ""
+    assert "sans --config" not in sortie.out
+
+    # le rapport garde la trace de l'origine
+    monkeypatch.setattr(cli, "default_checks", lambda: [Temoin()])
+    assert main(["audit", "--out", "-", "--format", "json"]) == exitcodes.OK
+    sortie = capsys.readouterr()
+    assert "sans avoir été désigné" in sortie.err
+    rapport = json.loads(sortie.out)
+    VALIDATEUR.validate(rapport)
+    assert rapport["run"]["config_source"] == "cwd"
+    assert rapport["run"]["profile"] == "pme"
+
+
+@pytest.mark.parametrize("commande", [("config", "show"), ("audit", "--out", "-")])
+def test_fichier_non_designe_lien_symbolique_code_2(
+    capsys: pytest.CaptureFixture[str], commande: tuple[str, ...]
+) -> None:
+    cible = _mission(nom="ailleurs.toml")
+    try:
+        Path(DEFAULT_FILE).symlink_to(cible)
+    except (OSError, NotImplementedError):
+        pytest.skip("liens symboliques indisponibles")
+    erreur = _refus(capsys, *commande)
+    assert "lien symbolique refusé" in erreur
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="droits POSIX")
+def test_fichier_non_designe_inscriptible_par_le_groupe_code_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _mission().chmod(0o664)
+    erreur = _refus(capsys, "config", "show")
+    assert "droits 0664" in erreur
+    assert main(["config", "show", "--config", DEFAULT_FILE]) == exitcodes.OK
+
+
+@pytest.mark.parametrize(
+    "texte",
+    [
+        "[thresholds]\nsecurity_log_min_retention_days = 0x" + "F" * 6000 + "\n",
+        "[mission]\ntlp = 0x" + "F" * 6000 + "\n",
+        "[report]\nformats = [0x" + "F" * 6000 + "]\n",
+    ],
+    ids=["seuil", "tlp", "formats"],
+)
+def test_entier_geant_code_2_et_non_4(
+    capsys: pytest.CaptureFixture[str], texte: str
+) -> None:
+    _mission(texte)
+    erreur = _refus(capsys, "config", "show", "--config", DEFAULT_FILE)
+    assert re.search(r"thresholds\.security_log|mission\.tlp|report\.formats", erreur)
+    assert "erreur fatale" not in erreur
+
+
+def test_secret_dans_un_champ_libre_code_2_sans_echo(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    erreur = _refus(
+        capsys, "config", "show", "--set", "mission.client=password=hunter2"
+    )
+    assert "mission.client" in erreur
+    assert "ressemble à un secret" in erreur
+    assert "hunter2" not in erreur
+    _mission('[mission]\nauditor = "https://bob:motdepasse@hote.exemple.invalid/x"\n')
+    erreur = _refus(capsys, "audit", "--out", "-", "--config", DEFAULT_FILE)
+    assert "mission.auditor" in erreur
+    assert "motdepasse" not in erreur
+
+
+def test_init_avertit_dans_un_depot_git(capsys: pytest.CaptureFixture[str]) -> None:
+    Path(".git").mkdir()
+    assert main(["init"]) == exitcodes.OK
+    sortie = capsys.readouterr()
+    assert "dépôt git" in sortie.err
+    assert DEFAULT_FILE in sortie.err
+    assert f"Fichier de mission écrit : {DEFAULT_FILE}" in sortie.out
+
+
+def test_espace_insecable_dans_le_rapport(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "default_checks", lambda: [Temoin()])
+    _mission('[mission]\nclient = "Dupont\u00a0& Fils"\n')
+    code = main(["audit", "--config", DEFAULT_FILE, "--out", "-", "--format", "json"])
+    assert code == exitcodes.OK
+    rapport = json.loads(capsys.readouterr().out)
+    VALIDATEUR.validate(rapport)
+    assert rapport["mission"]["client"] == "Dupont\u00a0& Fils"

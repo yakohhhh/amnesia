@@ -93,6 +93,7 @@ valeur non renseignée vaut `null`.
 | `complete` | booléen | Vrai si chaque check a été évalué ou exclu par l'utilisateur, sans interruption. Faux dès qu'un résultat est en `error`, ou en `skipped` pour un autre motif que `user_excluded`. |
 | `interrupted` | booléen | Vrai si l'audit a été interrompu (Ctrl+C) : résultats partiels. |
 | `profile` | chaîne ou `null` | Nom du profil d'audit retenu par le fichier de mission (`profile`) ; `null` s'il n'en désigne aucun. Le contenu des profils relève de #47. |
+| `config_source` | chaîne ou `null` | D'où vient le fichier de mission appliqué : `--config` s'il a été désigné, `cwd` s'il a été trouvé dans le répertoire courant sans être désigné ([`mission.md`](mission.md)), `null` sans fichier ; depuis `1.1.0`. |
 | `argv` | tableau de chaînes | Arguments de la ligne de commande, sans le programme ; valeurs sensibles masquées, chemins réduits au nom de fichier (voir plus bas). |
 
 ### `targets[]`
@@ -198,8 +199,8 @@ une fois sans changer de version : depuis le catalogue de questions (#46),
 
 Versions du format :
 
-- `1.1.0` : `mission` et `config_hash` ajoutés ; `run.profile` porte le nom du
-  profil désigné par le fichier de mission ;
+- `1.1.0` : `mission`, `config_hash` et `run.config_source` ajoutés ;
+  `run.profile` porte le nom du profil désigné par le fichier de mission ;
 - `1.0.0` : première version.
 
 ## Sécurité et confidentialité
@@ -264,6 +265,7 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
     "complete": false,
     "interrupted": false,
     "profile": null,
+    "config_source": null,
     "argv": [
       "audit",
       "--target",

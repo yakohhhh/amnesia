@@ -23,7 +23,7 @@ import jsonschema
 import pytest
 
 import amnesia
-from amnesia import AuditResult, run_audit
+from amnesia import AuditResult, log, run_audit
 from amnesia import report as module_rapport
 from amnesia.catalog import load_catalog
 from amnesia.checks import REGISTRY, Check
@@ -42,6 +42,7 @@ from amnesia.checks.base import (
 )
 from amnesia.checks.context import Context
 from amnesia.cli import main
+from amnesia.config import load_config
 from amnesia.facts import Fact, FactSet
 from amnesia.report import (
     MASK,
@@ -923,3 +924,33 @@ def test_schema_exige_une_version_de_catalogue_calver(valeur: object) -> None:
     del rapport["tool"]["catalog_version"]
     with pytest.raises(jsonschema.ValidationError, match="catalog_version"):
         valider(rapport)
+
+
+# --- fichier de mission (#36) --------------------------------------------------
+
+
+def test_mission_dates_et_tlp_echappent_au_masquage(tmp_path: Path) -> None:
+    chemin = tmp_path / "mission.toml"
+    chemin.write_bytes(
+        b'[mission]\nclient = "Client Exemple"\nstart = 2026-01-12\n'
+        b'end = 2026-01-16\ntlp = "TLP:AMBER"\n'
+    )
+    config = load_config(chemin)
+    checks = [Factice("win.angle_mort", avec_gaps(Severity.HIGH, Severity.LOW))]
+    try:
+        # secrets egaux a des valeurs de la mission, lus apres la configuration
+        for valeur in ("2026-01-12", "2026-01-16", "TLP:AMBER", "Client Exemple"):
+            log.register_secret(valeur)
+        log.register_secret(config.config_hash())
+        rapport = build_report(auditer(checks), check_versions={}, config=config)
+    finally:
+        log._secrets.clear()
+    # champs structurels : jamais masques, le rapport reste valide
+    valider(rapport)
+    assert rapport["mission"]["start"] == "2026-01-12"
+    assert rapport["mission"]["end"] == "2026-01-16"
+    assert rapport["mission"]["tlp"] == "TLP:AMBER"
+    assert rapport["config_hash"] == config.config_hash()
+    assert rapport["run"]["config_source"] == "--config"
+    # texte libre : masque comme le reste du rapport
+    assert rapport["mission"]["client"] == MASK

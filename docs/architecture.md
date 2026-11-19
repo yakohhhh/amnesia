@@ -107,8 +107,9 @@ basses. De bas en haut :
    poste de l'auditeur, qui ne prend de la collecte que `subprocess_env()` pour
    lancer `git check-ignore`) et `amnesia.config` (fichier de mission
    `amnesia.toml` et configuration effective : il lit le fichier par
-   `amnesia.inputs` et ne prend d'`amnesia.output` que le dossier par défaut
-   des livrables) ;
+   `amnesia.inputs`, ne prend d'`amnesia.output` que le dossier par défaut
+   des livrables et d'`amnesia.checks.base` que `assainir`, pour refuser un
+   texte qui ressemble à un secret) ;
 7. **entrée** : `amnesia.cli`, `amnesia.__main__`.
 
 Table des dépendances internes autorisées (imports exécutés au chargement ;
@@ -124,7 +125,7 @@ modules.
 | `amnesia.cli` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.config`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.secrets`, `amnesia.target` |
 | `amnesia.exitcodes` | `amnesia.checks.base` |
 | `amnesia.output` | `amnesia.facts.collectors` |
-| `amnesia.config` | `amnesia.inputs`, `amnesia.output` |
+| `amnesia.config` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.output` |
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.text` |
 | `amnesia.render.markdown` | `amnesia.render.base` |
 | `amnesia.render.text` | `amnesia.render.base` |
