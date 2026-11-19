@@ -16,14 +16,15 @@ unique de ce qui est admis ; ``docs/DONNEES.md`` en est l'inventaire lisible.
   d'``EventData``). ``amnesia.facts.model`` refuse tout fait qui en porte un ;
 - ``EVIDENCE_FIELDS`` et ``check_evidence()`` : schéma fermé de la preuve d'un
   Gap (nombres, durées, horodatages, noms de paramètres). Une clé hors schéma
-  est refusée à la construction de l'``Evidence`` ;
+  est refusée à la construction de l'``Evidence``, avant toute copie
+  (``check_evidence_keys()``) ;
 - ``REPORT_TEXT_FIELDS`` et ``report_text_violations()`` : champs texte admis
   dans le rapport JSON ;
 - ``check_script_privacy()`` : verdict sur l'inventaire de l'AST d'un script
   PowerShell (``scripts/inventaire_ps.ps1``), en complément de
   ``amnesia.readonly.check_script_inventory``. Une propriété de contenu
-  d'événement, ou un résultat de ``Get-WinEvent`` émis sans projection
-  explicite, est un écart.
+  d'événement, ou un résultat de ``Get-WinEvent`` qui n'est pas projeté
+  aussitôt sur des métadonnées de ``EVENT_METADATA``, est un écart.
 
 Aucun message de ce module ne reprend une valeur reçue, ni une clé qu'il ne
 connaît pas : un refus ne doit pas faire sortir ce qu'il refuse.
@@ -81,6 +82,22 @@ PERSONAL_FIELDS: Final[tuple[PersonalField, ...]] = (
 EVENT_PROPERTIES: Final = ("Message", "Properties", "UserId", "MachineName")
 """Propriétés d'un événement qu'aucun script de collecte ne lit ni ne nomme."""
 
+EVENT_METADATA: Final = (
+    "TimeCreated",
+    "RecordId",
+    "Id",
+    "LogName",
+    "ProviderName",
+    "Level",
+)
+"""Seules propriétés d'un événement qu'un script de collecte peut lire.
+
+Liste fermée : horodatage, rang dans le journal, identifiant du type
+d'événement, journal, fournisseur et niveau. Aucune ne désigne une personne,
+un poste ou une adresse. Toute autre propriété est refusée, ``PSObject`` et
+``BaseObject`` comprises, qui rendraient l'événement entier.
+"""
+
 EVENT_METHODS: Final = ("ToXml", "FormatDescription")
 """Méthodes d'un événement qui en rendent le contenu entier."""
 
@@ -107,6 +124,7 @@ _CONTENU_D_EVENEMENT: Final[Mapping[str, str]] = MappingProxyType(
 _PROPRIETES: Final[Mapping[str, str]] = MappingProxyType(
     {nom.casefold(): nom for nom in EVENT_PROPERTIES}
 )
+_METADONNEES: Final = frozenset(nom.casefold() for nom in EVENT_METADATA)
 _METHODES: Final[Mapping[str, str]] = MappingProxyType(
     {nom.casefold(): nom for nom in EVENT_METHODS}
 )
@@ -233,6 +251,20 @@ def _scalaire_conforme(valeur: object, nature: Nature) -> bool:
         except ValueError:
             return False
     return isinstance(valeur, str) and len(valeur) <= SETTING_MAX_LENGTH
+
+
+def check_evidence_keys(value: object, field: str = "details") -> None:
+    """Refuse d'emblée une clé textuelle hors de ``EVIDENCE_FIELDS``.
+
+    Ne lit que les clés d'un dictionnaire, jamais ses valeurs : appelé avant de
+    figer une preuve, il évite de copier une valeur volumineuse pour la refuser
+    ensuite. Tout autre objet, et une clé non textuelle, sont laissés au
+    contrôle de type qui suit.
+    """
+    if isinstance(value, Mapping) and any(
+        isinstance(cle, str) and cle not in EVIDENCE_FIELDS for cle in value
+    ):
+        raise ValueError(f"{field} : {_HORS_SCHEMA}")
 
 
 def check_evidence(details: object, field: str = "details") -> None:
@@ -406,6 +438,10 @@ _SANS_PROJECTION: Final = (
     f"résultat de {PS_EVENT_READER} émis sans projection explicite "
     f"(propriété unique ou {PS_PROJECTION} -{PS_PROJECTION_PARAMETER})"
 )
+_HORS_METADONNEES: Final = (
+    f"résultat de {PS_EVENT_READER} projeté sur autre chose que les "
+    f"métadonnées admises ({', '.join(EVENT_METADATA)})"
+)
 _INCONNU: Final = "élément d'inventaire inconnu"
 # abreviation la plus courte qui distingue -ListLog de -ListProvider
 _PREFIXE_MIN: Final = len("ListL")
@@ -428,15 +464,18 @@ def _lit_des_metadonnees(parametres: list[str]) -> bool:
     )
 
 
-def _projection_explicite(suivant: object) -> bool:
-    """``Select-Object -Property`` à noms constants, sans joker."""
+def _selection(suivant: object) -> list[str] | None:
+    """Noms projetés par ``Select-Object -Property``, constants et sans joker.
+
+    ``None`` si ``suivant`` n'est pas cette projection explicite.
+    """
     if not isinstance(suivant, Mapping):
-        return False
+        return None
     nom, parametres = suivant.get("name"), _textes(suivant.get("parameters"))
     arguments = _textes(suivant.get("arguments"))
     if not isinstance(nom, str) or parametres is None or arguments is None:
-        return False
-    return (
+        return None
+    explicite = (
         nom.casefold() == PS_PROJECTION.casefold()
         and [p.casefold() for p in parametres] == [PS_PROJECTION_PARAMETER.casefold()]
         and suivant.get("dynamic") is False
@@ -444,6 +483,30 @@ def _projection_explicite(suivant: object) -> bool:
         and bool(arguments)
         and not any(_JOKERS & set(argument) for argument in arguments)
     )
+    return arguments if explicite else None
+
+
+def _projection(element: Mapping[str, Any]) -> str | None:
+    """Motif du refus de ce que devient un événement lu, ``None`` s'il est admis.
+
+    Liste fermée, pas liste noire : une projection ne vaut que si chaque
+    propriété lue est une métadonnée de ``EVENT_METADATA``. ``(Get-WinEvent
+    ...).PSObject.BaseObject`` ne nomme aucune propriété interdite et rendrait
+    pourtant l'événement entier.
+    """
+    projection = element.get("projection")
+    if projection == "member":
+        noms = [element.get("member")]
+    elif projection == "pipeline":
+        selection = _selection(element.get("next"))
+        if selection is None:
+            return _SANS_PROJECTION
+        noms = list(selection)
+    else:
+        return _SANS_PROJECTION
+    if all(isinstance(nom, str) and nom.casefold() in _METADONNEES for nom in noms):
+        return None
+    return _HORS_METADONNEES
 
 
 def _commande(element: Mapping[str, Any]) -> list[str]:
@@ -461,12 +524,8 @@ def _commande(element: Mapping[str, Any]) -> list[str]:
         return motifs
     if _lit_des_metadonnees(parametres):
         return motifs
-    projection = element.get("projection")
-    if projection == "member":
-        return motifs
-    if projection == "pipeline" and _projection_explicite(element.get("next")):
-        return motifs
-    return [*motifs, _SANS_PROJECTION]
+    refus = _projection(element)
+    return motifs if refus is None else [*motifs, refus]
 
 
 def _element(element: Mapping[str, Any]) -> list[str]:
@@ -501,6 +560,8 @@ def check_script_privacy(inventory: Mapping[str, Any]) -> list[str]:
     au nom calculé, une méthode de ``EVENT_METHODS``, et tout résultat de
     ``Get-WinEvent`` qui n'est pas projeté aussitôt : ``(Get-WinEvent
     ...).TimeCreated`` ou ``Get-WinEvent ... | Select-Object -Property <noms>``.
+    La projection ne porte que sur des métadonnées de ``EVENT_METADATA`` :
+    toute autre propriété est refusée, connue ou non.
     Un événement rangé dans une variable est donc refusé, faute de pouvoir
     suivre ce qu'elle devient. ``Get-WinEvent -ListLog`` et ``-ListProvider``,
     qui rendent une configuration, ne sont pas concernés.

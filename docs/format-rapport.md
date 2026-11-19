@@ -179,10 +179,20 @@ pas et ignore les champs inconnus : le schéma v1 ne déclare pas
 vérifient en revanche qu'amnesia n'écrit aucun champ absent du schéma. La
 politique de versionnage du projet (#31) reprend cette règle.
 
+Exception : `gaps[].evidence.details` est fermé ([`DONNEES.md`](DONNEES.md),
+[ADR 0005](adr/0005-versionnage-du-schema-de-rapport.md)). Le schéma y énumère
+les clés admises (`propertyNames`), parce qu'une clé libre y ferait entrer du
+texte venu de la cible. Une clé ajoutée est une MINEURE, que le schéma d'une
+MINEURE antérieure refuse : pour ce bloc, un consommateur valide avec le schéma
+de la version que porte le rapport, ou ignore les clés qu'il ne connaît pas.
+
 Ces règles s'appliquent à partir de la première publication d'amnesia
 ([`RELEASING.md`](RELEASING.md)). Avant elle, le schéma `1.0.0` a été resserré
-une fois sans changer de version : depuis le catalogue de questions (#46),
-`tool.catalog_version` et `question_id` ne valent plus jamais `null`.
+deux fois sans changer de version : depuis le catalogue de questions (#46),
+`tool.catalog_version` et `question_id` ne valent plus jamais `null` ; depuis
+la minimisation des données (#41), `evidence.details` n'admet plus que les
+clés de son schéma, et un texte de `observed` ou `expected` est borné à 256
+caractères.
 
 ## Sécurité et confidentialité
 

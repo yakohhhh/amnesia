@@ -30,6 +30,7 @@ from amnesia.checks.base import (
     Reference,
     ReferenceKind,
     Severity,
+    _lisible,
 )
 
 GRILLE = Path(__file__).resolve().parents[2] / "docs" / "severite.md"
@@ -381,10 +382,12 @@ def test_from_dict_exige_un_dictionnaire() -> None:
     [
         {"observed": object()},
         {"expected": {1, 2}},
-        {"details": {"brut": object()}},
-        {"details": {"liste": [1, object()]}},
-        {"details": {"octets": b"\x00"}},
-        {"details": {"jour": datetime(2026, 10, 17, tzinfo=UTC).date()}},
+        # cles du schema ferme des preuves (#41) : une cle hors schema est
+        # refusee avant que sa valeur soit lue (ValueError)
+        {"details": {"setting": object()}},
+        {"details": {"channels": [1, object()]}},
+        {"details": {"log_mode": b"\x00"}},
+        {"details": {"oldest_event_utc": datetime(2026, 10, 17, tzinfo=UTC).date()}},
         {"details": {1: "cle entiere"}},
         {"details": ["pas", "un", "dict"]},
     ],
@@ -396,7 +399,7 @@ def test_preuve_non_serialisable_refusee(champs: dict[str, Any]) -> None:
 
 def test_preuve_avec_object_refusee() -> None:
     with pytest.raises(TypeError, match="non sérialisable"):
-        _preuve(details={"brut": object()})
+        _preuve(details={"setting": object()})
 
 
 @pytest.mark.parametrize("valeur", [float("nan"), float("inf"), -float("inf")])
@@ -410,15 +413,17 @@ def test_entiers_bornes_a_64_bits() -> None:
     assert json.dumps(preuve.to_dict())
     # au-dela de 4300 chiffres, json.dumps leverait au moment du rapport
     for valeur in (2**64, -(2**63) - 1, 10**5000):
-        with pytest.raises(ValueError, match=r"details\['n'\] : entier hors"):
-            _preuve(details={"n": valeur})
+        with pytest.raises(
+            ValueError, match=r"details\['record_count'\] : entier hors"
+        ):
+            _preuve(details={"record_count": valeur})
 
 
 @pytest.mark.parametrize(
     "champs",
     [
-        {"details": {"f": "\udcff"}},
-        {"details": {"\udcff": 1}},
+        {"details": {"setting": "\udcff"}},
+        {"expected": "\udcff"},
         {"observed": ["ok", "\ud800"]},
     ],
 )
@@ -427,6 +432,10 @@ def test_surrogate_isole_refuse(champs: dict[str, Any]) -> None:
     # serialisable
     with pytest.raises(ValueError, match="surrogate"):
         _preuve(**champs)
+    # une cle non encodable est hors du schema des preuves (#41), comme toute
+    # cle libre : refusee sans etre reprise
+    with pytest.raises(ValueError, match="hors du schéma des preuves"):
+        _preuve(details={"\udcff": 1})
 
 
 @pytest.mark.parametrize("champ", ["question", "reason", "remediation"])
@@ -439,21 +448,30 @@ def test_chemin_d_erreur_construit_seulement_en_cas_d_erreur() -> None:
     # cle de 1 Mo au-dessus de 300 000 elements : le chemin d'erreur n'est plus
     # formate pour chaque element (cout quadratique, plusieurs secondes avant)
     cle = "A" * 1_000_000
+    # depuis le schema ferme des preuves (#41), une telle cle est refusee avant
+    # que sa valeur soit figee, et n'est jamais reprise dans le message
     debut = time.process_time()
-    preuve = _preuve(observed=[0] * 300_000, details={"channels": ["S"] * 300_000})
-    # une cle hors du schema des preuves (#41) est refusee une fois la preuve
-    # figee, sans etre reprise dans le message
     with pytest.raises(ValueError, match="hors du schéma des preuves") as hors_schema:
         _preuve(details={cle: [0] * 300_000})
+    with pytest.raises(ValueError, match="hors du schéma des preuves"):
+        _preuve(details={cle: [0, object()]})
     assert time.process_time() - debut < 1
     assert len(str(hors_schema.value)) < 200
+    assert "AAAA" not in str(hors_schema.value)
+    # hors chrono : une preuve volumineuse du schema reste admise
+    preuve = _preuve(observed=[0] * 300_000, details={"channels": ["S"] * 300_000})
     assert len(preuve.details["channels"]) == 300_000  # type: ignore[arg-type]
-    # en cas d'erreur, la cle est tronquee dans le message
+    # en cas d'erreur, le chemin de la valeur fautive est donne une seule fois
     with pytest.raises(TypeError) as erreur:
-        _preuve(details={cle: [0, object()]})
+        _preuve(details={"channels": [0, object()]})
     assert len(str(erreur.value)) < 200
-    assert "details['AAAA" in str(erreur.value)
-    assert "...'][1]" in str(erreur.value)
+    assert "details['channels'][1]" in str(erreur.value)
+
+
+def test_cle_longue_tronquee_dans_un_chemin_d_erreur() -> None:
+    # le chemin d'une erreur tronque une cle demesuree (cle non textuelle
+    # imbriquee : seul cas ou une cle libre atteint encore ce chemin)
+    assert _lisible(("details", "A" * 1_000, 1)) == f"details['{'A' * 64}...'][1]"
 
 
 def test_datetime_converti_en_iso_utc() -> None:
@@ -492,7 +510,7 @@ def test_preuve_trop_imbriquee_refusee() -> None:
         courant.append([])
         courant = courant[0]
     with pytest.raises(ValueError, match="imbriquée"):
-        _preuve(details={"profond": imbrique})
+        _preuve(details={"channels": imbrique})
 
 
 def test_preuve_figee() -> None:

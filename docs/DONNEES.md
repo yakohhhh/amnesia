@@ -91,10 +91,15 @@ Trois contrôles, indépendants :
    propriété au nom calculé à l'exécution, et tout résultat de `Get-WinEvent`
    qui n'est pas projeté aussitôt, par une propriété unique
    (`(Get-WinEvent ...).TimeCreated`) ou par
-   `Select-Object -Property <noms>` à noms constants, sans joker. Un événement
-   rangé dans une variable est donc refusé : l'analyse ne suit pas ce qu'elle
-   devient. `Get-WinEvent -ListLog` et `-ListProvider` rendent une
-   configuration et ne sont pas concernés.
+   `Select-Object -Property <noms>` à noms constants, sans joker. La
+   projection suit une liste fermée, pas une liste noire : seules les
+   métadonnées `TimeCreated`, `RecordId`, `Id`, `LogName`, `ProviderName` et
+   `Level` sont admises. Toute autre propriété est refusée, connue ou non :
+   `(Get-WinEvent ...).PSObject.BaseObject` rendrait l'événement entier sans
+   nommer aucune des quatre propriétés interdites. Un événement rangé dans une
+   variable est refusé de même : l'analyse ne suit pas ce qu'elle devient.
+   `Get-WinEvent -ListLog` et `-ListProvider` rendent une configuration et ne
+   sont pas concernés.
 2. **Faits.** Un fait dont la valeur porte une des clés ci-dessus, à n'importe
    quelle profondeur et quelle que soit la casse, est refusé en entier
    (`FactsFormatError`) : un bundle importé ou un collecteur fautif ne fait pas

@@ -123,7 +123,11 @@ TEMOINS: dict[str, dict[str, Any]] = {
 # minimisation (#41) : scripts qui n'ecrivent rien (le verdict de lecture seule
 # les admet) mais font sortir le contenu d'un evenement
 SANS_PROJECTION = "émis sans projection explicite"
+HORS_METADONNEES = "projeté sur autre chose que les métadonnées admises"
 BAVARDS = {
+    # revue adversariale : l'evenement entier, sans nommer aucune propriete
+    # interdite
+    "evenement_psobject.ps1": HORS_METADONNEES,
     # critere d'acceptation de #41 : la fixture rend l'evenement brut
     "evenement_brut.ps1": SANS_PROJECTION,
     "evenement_en_variable.ps1": SANS_PROJECTION,
@@ -144,6 +148,13 @@ COMMANDE: dict[str, Any] = {
     "next": None,
 }
 TEMOINS_BAVARDS: dict[str, dict[str, Any]] = {
+    "evenement_psobject.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": ["LogName", "MaxEvents"],
+        "projection": "member",
+        "member": "PSObject",
+    },
     "evenement_brut.ps1": {
         "kind": "command",
         "name": "Get-WinEvent",

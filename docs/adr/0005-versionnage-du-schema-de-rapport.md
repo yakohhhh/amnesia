@@ -45,6 +45,13 @@ Option 1, mise en œuvre par #22 et reprise dans la politique de versionnage
   le schéma v1 ne déclare pas `additionalProperties: false` et valide tout
   rapport `1.x.y` ; les tests vérifient en revanche qu'amnesia n'écrit aucun
   champ absent du schéma ;
+- exception, amendée par #41 (minimisation des données, `docs/DONNEES.md`) :
+  `gaps[].evidence.details` est fermé. Le schéma y énumère les clés admises
+  (`propertyNames`), parce qu'une clé libre y ferait entrer du texte venu de
+  la cible. Ajouter une clé reste une MINEURE, mais le schéma d'une MINEURE
+  antérieure refuse alors le rapport : pour ce seul bloc, un consommateur
+  valide avec le schéma de la version que porte le rapport, ou ignore les clés
+  qu'il ne connaît pas sans valider ;
 - le schéma est embarqué (`src/amnesia/schemas/report-v1.schema.json`, draft
   2020-12) et publié tel quel par `amnesia schema` ;
 - la sérialisation est déterministe (ordre des clés, tri des résultats et des

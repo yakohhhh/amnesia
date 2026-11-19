@@ -48,12 +48,14 @@ from amnesia.facts import (
 from amnesia.output import RAW_DIR, RawStore, keep_raw
 from amnesia.privacy import (
     EVENT_DATA_FIELDS,
+    EVENT_METADATA,
     EVENT_PROPERTIES,
     EVIDENCE_FIELDS,
     PERSONAL_FIELDS,
     REPORT_TEXT_FIELDS,
     SETTING_MAX_LENGTH,
     check_evidence,
+    check_evidence_keys,
     check_script_privacy,
     event_content_field,
     report_text_violations,
@@ -348,6 +350,34 @@ def test_observe_et_attendu_hors_schema_refuses(champ: str, valeur: Any) -> None
     assert "texte libre" not in str(erreur.value)
 
 
+def test_horodatage_de_preuve_sans_fuseau_refuse() -> None:
+    # appel direct, sans passer par Evidence (qui fige d'abord les datetime en
+    # texte) : un datetime sans fuseau n'est pas un horodatage du schema
+    avec_fuseau = datetime(2026, 1, 1, tzinfo=UTC)
+    sans_fuseau = avec_fuseau.replace(tzinfo=None)
+    check_evidence({"oldest_event_utc": avec_fuseau})
+    with pytest.raises(ValueError, match=r"oldest_event_utc.* valeur hors schéma"):
+        check_evidence({"oldest_event_utc": sans_fuseau})
+    with pytest.raises(ValueError, match=r"newest_event_utc.* valeur hors schéma"):
+        check_evidence({"newest_event_utc": sans_fuseau})
+
+
+def test_cles_de_preuve_jugees_avant_toute_copie() -> None:
+    class _ValeurJamaisLue:
+        def __iter__(self) -> Any:
+            raise AssertionError("valeur lue avant le refus de sa clé")
+
+    for champ in ("observed", "expected", "details"):
+        with pytest.raises(ValueError, match=f"{champ} : clé hors du schéma"):
+            _preuve(**{champ: {"message": _ValeurJamaisLue()}})
+    # seules les cles textuelles sont jugees ici : le reste releve du typage
+    check_evidence_keys({"max_size_bytes": object(), 4624: "x"})
+    check_evidence_keys(["message"])
+    check_evidence_keys("message")
+    with pytest.raises(ValueError, match="hors du schéma des preuves"):
+        check_evidence_keys({"max_size_bytes": 1, "message": 2})
+
+
 def test_check_evidence_exige_un_dictionnaire() -> None:
     with pytest.raises(TypeError, match="details doit être un dictionnaire"):
         check_evidence(["max_size_bytes"])
@@ -619,6 +649,7 @@ def test_script_de_metadonnees_conforme() -> None:
 
 
 SANS_PROJECTION = "émis sans projection explicite"
+HORS_METADONNEES = "projeté sur autre chose que les métadonnées admises"
 
 
 @pytest.mark.parametrize(
@@ -678,6 +709,22 @@ SANS_PROJECTION = "émis sans projection explicite"
             SANS_PROJECTION,
         ),
         (_lecture(projection="inconnue"), SANS_PROJECTION),
+        # revue adversariale : liste fermee de metadonnees, pas liste noire.
+        # (Get-WinEvent ...).PSObject.BaseObject rend l'evenement entier
+        (_lecture(projection="member", member="PSObject"), HORS_METADONNEES),
+        (_lecture(projection="member", member="BaseObject"), HORS_METADONNEES),
+        (_lecture(projection="member", member="ContainerLog"), HORS_METADONNEES),
+        (_lecture(projection="member", member=None), HORS_METADONNEES),
+        (_lecture(projection="member", member=""), HORS_METADONNEES),
+        (_lecture(projection="member"), HORS_METADONNEES),
+        (
+            _lecture(projection="pipeline", next=_selection("TimeCreated", "PSObject")),
+            HORS_METADONNEES,
+        ),
+        (
+            _lecture(projection="pipeline", next=_selection("ActivityId")),
+            HORS_METADONNEES,
+        ),
         # -List seul est ambigu : PowerShell le refuse, l'analyse aussi
         (_commande("get-winevent", parameters=["List"]), SANS_PROJECTION),
         (_commande("Get-WinEvent", parameters=None), "élément d'inventaire inconnu"),
@@ -688,6 +735,33 @@ def test_ecart_a_la_minimisation_detecte(element: dict[str, Any], motif: str) ->
     (ecart,) = _ecarts(element)
     assert ecart.startswith("ligne 3 : ")
     assert motif in ecart
+
+
+def test_chaque_metadonnee_admise_en_projection() -> None:
+    for nom in EVENT_METADATA:
+        for forme in (nom, nom.lower(), nom.upper()):
+            assert _ecarts(_lecture(projection="member", member=forme)) == []
+            suivant = _selection(forme)
+            assert _ecarts(_lecture(projection="pipeline", next=suivant)) == []
+    # aucune metadonnee admise n'est un champ de contenu d'evenement
+    for nom in EVENT_METADATA:
+        assert event_content_field(nom) is None
+
+
+def test_evenement_entier_par_psobject_refuse() -> None:
+    # inventaire de « (Get-WinEvent ...).PSObject.BaseObject » : aucune des
+    # quatre proprietes interdites n'y figure, le script n'ecrit rien
+    inventaire = {
+        "errors": [],
+        "items": [
+            _lecture(projection="member", member="PSObject"),
+            _propriete("PSObject"),
+            _propriete("BaseObject"),
+        ],
+    }
+    (ecart,) = check_script_privacy(inventaire)
+    assert HORS_METADONNEES in ecart
+    assert check_script_inventory(inventaire) == []
 
 
 def test_inventaire_illisible_refuse() -> None:
@@ -705,7 +779,7 @@ def test_donnees_md_inventorie_le_schema() -> None:
         assert f"`{cle}`" in doc, cle
     for champ in PERSONAL_FIELDS:
         assert f"`{champ.name}`" in doc, champ.name
-    for nom in (*EVENT_PROPERTIES, *EVENT_DATA_FIELDS):
+    for nom in (*EVENT_PROPERTIES, *EVENT_DATA_FIELDS, *EVENT_METADATA):
         assert f"`{nom}`" in doc, nom
     for colonne in ("Donnée", "Source", "Finalité", "Stockage", "Conservation"):
         assert colonne in doc, colonne

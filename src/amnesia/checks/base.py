@@ -99,7 +99,7 @@ from traceback import extract_tb
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from ..log import mask_secrets
-from ..privacy import check_evidence, check_evidence_value
+from ..privacy import check_evidence, check_evidence_keys, check_evidence_value
 
 if TYPE_CHECKING:
     from ..facts import FactSet
@@ -444,14 +444,18 @@ class Evidence:
     details: Mapping[str, JSON] = field(default_factory=dict, hash=False)
 
     def __post_init__(self) -> None:
-        for champ in ("observed", "expected"):
-            object.__setattr__(self, champ, _figer(getattr(self, champ), (champ,)))
         if not isinstance(self.details, Mapping):
             raise TypeError(
                 f"details doit être un dictionnaire : {type(self.details).__name__}"
             )
+        # minimisation (#41) : schema ferme. Les cles sont jugees avant toute
+        # copie : une preuve hors schema est refusee sans etre figee
+        for champ in ("observed", "expected", "details"):
+            check_evidence_keys(getattr(self, champ), champ)
+        for champ in ("observed", "expected"):
+            object.__setattr__(self, champ, _figer(getattr(self, champ), (champ,)))
         object.__setattr__(self, "details", _figer(self.details, ("details",)))
-        # minimisation (#41) : schema ferme, aucune cle ni texte libre
+        # ... puis les valeurs, une fois ramenees aux types JSON de base
         for champ in ("observed", "expected"):
             check_evidence_value(getattr(self, champ), champ)
         check_evidence(self.details)
