@@ -145,11 +145,7 @@ def test_render_fixture(
 ) -> None:
     assert main(["render", str(FIXTURE), "--format", fmt]) == 0
     sortie = capsys.readouterr().out
-    # en Markdown, la ponctuation d'une valeur du rapport est echappee (#45)
-    question = (
-        "Qui s\\'est connecté en RDP" if fmt == "md" else "Qui s'est connecté en RDP"
-    )
-    assert question in sortie
+    assert "Qui s'est connecté en RDP" in sortie
     assert_no_external_resources(sortie)
 
 

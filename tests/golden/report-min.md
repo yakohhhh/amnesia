@@ -8,16 +8,16 @@
 
 ## Sévérité élevée (high) : 1 angle mort
 
-- **Qui s\'est connecté en RDP sur SRV\-FILE il y a trois semaines \?**
-  - → Impossible : le journal Security fait 20 Mo et a été écrasé il y a 4 jours\.
+- **`Qui s'est connecté en RDP sur SRV-FILE il y a trois semaines ?`**
+  - → Impossible : `le journal Security fait 20 Mo et a été écrasé il y a 4 jours.`
   - Sévérité : élevée (high)
   - Cible : `winrm://srv-file.exemple.invalid`
   - Fenêtre observée 4 j / exigée 90 j
 
 ## Sévérité moyenne (medium) : 1 angle mort
 
-- **Quelles commandes PowerShell l\'attaquant a\-t\-il exécutées \?**
-  - → Impossible : la journalisation des blocs de script est désactivée\.
+- **`Quelles commandes PowerShell l'attaquant a-t-il exécutées ?`**
+  - → Impossible : `la journalisation des blocs de script est désactivée.`
   - Sévérité : moyenne (medium)
   - Cible : `winrm://srv-file.exemple.invalid`
 
@@ -27,7 +27,7 @@ Ces checks n'ont pas pu être évalués : ils ne sont jamais comptés conformes.
 
 | Check | Cible | Statut | Motif | Message |
 | --- | --- | --- | --- | --- |
-| `win.sysmon` | `winrm://srv-file.exemple.invalid` | erreur | accès refusé | accès refusé à la configuration Sysmon |
+| `win.sysmon` | `winrm://srv-file.exemple.invalid` | erreur | accès refusé | `accès refusé à la configuration Sysmon` |
 | `win.time_sync` | `winrm://srv-file.exemple.invalid` | non exécuté | check non implémenté |  |
 
 ## Résumé

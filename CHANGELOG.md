@@ -114,12 +114,15 @@ la première version sera la 0.1.0 (milestone M0).
   (nom d'hôte, de GPO, de canal, tag) ne peut agir ni sur le terminal ni sur
   le livrable. Rendu texte : les séquences d'échappement (titre de fenêtre,
   hyperlien, effacement de ligne) sont supprimées avec leur contenu, comme les
-  caractères de contrôle et bidirectionnels, et un retour à la ligne ne forge
-  aucune fausse ligne. Rendu Markdown : les phrases ont toute leur ponctuation
-  échappée, les noms et identifiants s'affichent en code ; ni HTML, ni lien,
-  même automatique. Une valeur démesurée est tronquée (256 caractères pour un
-  nom, 1 024 pour une phrase) et marquée « … [tronqué, N caractères] » ; la
-  valeur complète reste dans le rapport JSON (#45).
+  caractères de contrôle et bidirectionnels ; ni un retour à la ligne ni un
+  remplissage d'espaces ne forge de fausse ligne. Rendu Markdown : chaque
+  valeur du rapport, phrase comprise, s'affiche en code (chasse fixe), si bien
+  qu'elle ne devient ni HTML, ni lien, ni mention, ni référence, y compris
+  dans le rendu de GitHub, qui relie le texte même échappé ; une barre
+  verticale ne coupe aucune cellule de tableau. Une valeur démesurée est
+  tronquée (256 caractères pour un nom, 1 024 pour une phrase) et marquée
+  « … [tronqué, N caractères] » ; la valeur complète reste dans le rapport
+  JSON (#45).
 - Lecture seule garantie par une allowlist des opérations : un collecteur ne
   peut exécuter sur une cible qu'un exécutable à arguments figés, un script
   PowerShell inscrit avec son empreinte, une opération LDAP ou AWS ou une

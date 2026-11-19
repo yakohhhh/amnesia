@@ -18,8 +18,10 @@ Toutes commencent par le même nettoyage. Les séquences d'échappement ECMA-48
 (CSI, OSC, DCS...) sont supprimées avec leur contenu, ainsi que les contrôles
 C0 (sauf la tabulation et le saut de ligne), DEL, les contrôles C1 et les
 contrôles bidirectionnels (Trojan Source, CVE-2021-42574). Le retour chariot
-est supprimé et, dans un champ monoligne, un saut de ligne devient une espace :
-aucune fausse ligne ne peut apparaître. Les autres caractères invisibles
+est supprimé et, dans un champ monoligne, un saut de ligne devient une espace,
+comme toute suite de blancs : aucune fausse ligne ne peut apparaître, ni par
+saut de ligne, ni par remplissage. Une chaîne de contrôle sans fin ne perd que
+son introducteur, pas le reste du champ. Les autres caractères invisibles
 (U+200B, zones privées, surrogates isolés...) restent, mais sous leur forme
 échappée (``\\u200b``) : l'analyste voit qu'une valeur en contient.
 
@@ -56,15 +58,17 @@ class Limit(IntEnum):
 
 # Sequences ECMA-48, retirees avec leur contenu, dans cet ordre :
 # - chaines de controle OSC, DCS, SOS, PM et APC (ESC ] P X ^ _, ou C1), jusqu'a
-#   BEL, ST (ESC \ ou C1) ou la fin du champ, comme un terminal qui attendrait
-#   encore leur fin ;
+#   leur fin : BEL ou ST (ESC \ ou C1). Sans fin, seul l'introducteur est retire
+#   (alternatives suivantes et _SUPPRIMES) : le reste du champ, texte d'amnesia
+#   compris, n'est pas a la merci d'un seul caractere. Le contenu ne traverse ni
+#   ESC ni introducteur C1 : la recherche reste lineaire ;
 # - CSI (ESC [ ou C1) : parametres, intermediaires et octet final ;
 # - autres sequences ESC : intermediaires et octet final (ESC c, ESC ( B...).
 _SEQUENCES = re.compile(
-    r"(?:\x1b[\]PX^_]|[\x90\x98\x9d\x9e\x9f]).*?(?:\x07|\x1b\\|\x9c|\Z)"
+    r"(?:\x1b[\]PX^_]|[\x90\x98\x9d\x9e\x9f])"
+    r"[^\x07\x1b\x90\x98\x9c-\x9f]*(?:\x07|\x1b\\|\x9c)"
     r"|(?:\x1b\[|\x9b)[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]?"
-    r"|\x1b[\x20-\x2f]*[\x30-\x7e]?",
-    re.DOTALL,
+    r"|\x1b[\x20-\x2f]*[\x30-\x7e]?"
 )
 # controles bidirectionnels : memes caracteres que ceux que dumps_report()
 # echappe dans le rapport JSON (amnesia.report)
@@ -75,15 +79,17 @@ _SUPPRIMES = re.compile(f"[\x00-\x08\x0b-\x1f\x7f-\x9f{_BIDI}]")
 _SUPPRIMES_CSV = re.compile(f"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f{_BIDI}]")
 _SAUTS = re.compile("[\n\u2028\u2029]")
 
+# blancs d'un champ monoligne : espace, tabulation, espaces Unicode (categorie
+# Zs) et caracteres imprimables sans dessin (braille vide, remplissages hangul).
+# Une suite de blancs, ou une tabulation, devient une seule espace : sans cela,
+# « SRV01 » suivi de 200 espaces et d'un faux constat simulerait une autre ligne
+# ou une autre colonne. Une espace insecable isolee reste telle quelle.
+_BLANC = " \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\u2800\u3164\u115f\u1160\uffa0"
+_BLANCS = re.compile(f"[{_BLANC}]{{2,}}|\t")
+
 # ponctuation ASCII, toute echappable par une barre oblique inverse (CommonMark)
 _PONCTUATION = re.compile(r"[!-/:-@\[-`{-~]")
 _ACCENTS_GRAVES = re.compile("`+")
-# barre verticale precedee d'une barre oblique inverse, dans une cellule de
-# tableau : en span de code elle s'ecrirait « \\| », que les parseurs GFM ne
-# lisent pas tous de la meme facon (barre echappee pour les uns, barre oblique
-# inverse echappee puis fin de cellule pour ceux qui comptent les barres
-# obliques) ; la cellule coupee, le reste de la valeur sortirait du span
-_BARRE_AMBIGUE = re.compile(r"\\\|")
 
 # premier caractere d'une formule de tableur, formes pleine chasse et petites
 # formes comprises : NFKC ramene U+FF1D et U+FE66 a « = » (OWASP, CSV Injection)
@@ -96,11 +102,14 @@ def _visible(caractere: str) -> str:
     return caractere.encode("unicode_escape").decode("ascii")
 
 
-def _nettoyer(texte: str, *, saut: str, retour_chariot: bool = False) -> str:
-    """``texte`` sans séquence ni contrôle ; ``saut`` remplace un saut de ligne."""
+def _nettoyer(texte: str, *, monoligne: bool, retour_chariot: bool = False) -> str:
+    """``texte`` sans séquence ni contrôle, sur une ligne avec ``monoligne``."""
     texte = _SEQUENCES.sub("", texte)
     texte = (_SUPPRIMES_CSV if retour_chariot else _SUPPRIMES).sub("", texte)
-    texte = _SAUTS.sub(saut, texte)
+    if monoligne:
+        texte = _BLANCS.sub(" ", _SAUTS.sub(" ", texte))
+    else:
+        texte = _SAUTS.sub("\n", texte)
     if texte.isprintable():
         return texte
     # restent tabulations, sauts de ligne, espaces Unicode (gardes) et autres
@@ -133,79 +142,85 @@ def for_terminal(text: str, *, limit: int = Limit.TEXT, multiline: bool = False)
     Aucune séquence d'échappement (titre de fenêtre, hyperlien OSC 8, couleur,
     effacement de ligne), aucun contrôle C0, DEL, C1 ni bidirectionnel :
     ``"\\x1b]0;pwned\\x07SRV01"`` s'affiche ``SRV01``. Le retour chariot est
-    supprimé ; un saut de ligne (``\\n``, U+2028, U+2029) devient une espace,
-    sauf avec ``multiline``. Au-delà de ``limit`` caractères, ``text`` est
-    tronqué et marqué (``truncation_mark()``).
+    supprimé. Sauf avec ``multiline``, le champ tient sur une ligne : un saut de
+    ligne (``\\n``, U+2028, U+2029) devient une espace, et une suite de blancs
+    (espaces, tabulations, espaces Unicode) une seule espace, pour qu'un
+    remplissage ne simule ni autre ligne ni autre colonne. Une chaîne de
+    contrôle sans fin (OSC, DCS, APC... sans BEL ni ST) ne perd que son
+    introducteur : le reste du champ est gardé. Au-delà de ``limit``
+    caractères, ``text`` est tronqué et marqué (``truncation_mark()``).
     """
     tete, longueur = _tronquer(text, limit)
-    rendu = _nettoyer(tete, saut="\n" if multiline else " ")
+    rendu = _nettoyer(tete, monoligne=not multiline)
     return rendu if longueur is None else rendu + truncation_mark(longueur)
 
 
-def _span_de_code(valeur: str, tableau: bool) -> str:
+def _span_de_code(valeur: str) -> str:
     if not valeur:
         return ""
     # delimiteur plus long que toute suite d'accents graves de la valeur : le
     # span ne peut pas se refermer avant la fin
     plus_longue = max(map(len, _ACCENTS_GRAVES.findall(valeur)), default=0)
     delimiteur = "`" * (plus_longue + 1)
-    if tableau:
-        # GFM decoupe la ligne en cellules avant toute analyse, spans de code
-        # compris : seul « \| » garde la barre dans la cellule
-        valeur = valeur.replace("|", "\\|")
-    if valeur.startswith("`") or valeur.endswith("`"):
-        # espaces retirees par le parseur : un accent grave colle au delimiteur
-        # l'allongerait
+    if (
+        valeur.startswith("`")
+        or valeur.endswith("`")
+        or (valeur.startswith(" ") and valeur.endswith(" ") and valeur.strip(" "))
+    ):
+        # le parseur retire une espace de chaque cote : un accent grave colle au
+        # delimiteur l'allongerait, et les espaces de la valeur sont gardees
         valeur = f" {valeur} "
     return f"{delimiteur}{valeur}{delimiteur}"
 
 
-def for_markdown(
-    text: str,
-    *,
-    limit: int = Limit.TEXT,
-    code: bool = False,
-    table: bool = False,
-) -> str:
-    """``text`` à insérer dans une ligne Markdown (GFM), où il reste littéral.
+def for_markdown(text: str, *, limit: int = Limit.TEXT) -> str:
+    """``text`` en span de code, à insérer dans une ligne Markdown (GFM).
 
     Le texte est nettoyé comme pour le terminal, tient sur une ligne et perd ses
-    espaces de début et de fin. Par défaut (phrase : question, raison,
-    message), toute ponctuation ASCII est précédée d'une barre oblique inverse
-    (CommonMark) : ni HTML, ni lien, ni image, ni emphase, ni entité, ni
-    cellule de tableau cassée. Le texte n'est jamais découpé en lien
-    automatique (GFM, linkify), puisque ``:``, ``.``, ``/`` et ``@`` sont
-    échappés.
+    espaces de début et de fin. Il devient un span de code, dont le contenu
+    n'est jamais interprété : ni HTML, ni lien, ni image, ni emphase, ni
+    entité. Le délimiteur est plus long que la plus longue suite d'accents
+    graves du texte, et le span ne contient aucune barre oblique inverse
+    d'échappement.
 
-    Avec ``code`` (nom ou identifiant : hôte, cible, check), le texte devient
-    un span de code, dont le contenu n'est jamais interprété ni transformé en
-    lien. Son délimiteur est plus long que la plus longue suite d'accents
-    graves du texte, sans barre oblique inverse à l'intérieur, sauf ``\\|``
-    avec ``table`` (cellule de tableau GFM). Seule exception : dans une cellule
-    de tableau, un texte où une barre oblique inverse précède une barre
-    verticale est échappé comme une phrase, car son span de code (``\\\\|``)
-    couperait la cellule pour une partie des parseurs GFM.
+    Pourquoi du code, et non un échappement par barre oblique inverse : cmark-gfm
+    (GitHub) cherche ses liens automatiques dans le texte une fois déséchappé.
+    ``https\\:\\/\\/evil\\.example``, ``www\\.evil\\.example``,
+    ``a\\@evil\\.example``, ``\\@compte`` et ``\\#1`` y redeviennent un lien, une
+    adresse, une mention ou une référence. Seul un span de code y échappe ; la
+    phrase d'une question ou d'un message s'affiche donc en chasse fixe.
 
-    Au-delà de ``limit`` caractères, ``text`` est tronqué et marqué.
+    Barre verticale : GFM découpe une ligne de tableau en cellules avant toute
+    analyse, spans de code compris, et les parseurs ne lisent pas tous de la
+    même façon une barre oblique inverse suivie d'une barre dans un span. Le
+    texte est donc découpé sur ``|`` : chaque segment a son span, et les
+    segments sont joints par ``\\|``, hors de tout span : ``a|b`` donne deux
+    spans. Ce rendu vaut dans un tableau comme ailleurs.
+
+    Au-delà de ``limit`` caractères, ``text`` est tronqué et marqué ; la marque
+    suit le span, ponctuation échappée.
     """
     tete, longueur = _tronquer(text, limit)
-    valeur = _nettoyer(tete, saut=" ").strip()
-    if code and not (table and _BARRE_AMBIGUE.search(valeur)):
-        rendu = _span_de_code(valeur, table)
-    else:
-        rendu = _PONCTUATION.sub(r"\\\g<0>", valeur)
+    valeur = _nettoyer(tete, monoligne=True).strip()
+    rendu = "\\|".join(_span_de_code(segment) for segment in valeur.split("|"))
     if longueur is None:
         return rendu
     return rendu + _PONCTUATION.sub(r"\\\g<0>", truncation_mark(longueur))
 
 
 def for_html(text: str, *, limit: int = Limit.TEXT) -> str:
-    """``text`` à insérer dans du HTML, en contenu ou en valeur d'attribut.
+    """``text`` à insérer dans du HTML : contenu d'élément ou attribut cité.
 
     Nettoyé comme pour le terminal (sur une ligne), puis ``html.escape()`` avec
     ``quote=True`` : ``<``, ``>``, ``&`` et les guillemets ``"`` et ``'``
     deviennent des entités. Au-delà de ``limit`` caractères, ``text`` est
     tronqué et marqué.
+
+    En attribut, la valeur doit être entre guillemets (``title="..."``) : sans
+    guillemets, une espace suffit à ouvrir un autre attribut. L'échappement ne
+    dit rien du sens de la valeur : jamais dans ``href``, ``src``, ``style`` ni
+    un attribut ``on*`` (``javascript:alert(1)`` ne contient aucun caractère à
+    échapper), ni dans ``<script>`` ou ``<style>``.
 
     Exigences du rapport HTML (#77) : échappement automatique de Jinja2 activé
     et jamais ``|safe`` sur une donnée de la cible ; balise meta CSP
@@ -217,7 +232,7 @@ def for_html(text: str, *, limit: int = Limit.TEXT) -> str:
     signale à un tiers l'ouverture du rapport.
     """
     tete, longueur = _tronquer(text, limit)
-    rendu = html.escape(_nettoyer(tete, saut=" "), quote=True)
+    rendu = html.escape(_nettoyer(tete, monoligne=True), quote=True)
     return rendu if longueur is None else rendu + truncation_mark(longueur)
 
 
@@ -236,7 +251,7 @@ def for_csv_cell(text: str, *, limit: int = Limit.TEXT) -> str:
     séparateurs, guillemets et sauts de ligne restent dans leur cellule.
     """
     tete, longueur = _tronquer(text, limit)
-    cellule = _nettoyer(tete, saut="\n", retour_chariot=True)
+    cellule = _nettoyer(tete, monoligne=False, retour_chariot=True)
     if longueur is not None:
         cellule += truncation_mark(longueur)
     premier = cellule[:1]

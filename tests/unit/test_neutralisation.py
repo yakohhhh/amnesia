@@ -13,6 +13,7 @@ import csv
 import html
 import io
 import re
+from html.parser import HTMLParser
 
 import pytest
 from hypothesis import given
@@ -101,7 +102,8 @@ def test_osc_supprime_avec_son_contenu() -> None:
         # chaines de controle : contenu supprime jusqu'a BEL, ST ou la fin
         ("\x1b]8;;https://evil.example/x\x1b\\clic\x1b]8;;\x1b\\", "clic"),
         ("\x9d0;pwned\x9cSRV01", "SRV01"),
-        ("SRV01\x1b]0;pwned", "SRV01"),
+        # sans fin (ni BEL ni ST) : seul l'introducteur est retire
+        ("SRV01\x1b]0;pwned", "SRV010;pwned"),
         ("\x1bP+q544e\x1b\\SRV01", "SRV01"),
         ("\x1b_apc\x07SRV01", "SRV01"),
         ("\x1b^pm\x07\x1bXsos\x07SRV01", "SRV01"),
@@ -132,10 +134,39 @@ def test_aucune_fausse_ligne() -> None:
     assert for_terminal("SRV01\r✔ OK") == "SRV01✔ OK"
     assert for_terminal("SRV01\n✔ OK") == "SRV01 ✔ OK"
     assert for_terminal("a\u2028b\u2029c") == "a b c"
-    # tabulation gardee ; sauts de ligne gardes dans un champ multiligne
-    assert for_terminal("a\tb") == "a\tb"
+    # sauts de ligne gardes dans un champ multiligne
     assert for_terminal("SRV01\r\n✔ OK", multiline=True) == "SRV01\n✔ OK"
     assert for_terminal("a\u2028b", multiline=True) == "a\nb"
+
+
+def test_chaine_de_controle_sans_fin_ne_perd_que_son_introducteur() -> None:
+    # sans BEL ni ST, le reste du champ (texte d'amnesia compris) est garde
+    assert for_terminal("Le canal \x9fSecurity a été vidé il y a 4 jours.") == (
+        "Le canal Security a été vidé il y a 4 jours."
+    )
+    assert for_terminal("SRV\x1bP-PROD-DC01") == "SRV-PROD-DC01"
+    assert for_terminal("SRV\x1b]0;titre") == "SRV0;titre"
+    # terminee : retiree avec son contenu
+    assert for_terminal("SRV\x1bPq\x1b\\01") == "SRV01"
+    assert for_terminal("SRV\x9f0;pwned\x9c01") == "SRV01"
+    # le contenu d'une chaine ne traverse pas l'introducteur suivant
+    assert for_terminal("a\x9db\x9dc\x07d") == "abd"
+
+
+def test_remplissage_reduit_a_une_espace() -> None:
+    # 200 espaces puis un faux constat : ni autre colonne, ni fausse ligne
+    assert for_terminal("SRV01" + " " * 200 + "[critique] FAUX") == (
+        "SRV01 [critique] FAUX"
+    )
+    assert for_terminal("a\tb") == "a b"
+    assert for_terminal("a\t\t \tb") == "a b"
+    # espaces Unicode et caracteres imprimables sans dessin
+    assert for_terminal("a\u00a0\u3000\u2800\u3164b") == "a b"
+    assert for_terminal("a\u2003\u2003b") == "a b"
+    # champ multiligne (extrait de preuve) : mise en page gardee
+    assert for_terminal("a  b\n  c\td", multiline=True) == "a  b\n  c\td"
+    assert for_markdown("SRV01" + " " * 200 + "x") == "`SRV01 x`"
+    assert for_html("SRV01" + " " * 200 + "x") == "SRV01 x"
 
 
 def test_invisibles_rendus_visibles() -> None:
@@ -170,11 +201,12 @@ def test_chaine_de_1_mo_tronquee_au_plafond() -> None:
     assert for_terminal("A" * UN_MO, limit=Limit.EXCERPT) == "A" * 4096 + marque
     assert for_html("A" * UN_MO, limit=Limit.NAME) == "A" * 256 + marque
     assert for_csv_cell("=" * UN_MO, limit=Limit.NAME) == "'" + "=" * 256 + marque
+    # en Markdown, la marque suit le span de code, ponctuation echappee
     assert for_markdown("A" * UN_MO, limit=Limit.NAME) == (
-        "A" * 256 + "… \\[tronqué\\, 1048576 caractères\\]"
-    )
-    assert for_markdown("A" * UN_MO, limit=Limit.NAME, code=True) == (
         "`" + "A" * 256 + "`… \\[tronqué\\, 1048576 caractères\\]"
+    )
+    assert for_markdown("A" * UN_MO) == (
+        "`" + "A" * 1024 + "`… \\[tronqué\\, 1048576 caractères\\]"
     )
 
 
@@ -190,31 +222,48 @@ def test_plafonds_par_type_de_champ() -> None:
 
 
 def test_coupe_avant_nettoyage() -> None:
-    # une sequence coupee par le plafond est supprimee comme les autres
+    # une chaine de controle coupee par le plafond n'a plus de fin : seul son
+    # introducteur est retire
     rendu = for_terminal("\x1b]0;" + "p" * 300, limit=Limit.NAME)
-    assert rendu == "… [tronqué, 304 caractères]"
+    assert rendu == "0;" + "p" * 252 + "… [tronqué, 304 caractères]"
     rendu = for_terminal("SRV01" + "\x1b[2K" * UN_MO, limit=Limit.NAME)
     assert rendu == f"SRV01… [tronqué, {5 + 4 * UN_MO} caractères]"
 
 
 # --- Markdown -------------------------------------------------------------------
 
+ACTIFS = frozenset({"link_open", "image", "html_inline", "html_block"})
+# span de code complet : meme delimiteur aux deux bouts, aucune barre verticale
+SPAN = re.compile(r"(`+)(?!`)[^|]*?(?<!`)\1(?!`)")
+CODE = re.compile(r"<code[^>]*>.*?</code>", re.S)
+# separateur de cellule GFM : barre non echappee, selon qu'un parseur regarde le
+# seul caractere precedent ou compte les barres obliques inverses
+BARRE = re.compile(r"(?<!\\)\|")
+BARRE_STRICTE = re.compile(r"(?<!\\)(?:\\\\)*\|")
 
-def test_for_markdown_echappe_toute_la_ponctuation_ascii() -> None:
-    ponctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-    assert for_markdown(ponctuation) == "".join("\\" + c for c in ponctuation)
-    assert for_markdown("<script>alert(1)</script>") == (
-        "\\<script\\>alert\\(1\\)\\<\\/script\\>"
+
+def _affiche(rendu_html: str) -> str:
+    return html.unescape(re.sub(r"<[^>]*>", "", rendu_html))
+
+
+def test_for_markdown_en_span_de_code() -> None:
+    assert for_markdown("<script>alert(1)</script>") == "`<script>alert(1)</script>`"
+    assert for_markdown("Le canal https://evil.example/x a été vidé") == (
+        "`Le canal https://evil.example/x a été vidé`"
     )
-    assert for_markdown("a|b") == "a\\|b"
-    # lettres, chiffres, accents et espaces inchanges ; espaces de bord retirees
-    assert for_markdown("  Le journal Security été  ") == "Le journal Security été"
+    assert (
+        for_markdown("[lien](https://example.com)") == "`[lien](https://example.com)`"
+    )
+    # aucune barre oblique inverse ajoutee ; espaces de bord retirees
+    assert for_markdown("  Le journal Security, l'hôte : été ?  ") == (
+        "`Le journal Security, l'hôte : été ?`"
+    )
 
 
 def test_for_markdown_sur_une_ligne_et_sans_controle() -> None:
-    assert for_markdown("SRV01\r\n✔ OK") == "SRV01 ✔ OK"
-    assert for_markdown("\x1b]0;pwned\x07SRV01") == "SRV01"
-    assert for_markdown("SRV\u200b01") == "SRV\\\\u200b01"
+    assert for_markdown("SRV01\r\n✔ OK") == "`SRV01 ✔ OK`"
+    assert for_markdown("\x1b]0;pwned\x07SRV01") == "`SRV01`"
+    assert for_markdown("SRV\u200b01") == "`SRV\\u200b01`"
 
 
 @pytest.mark.parametrize(
@@ -231,59 +280,80 @@ def test_for_markdown_sur_une_ligne_et_sans_controle() -> None:
     ],
 )
 def test_span_de_code(entree: str, attendu: str) -> None:
-    assert for_markdown(entree, code=True) == attendu
-
-
-def test_span_de_code_en_tableau() -> None:
-    assert for_markdown("a|b", code=True) == "`a|b`"
-    assert for_markdown("a|b", code=True, table=True) == "`a\\|b`"
-    # une phrase echappe deja la barre, en tableau comme ailleurs
-    assert for_markdown("a|b", table=True) == "a\\|b"
+    assert for_markdown(entree) == attendu
 
 
 @pytest.mark.parametrize(
     ("entree", "attendu"),
     [
-        ("a\\|b", "a\\\\\\|b"),
+        ("a|b", "`a`\\|`b`"),
+        ("|", "\\|"),
+        ("a||b", "`a`\\|\\|`b`"),
+        ("a | b", "`a `\\|` b`"),
+        # espaces des deux cotes d'un segment : gardees malgre le parseur
+        ("x| a |y", "`x`\\|`  a  `\\|`y`"),
+        ("a`|`b", "`` a` ``\\|`` `b ``"),
+        # une barre oblique inverse devant la barre reste dans son span
+        ("a\\|b", "`a\\`\\|`b`"),
         (
-            "a\\|<img src=x onerror=alert(1)>",
-            "a\\\\\\|\\<img src\\=x onerror\\=alert\\(1\\)\\>",
+            "srv\\|https://evil.example/login",
+            "`srv\\`\\|`https://evil.example/login`",
         ),
-        ("a\\\\|https://evil.example/x", None),
+        ("a\\\\|b@evil.example", "`a\\\\`\\|`b@evil.example`"),
+        ("a\\|<img src=x onerror=alert(1)>", "`a\\`\\|`<img src=x onerror=alert(1)>`"),
     ],
 )
-def test_barre_oblique_inverse_devant_une_barre_en_tableau(
-    entree: str, attendu: str | None
-) -> None:
-    # « `a\\|b` » : barre echappee pour un parseur, barre oblique inverse
-    # echappee puis fin de cellule pour un autre, et la suite sort du span
-    cellule = for_markdown(entree, code=True, table=True)
-    assert "`" not in cellule
-    if attendu is not None:
-        assert cellule == attendu
-    # chaque barre verticale suit un nombre impair de barres obliques inverses
-    assert re.search(r"(?<!\\)(?:\\\\)*\|", cellule) is None
-    # hors tableau, le span de code reste sans ambiguite
-    assert for_markdown(entree, code=True) == f"`{entree}`"
+def test_barre_verticale_hors_du_span(entree: str, attendu: str) -> None:
+    # « `a\|b` » ou « `a\\|b` » dans un span : barre echappee pour un parseur, fin
+    # de cellule pour un autre, et la suite de la valeur sortirait du span
+    rendu = for_markdown(entree)
+    assert rendu == attendu
+    assert BARRE.search(rendu) is None
+    assert BARRE_STRICTE.search(rendu) is None
+    assert "|" not in "".join(m.group() for m in SPAN.finditer(rendu))
+
+
+@pytest.mark.parametrize(
+    "echappe",
+    [
+        r"https\:\/\/evil\.example\/x",
+        r"www\.evil\.example",
+        r"a\@evil\.example",
+    ],
+)
+def test_temoin_un_echappement_ne_suffit_pas(echappe: str) -> None:
+    # cmark-gfm (GitHub) relie le texte une fois desechappe : linkify, repasse
+    # sur le texte affiche, retrouve le lien qu'un echappement croyait rompre
+    assert GFM.linkify is not None
+    assert "link_open" not in {
+        j.type for b in GFM.parse(f"- {echappe}\n") for j in [b, *(b.children or [])]
+    }
+    assert GFM.linkify.test(_affiche(GFM.render(f"- {echappe}\n")))
 
 
 @given(TEXTES)
 def test_for_markdown_litteral(texte: str) -> None:
     attendu = " ".join(for_terminal(texte).split())
-    phrase = for_markdown(texte)
-    assert not INTERDITS & set(phrase)
-    assert "\n" not in phrase
-    # toute ponctuation ASCII est precedee d'une barre oblique inverse
-    assert PONCTUATION.search(ECHAPPEMENT.sub("", phrase)) is None
-    for rendu in (phrase, for_markdown(texte, code=True)):
-        jetons = [
-            j for b in GFM.parse(f"- {rendu}\n") for j in [b, *(b.children or [])]
-        ]
-        assert not {"link_open", "image", "html_inline", "html_block"} & {
-            j.type for j in jetons
-        }
-        affiche = html.unescape(re.sub(r"<[^>]*>", "", GFM.render(f"- {rendu}\n")))
-        assert " ".join(affiche.split()) == attendu
+    rendu = for_markdown(texte)
+    assert not INTERDITS & set(rendu)
+    assert "\n" not in rendu
+    # rien hors d'un span de code, sauf les barres verticales echappees
+    assert SPAN.sub("", rendu).replace("\\|", "") == ""
+    jetons = [j for b in GFM.parse(f"- {rendu}\n") for j in [b, *(b.children or [])]]
+    assert not ACTIFS & {j.type for j in jetons}
+    rendu_html = GFM.render(f"- {rendu}\n")
+    assert " ".join(_affiche(rendu_html).split()) == attendu
+    # texte affiche hors code, desechappe : aucun lien a retrouver (cmark-gfm)
+    assert GFM.linkify is not None
+    assert not GFM.linkify.test(_affiche(CODE.sub("", rendu_html)))
+    # en cellule de tableau : une seule cellule, quelle que soit la lecture
+    ligne = f"| {rendu} | x |"
+    assert len(BARRE.findall(ligne)) == len(BARRE_STRICTE.findall(ligne)) == 3
+    tableau = GFM.render(f"| A | B |\n| --- | --- |\n{ligne}\n")
+    cellules = re.findall(r"<td>(.*?)</td>", tableau, re.S)
+    assert len(cellules) == 2
+    assert cellules[1] == "x"
+    assert "<a " not in tableau
 
 
 # --- HTML -----------------------------------------------------------------------
@@ -298,6 +368,37 @@ def test_for_html_echappe_balises_et_guillemets() -> None:
     )
     assert for_html("a & b") == "a &amp; b"
     assert for_html("\x1b]0;pwned\x07SRV01\u202e\r\nOK") == "SRV01 OK"
+
+
+class _Attributs(HTMLParser):
+    """Attributs de la première balise lue."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.attributs: list[tuple[str, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if not self.attributs:
+            self.attributs = attrs
+
+
+def _attributs(balise: str) -> list[tuple[str, str | None]]:
+    analyseur = _Attributs()
+    analyseur.feed(balise)
+    return analyseur.attributs
+
+
+def test_for_html_en_attribut_cite_seulement() -> None:
+    charge = "\" onmouseover=\"alert(1)' onfocus='alert(2)"
+    # entre guillemets, doubles ou simples : la valeur reste dans son attribut
+    for guillemet in ('"', "'"):
+        balise = f"<span title={guillemet}{for_html(charge)}{guillemet}>"
+        assert _attributs(balise) == [("title", charge)]
+    # sans guillemets, une espace ouvre un autre attribut : usage interdit
+    nu = _attributs(f"<span title={for_html('x onmouseover=alert(1)')}>")
+    assert ("onmouseover", "alert(1)") in nu
+    # l'echappement ne dit rien du sens : jamais en href, src, style ni on*
+    assert for_html("javascript:alert(1)") == "javascript:alert(1)"
 
 
 @given(TEXTES)

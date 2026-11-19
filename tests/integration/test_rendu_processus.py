@@ -53,7 +53,10 @@ def test_render_page_de_code(tmp_path: Path, encodage: str, fmt: str) -> None:
     assert "->" in texte
     assert "→" not in texte
     assert "?" + " Impossible" not in texte
-    assert "-> Impossible : le journal Security fait 20 Mo et a été écrasé" in texte
+    # en Markdown, une valeur du rapport s'affiche en span de code (#45)
+    span = "`" if fmt == "md" else ""
+    raison = f"-> Impossible : {span}le journal Security fait 20 Mo et a été écrasé"
+    assert raison in texte
     assert b"Traceback" not in processus.stderr
 
 

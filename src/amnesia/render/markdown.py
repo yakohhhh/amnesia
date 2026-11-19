@@ -3,14 +3,16 @@
 
 """Rendu Markdown (GFM) : un titre par groupe et un tableau récapitulatif.
 
-Toute valeur du rapport passe par ``for_markdown()`` (``amnesia.render.safe``) :
-une phrase (question, raison, message) a toute sa ponctuation ASCII échappée,
-un nom ou un identifiant (cible, check, exécution) devient un span de code. Le
-rendu ne contient donc ni lien, même automatique, ni image, ni HTML brut, ni
-entité, et aucune cellule de tableau cassée. Pas de couleur. Le repli ASCII de
-l'encodage de sortie (cp1252...) porte sur le document final : il ne produit que
-des lettres, des chiffres ou des échappements visibles (``\\u4e2d``), qui ne
-reforment aucun lien.
+Toute valeur du rapport passe par ``for_markdown()`` (``amnesia.render.safe``)
+et s'affiche en span de code : phrase (question, raison, message) comme nom ou
+identifiant (cible, check, exécution). Un échappement par barre oblique inverse
+ne suffirait pas : GitHub cherche ses liens automatiques, mentions et références
+dans le texte une fois déséchappé. Le contenu d'un span n'est jamais
+interprété : ni lien, ni image, ni HTML brut, ni entité ; une barre verticale
+sort du span (``\\|``) et ne coupe aucune cellule de tableau. Pas de couleur. Le
+repli ASCII de l'encodage de sortie (cp1252...) porte sur le document final : il
+ne produit que des lettres, des chiffres, de la ponctuation inerte ou des
+échappements visibles (``\\u4e2d``), jamais un accent grave ni une barre verticale.
 """
 
 from __future__ import annotations
@@ -41,15 +43,16 @@ from .base import (
 from .safe import Limit, for_markdown
 
 
-def _nom(valeur: str, *, table: bool = False) -> str:
+def _nom(valeur: str) -> str:
     """Nom ou identifiant venu du rapport, en span de code."""
-    return for_markdown(valeur, limit=Limit.NAME, code=True, table=table)
+    return for_markdown(valeur, limit=Limit.NAME)
 
 
 def _gap(gap: GapView) -> list[str]:
     lignes = [
         f"- **{for_markdown(gap.question)}**",
-        f"  - → Impossible : {lowercase_first(for_markdown(gap.reason))}",
+        # minuscule initiale avant la mise en span : le rendu commence par « ` »
+        f"  - → Impossible : {for_markdown(lowercase_first(gap.reason))}",
         f"  - Sévérité : {NIVEAUX[gap.severity.value]} ({gap.severity.value})",
         f"  - Cible : {_nom(gap.target)}",
     ]
@@ -74,11 +77,11 @@ def _section_non_verifie(rapport: ReportView) -> list[str]:
     for nv in rapport.unverified:
         statut, motif, message = unverified_detail(nv)
         cellules = (
-            _nom(nv.check_id, table=True),
-            _nom(nv.target, table=True),
+            _nom(nv.check_id),
+            _nom(nv.target),
             statut,
             motif,
-            "" if message is None else for_markdown(message, table=True),
+            "" if message is None else for_markdown(message),
         )
         lignes.append("| " + " | ".join(cellules) + " |")
     if len(rapport.unverified) < nombre:

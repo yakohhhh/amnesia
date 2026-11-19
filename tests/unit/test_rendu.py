@@ -495,9 +495,9 @@ def test_markdown_hostile_sans_lien_ni_html() -> None:
     sysmon = next(r for r in donnees["results"] if r["check_id"] == "win.sysmon")
     sysmon["message"] = "a | b"
     sortie = markdown(donnees)
-    assert "](" not in sortie
-    assert "<b>" not in sortie
-    assert "| a \\| b |" in sortie
+    # tout est en span de code ; la barre verticale en sort, echappee
+    assert "- **`[x](https://evil.example) <b>gras</b>`**\n" in sortie
+    assert "| `a `\\|` b` |" in sortie
 
 
 # --- repli ASCII et textes ------------------------------------------------------
@@ -598,7 +598,20 @@ def test_version_majeure_non_prise_en_charge(
     assert CODE_RAPPORT_ILLISIBLE == 4
 
 
-@pytest.mark.parametrize("version", ["0.9.0", "2.0.0", "10.1.0", "1.0", "01.0.0", 1])
+@pytest.mark.parametrize(
+    "version",
+    [
+        "0.9.0",
+        "2.0.0",
+        "10.1.0",
+        "1.0",
+        "01.0.0",
+        1,
+        # composantes bornees a 9 chiffres : la version est affichee telle quelle
+        "1.1234567890.0",
+        "1.0." + "9" * 5000,
+    ],
+)
 def test_schema_version_refusee(version: object) -> None:
     donnees = rapport()
     donnees["schema_version"] = version

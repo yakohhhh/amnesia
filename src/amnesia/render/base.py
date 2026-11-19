@@ -82,7 +82,9 @@ DOMAINES = {
 }
 """Libellé de chaque domaine, désigné par le premier segment de ``check_id``."""
 
-_VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+# composantes bornees a 9 chiffres : schema_version est affichee telle quelle
+# par les rendus, sans autre plafond
+_VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 
 
 class ReportError(ValueError):

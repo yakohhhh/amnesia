@@ -66,6 +66,9 @@ GFM = MarkdownIt("gfm-like")
 assert GFM.linkify is not None, "linkify-it-py absent"
 GFM.linkify.tlds(["example", "invalid"], keep_old=True)
 ACTIFS = frozenset({"link_open", "image", "html_inline", "html_block"})
+_CODE = re.compile(r"<code[^>]*>.*?</code>", re.S)
+# mention ou reference (GitHub) en debut de mot
+_REFERENCE = re.compile(r"(?<!\w)[@#]\w")
 # tableau GFM : lignes consecutives qui commencent par une barre ; separateur de
 # cellule : barre non precedee d'une barre oblique inverse
 _TABLEAU = re.compile(r"(?m)(?:^\|.*\n)+")
@@ -184,6 +187,13 @@ def _verifier_markdown(sortie: str) -> None:
             barres = {len(separateur.findall(ligne)) for ligne in lignes}
             assert len(barres) == 1, tableau
     assert all(c == "\n" or c.isprintable() for c in sortie)
+    # cmark-gfm (GitHub) cherche liens, mentions et references dans le texte une
+    # fois desechappe, ce que markdown-it ne fait pas : linkify repasse donc sur
+    # le texte affiche hors des spans de code, ou rien ne doit venir du rapport
+    hors_code = _texte_affiche(_CODE.sub("", GFM.render(sortie)))
+    assert GFM.linkify is not None
+    assert not GFM.linkify.test(hors_code), GFM.linkify.match(hors_code)
+    assert _REFERENCE.search(hors_code) is None, hors_code
 
 
 @dataclass(frozen=True)
@@ -230,6 +240,10 @@ def test_contrat(moteur: Moteur, charge: Charge, group_by: str) -> None:
         assert f"… [tronqué, {charge.longueur} caractères]" in affiche
     if charge.affiche is not None:
         assert charge.affiche in affiche
+    if charge.longueur <= 256:
+        # la suite du champ, texte d'amnesia compris, n'est jamais avalee
+        assert f"le canal {charge.affiche} a été vidé il y a 4 jours." in affiche
+        assert f"accès refusé à la GPO {charge.affiche}" in affiche
     for fragment in charge.jamais:
         assert fragment not in affiche
     moteur.verifier(sortie)
@@ -323,6 +337,12 @@ def test_chaine_de_1_mo_dans_un_rendu() -> None:
     sortie = render_report(injecter("A" * 2**20), "text")
     assert f"  Cible : {'A' * 256}… [tronqué, 1048576 caractères]\n" in sortie
     assert len(sortie) < 32 * 1024
+    # meme plafond en Markdown : la marque suit le span, ponctuation echappee
+    markdown = render_report(injecter("A" * 2**20), "md")
+    marque = "… \\[tronqué\\, 1048576 caractères\\]"
+    assert f"  - Cible : `{'A' * 256}`{marque}\n" in markdown
+    assert f" | `{'A' * 256}`{marque} | erreur | " in markdown
+    assert len(markdown) < 32 * 1024
 
 
 # lettres pleine chasse ou accentuees que le repli ASCII de l'encodage de sortie
