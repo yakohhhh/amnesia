@@ -455,6 +455,38 @@ def test_schema_json_du_rapport_ferme_les_cles_de_details() -> None:
     assert preuve["details"]["propertyNames"]["enum"] == list(EVIDENCE_FIELDS)
 
 
+def test_champs_texte_de_la_mission_admis_et_classes() -> None:
+    # champs apportes par le fichier de mission (#36) : saisis par l'auditeur,
+    # jamais lus sur la cible ; chaque champ texte du schema y est classe
+    schema = load_schema()["properties"]
+    for champ in schema["mission"]["properties"]:
+        assert "mission" in REPORT_TEXT_FIELDS[f"mission.{champ}"], champ
+    assert "run.config_source" in REPORT_TEXT_FIELDS
+    assert "config_hash" in REPORT_TEXT_FIELDS
+    # le nom declare par l'auditeur est une donnee personnelle admise, distincte
+    # du compte local qui lance l'audit
+    (declare,) = [p for p in PERSONAL_FIELDS if p.name == "declared_auditor"]
+    assert "mission.auditor" in declare.location
+    assert "declared_auditor" in REPORT_TEXT_FIELDS["mission.auditor"]
+    rapport: dict[str, Any] = {
+        "run": {"profile": "standard", "config_source": "--config"},
+        "mission": {
+            "client": "Client fictif",
+            "reference": "M-0001",
+            "auditor": "Equipe fictive",
+            "start": "2026-10-01",
+            "end": "2026-10-31",
+            "tlp": "TLP:AMBER",
+        },
+        "config_hash": "0" * 64,
+    }
+    assert report_text_violations(rapport) == []
+    rapport["mission"]["contact"] = "jdupont"
+    assert report_text_violations(rapport) == [
+        "mission.contact : champ texte hors schéma"
+    ]
+
+
 def test_champs_texte_des_preuves_derives_du_schema() -> None:
     racine = "gaps[].evidence"
     for bloc in ("observed", "expected", "details"):

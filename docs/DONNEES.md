@@ -44,6 +44,7 @@ en vient, et un test vérifie qu'elles concordent.
 | Noms d'hôtes et FQDN des cibles (`host_name`) | Ligne de commande de l'auditeur | Rattacher chaque constat à la machine concernée | Rapport (`targets[].id`, `results[].target`, `gaps[].target`), journal d'exécution | Celle du rapport et du journal |
 | Comptes d'administration utilisés ou cités (`admin_account`) | Identifiants fournis par l'auditeur, configuration lue | Tracer le compte qui a servi à la collecte ; désigner le compte qu'une remédiation concerne | Journal d'exécution ; rapport seulement si une configuration le cite | Celle du journal et du rapport |
 | Compte local de l'auditeur (`operator_account`) | Poste de l'auditeur | Imputer l'exécution (#40) | Journal d'exécution seulement, jamais le rapport remis au client | Celle du journal |
+| Données de mission : client, référence, auditeur ou équipe (`declared_auditor`), dates, marquage TLP, profil | Fichier de mission `amnesia.toml`, saisi par l'auditeur ; rien n'est lu sur la cible | Identifier le livrable, son auteur et son destinataire | Rapport (`mission`, `run.profile`) ; ce que le fichier ne renseigne pas vaut `null` | Celle du rapport |
 | Ligne de commande de l'audit | Poste de l'auditeur | Reproduire l'audit | Rapport (`run.argv`), secrets et chemins masqués | Celle du rapport |
 | Diagnostics d'un check qui n'a pas conclu | amnesia | Expliquer pourquoi un point n'a pas été évalué | Rapport (`results[].message`, `results[].error`), journal | Celle du rapport et du journal |
 | Sorties brutes des commandes de collecte | Cible | Diagnostic d'un collecteur, sur demande explicite | Aucun par défaut ; `amnesia-out/raw/` avec `--keep-raw` | À supprimer dès la fin de l'analyse |
@@ -59,16 +60,27 @@ cette page s'appliquent déjà à tout fait, à toute preuve et à tout script.
 
 ## Données personnelles admises
 
-Trois catégories, et aucune autre :
+Quatre catégories, et aucune autre. Les trois premières tiennent à la collecte
+et à son exécution ; la dernière est saisie par l'auditeur lui-même :
 
 | Champ | Donnée | Finalité | Où |
 |---|---|---|---|
 | `host_name` | Noms d'hôtes et FQDN des cibles auditées | Rattacher chaque constat à la machine concernée | Rapport, journal d'exécution |
 | `admin_account` | UPN ou noms des comptes d'administration utilisés ou cités par une configuration | Tracer le compte qui a servi à la collecte, désigner le compte qu'une remédiation concerne | Journal d'exécution ; rapport seulement si une configuration le cite |
 | `operator_account` | Compte local de l'auditeur qui a lancé l'audit | Imputer l'exécution dans le journal d'exécution (#40) | Journal d'exécution seulement, jamais le rapport |
+| `declared_auditor` | Nom de l'auditeur ou de l'équipe, tel que l'auditeur le déclare dans le fichier de mission | Identifier l'auteur du livrable auprès du client | Rapport (`mission.auditor`), seulement si le fichier de mission le renseigne |
 
 Le nom du compte de l'auditeur est exclu du rapport client : celui-ci ne porte
-ni ce compte, ni l'arborescence de son poste.
+ni ce compte, ni l'arborescence de son poste. `mission.auditor` n'est pas ce
+compte : c'est le nom que l'auditeur choisit d'écrire dans `amnesia.toml`, une
+équipe ou un cabinet aussi bien qu'une personne, et il reste `null` s'il ne
+l'écrit pas.
+
+Le nom du client (`mission.client`) et la référence de la mission
+(`mission.reference`) sont des données de mission, pas des données collectées :
+elles désignent en général une personne morale et ne sont pas classées comme
+données personnelles. Si le client est une personne physique, son nom en
+devient une : c'est à l'auditeur d'en tenir compte dans son registre.
 
 ## Ce qui ne sort jamais de la cible
 

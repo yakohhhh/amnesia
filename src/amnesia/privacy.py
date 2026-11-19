@@ -10,7 +10,9 @@ audit de configuration n'a aucune raison de traiter. Ce module est la source
 unique de ce qui est admis ; ``docs/DONNEES.md`` en est l'inventaire lisible.
 
 - ``PERSONAL_FIELDS`` : les seules données personnelles admises, chacune avec
-  sa finalité et l'endroit où elle est écrite ;
+  sa finalité et l'endroit où elle est écrite. Trois viennent de la collecte
+  ou de son exécution ; la quatrième, le nom que l'auditeur déclare lui-même
+  dans le fichier de mission, n'est jamais lue sur la cible ;
 - ``event_content_field()`` : nom d'un champ de contenu d'événement
   (``Message``, ``Properties``, ``UserId``, ``MachineName``, champs
   d'``EventData``). ``amnesia.facts.model`` refuse tout fait qui en porte un ;
@@ -72,6 +74,13 @@ PERSONAL_FIELDS: Final[tuple[PersonalField, ...]] = (
         "compte local de l'auditeur qui a lancé l'audit",
         "imputer l'exécution dans le journal d'exécution (#40)",
         "journal d'exécution seulement, jamais le rapport remis au client",
+    ),
+    PersonalField(
+        "declared_auditor",
+        "nom de l'auditeur ou de l'équipe, tel que l'auditeur le déclare dans le "
+        "fichier de mission (amnesia.toml)",
+        "identifier l'auteur du livrable auprès du client",
+        "rapport (mission.auditor), seulement si le fichier de mission le renseigne",
     ),
 )
 """Seules données personnelles admises ; tout autre champ personnel est refusé."""
@@ -327,6 +336,12 @@ _CATALOGUE = "texte du catalogue ou du check, écrit par amnesia"
 _HOTE = "nom d'hôte de la cible (donnée personnelle admise : host_name)"
 _DIAGNOSTIC = "diagnostic d'un check non conclu, caviardé"
 _CONFIGURATION = "nom ou valeur d'un paramètre de configuration lu sur la cible"
+# saisie par l'auditeur dans amnesia.toml, jamais lue sur la cible
+_MISSION = "donnée de mission déclarée par l'auditeur (fichier de mission)"
+_AUDITEUR = (
+    "auditeur ou équipe déclaré dans le fichier de mission "
+    "(donnée personnelle admise : declared_auditor)"
+)
 
 
 def _champs_texte() -> dict[str, str]:
@@ -338,7 +353,15 @@ def _champs_texte() -> dict[str, str]:
         "run.id": _STRUCTURE,
         "run.started_at": _STRUCTURE,
         "run.finished_at": _STRUCTURE,
-        "run.profile": _STRUCTURE,
+        "run.profile": _MISSION,
+        "run.config_source": _STRUCTURE,
+        "config_hash": _STRUCTURE,
+        "mission.client": _MISSION,
+        "mission.reference": _MISSION,
+        "mission.auditor": _AUDITEUR,
+        "mission.start": _MISSION,
+        "mission.end": _MISSION,
+        "mission.tlp": _MISSION,
         "run.argv[]": "ligne de commande, secrets et chemins masqués",
         "targets[].id": _HOTE,
         "targets[].kind": _STRUCTURE,

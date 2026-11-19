@@ -204,12 +204,12 @@ MINEURE antérieure refuse : pour ce bloc, un consommateur valide avec le schém
 de la version que porte le rapport, ou ignore les clés qu'il ne connaît pas.
 
 Ces règles s'appliquent à partir de la première publication d'amnesia
-([`RELEASING.md`](RELEASING.md)). Avant elle, le schéma `1.0.0` a été resserré
-deux fois sans changer de version : depuis le catalogue de questions (#46),
-`tool.catalog_version` et `question_id` ne valent plus jamais `null` ; depuis
-la minimisation des données (#41), `evidence.details` n'admet plus que les
-clés de son schéma, et un texte de `observed` ou `expected` est borné à 256
-caractères.
+([`RELEASING.md`](RELEASING.md)). Avant elle, le schéma a été resserré deux
+fois sans changer de version : en `1.0.0`, depuis le catalogue de questions
+(#46), `tool.catalog_version` et `question_id` ne valent plus jamais `null` ;
+en `1.1.0`, depuis la minimisation des données (#41), `evidence.details`
+n'admet plus que les clés de son schéma, et un texte de `observed` ou
+`expected` est borné à 256 caractères.
 
 Versions du format :
 
