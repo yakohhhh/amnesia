@@ -10,6 +10,12 @@ la plus faible : ligne de commande, fichier, valeurs par défaut. Le profil
 (#47) s'intercalera entre les valeurs par défaut et le fichier : ``Origin`` et
 ``_Etat.poser()`` sont les points d'extension.
 
+Le périmètre autorisé (``amnesia.scope``) se déclare dans la section
+``[scope]`` du fichier de mission, ou dans un fichier séparé (``--scope``),
+jamais dans les deux ni par ``--set`` : ``Config.scope`` le porte, validé. Il
+n'entre pas dans ``config_hash`` : il a son propre condensat
+(``Scope.sha256()``).
+
 Un fichier trouvé dans le répertoire courant n'a pas été désigné : il est
 refusé s'il est un lien symbolique, s'il appartient à un autre compte ou si le
 groupe ou les autres comptes peuvent l'écrire (hors Windows, où ces droits ne
@@ -49,6 +55,8 @@ from typing import Any
 from .checks.base import assainir
 from .inputs import UnsafeInputError, load_toml
 from .output import DEFAULT_DIR
+from .scope import SECTION as _SECTION_PERIMETRE
+from .scope import SOURCE_MISSION, Scope, ScopeError, load_scope, parse_scope
 
 __all__ = [
     "DEFAULT_FILE",
@@ -421,13 +429,16 @@ class Config:
     l'ordre d'affichage. ``source`` : fichier de mission lu, ou ``None`` ;
     ``source_kind`` : ``SOURCE_OPTION`` s'il a été désigné par ``--config``,
     ``SOURCE_CWD`` s'il a été trouvé dans le répertoire courant, ``None`` sans
-    fichier.
+    fichier. ``scope`` : périmètre autorisé déclaré (section ``[scope]`` ou
+    ``--scope``), ou ``None`` ; il ne figure ni dans ``values`` ni dans
+    ``config_hash()``.
     """
 
     values: Mapping[str, Any]
     origins: Mapping[str, Origin]
     source: Path | None = None
     source_kind: str | None = None
+    scope: Scope | None = None
 
     @classmethod
     def defaults(cls, thresholds: Sequence[Threshold] = THRESHOLDS) -> Config:
@@ -518,7 +529,7 @@ class _Etat:
         racine = sorted(sections | feuilles)
         for nom, contenu in document.items():
             if nom not in racine:
-                raise _inconnue(nom, racine)
+                raise _inconnue(nom, [*racine, _SECTION_PERIMETRE])
             if nom not in sections:
                 self.poser(nom, contenu, origine)
                 continue
@@ -534,7 +545,12 @@ class _Etat:
                     )
                 self.poser(f"{nom}.{cle}", valeur, origine)
 
-    def figer(self, source: Path | None, source_kind: str | None) -> Config:
+    def figer(
+        self,
+        source: Path | None,
+        source_kind: str | None,
+        scope: Scope | None = None,
+    ) -> Config:
         """Contrôles entre clés, puis configuration immuable."""
         debut, fin = self._valeurs["mission.start"], self._valeurs["mission.end"]
         if debut is not None and fin is not None and fin < debut:
@@ -547,6 +563,7 @@ class _Etat:
             origins=MappingProxyType(dict(self._origines)),
             source=source,
             source_kind=source_kind,
+            scope=scope,
         )
 
 
@@ -604,6 +621,7 @@ def load_config(
     overrides: Sequence[str] = (),
     directory: Path | None = None,
     thresholds: Sequence[Threshold] = THRESHOLDS,
+    scope_path: Path | None = None,
 ) -> Config:
     """Configuration effective ; lève ``ConfigError``.
 
@@ -613,7 +631,11 @@ def load_config(
     s'il appartient à un autre compte ou si d'autres comptes peuvent l'écrire ;
     ``Config.source_kind`` dit lequel des deux cas s'applique. ``overrides`` :
     surcharges ``CLÉ=VALEUR`` de la ligne de commande, dans l'ordre ; la
-    dernière l'emporte. ``thresholds`` : seuils admis.
+    dernière l'emporte. ``thresholds`` : seuils admis. ``scope_path`` : fichier
+    de périmètre (``--scope``) ; le périmètre vient sinon de la section
+    ``[scope]`` du fichier de mission. Deux périmètres déclarés, ou une
+    surcharge ``scope.*``, sont refusés : une autorisation ne s'élargit pas
+    sur la ligne de commande.
     """
     cles = _cles(thresholds)
     etat = _Etat(cles)
@@ -624,20 +646,41 @@ def load_config(
         if os.path.lexists(candidat):
             _verifier_fichier_implicite(candidat)
             source, source_kind = candidat, SOURCE_CWD
+    perimetre: Scope | None = None
     if source is not None:
         try:
             document = load_toml(source)
             _refuser_secrets(document, cles)
+            declare = document.pop(_SECTION_PERIMETRE, None)
             etat.table(document, Origin.FILE)
+            if declare is not None:
+                perimetre = parse_scope(declare, source=SOURCE_MISSION)
         except UnsafeInputError as exc:
             raise ConfigError(f"{source} : {exc.message}") from None
-        except ConfigError as exc:
+        except (ConfigError, ScopeError) as exc:
             # le fichier fautif d'abord : il peut avoir ete trouve sans --config
             raise ConfigError(f"{source} : {exc}") from None
     for brut in overrides:
         chemin, valeur = _surcharge(brut, cles)
+        if chemin.split(".")[0] == _SECTION_PERIMETRE:
+            raise ConfigError(
+                "--set : le périmètre autorisé ne se surcharge pas sur la ligne "
+                f"de commande ; il se déclare dans la section [{_SECTION_PERIMETRE}] "
+                "du fichier de mission ou dans un fichier désigné par --scope"
+            )
         etat.poser(chemin, valeur, Origin.CLI)
-    return etat.figer(source, source_kind)
+    if scope_path is not None:
+        if perimetre is not None:
+            raise ConfigError(
+                f"deux périmètres déclarés : la section [{_SECTION_PERIMETRE}] de "
+                f"{source} et le fichier {scope_path} désigné par --scope ; n'en "
+                "garde qu'un"
+            )
+        try:
+            perimetre = load_scope(scope_path)
+        except ScopeError as exc:
+            raise ConfigError(f"{scope_path} : {exc}") from None
+    return etat.figer(source, source_kind, perimetre)
 
 
 _EXEMPLE = f"""\
@@ -674,6 +717,29 @@ lang = "fr"
 formats = ["json"]
 # Dossier des livrables, relatif au répertoire courant.
 output_dir = "{DEFAULT_DIR}"
+
+# Périmètre autorisé : ce que l'autorisation écrite du client couvre. Une cible
+# hors de ce périmètre, ou un audit hors de sa période de validité, est refusé
+# avant toute collecte (docs/perimetre.md). Décommente et adapte, ou déclare
+# le même contenu dans un fichier séparé désigné par --scope.
+# [scope]
+# mission_id = "MISSION-0001"
+# valid_from = 2026-01-12
+# valid_until = 2026-01-16
+#
+# [scope.authorization]
+# reference = "LM-2026-001"
+# date = 2026-01-05
+# signatory = "Prénom Nom"
+# signatory_role = "RSSI"
+#
+# [scope.include]
+# hosts = ["srv01.corp.example"]
+# dns = ["*.corp.example"]
+# cidrs = ["192.0.2.0/24"]
+#
+# [scope.exclude]
+# hosts = ["srv02.corp.example"]
 
 [thresholds]
 """

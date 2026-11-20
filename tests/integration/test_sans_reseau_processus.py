@@ -12,6 +12,7 @@ moindre tentative, quoi qu'amnesia en fasse.
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -52,7 +53,16 @@ def _amnesia(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         ("catalog", "show", "Q-WIN-RDP-LOGON"),
         ("render", str(FIXTURE)),
         ("render", str(FIXTURE), "--format", "md"),
-        ("audit", "--target", "local", "--out", "rapport.json"),
+        # hors terminal et sans perimetre : la reference est obligatoire (#37)
+        (
+            "audit",
+            "--target",
+            "local",
+            "--out",
+            "rapport.json",
+            "--authorized-by",
+            "LM-TEST-0001",
+        ),
         ("init", "mission.toml"),
         ("config", "show"),
     ],
@@ -82,6 +92,46 @@ def test_commande_sans_connexion(tmp_path: Path, args: tuple[str, ...]) -> None:
         assert sortie.returncode == 0, sortie.stderr
     assert "Traceback" not in sortie.stderr
     assert sortie.stdout
+
+
+def test_cible_hors_perimetre_refusee_sans_connexion(tmp_path: Path) -> None:
+    # perimetre autorise (#37) : le refus tombe avant toute collecte, avec son
+    # code dedie, sans qu'aucune connexion ni resolution de nom ait ete tentee
+    hier = (datetime.now(UTC) - timedelta(days=1)).date().isoformat()
+    demain = (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
+    (tmp_path / "perimetre.toml").write_text(
+        f'[scope]\nmission_id = "MISSION-0001"\nvalid_from = {hier}\n'
+        f"valid_until = {demain}\n\n[scope.authorization]\n"
+        f'reference = "LM-2026-001"\ndate = {hier}\nsignatory = "Prénom Nom"\n'
+        'signatory_role = "RSSI"\n\n[scope.include]\n'
+        'dns = ["*.corp.example"]\ncidrs = ["192.0.2.0/24"]\n',
+        encoding="utf-8",
+    )
+    for cible in (
+        "winrm://srv01.autre.example",
+        "winrm://198.51.100.7",
+        # nom que seule la plage pourrait couvrir : refuse, jamais resolu
+        "winrm://srv01.example",
+    ):
+        sortie = _amnesia(
+            tmp_path, "audit", "--target", cible, "--scope", "perimetre.toml"
+        )
+        assert sortie.returncode == 5, (cible, sortie.stderr)
+        assert "connexion(s) tentee(s)" not in sortie.stderr, sortie.stderr
+        assert "audit refusé avant toute collecte" in sortie.stderr
+        assert "Traceback" not in sortie.stderr
+        assert sortie.stdout == ""
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["perimetre.toml"]
+
+
+def test_audit_sans_autorisation_refuse_hors_terminal(tmp_path: Path) -> None:
+    # stderr est un tube : aucun terminal, donc aucune question posee (#37)
+    sortie = _amnesia(tmp_path, "audit", "--target", "local")
+    assert sortie.returncode == 5, sortie.stderr
+    assert "--authorized-by" in sortie.stderr
+    assert "connexion(s) tentee(s)" not in sortie.stderr
+    assert sortie.stdout == ""
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_temoin_le_garde_refuse_bien(tmp_path: Path) -> None:
@@ -119,7 +169,9 @@ def test_origine_ligne_d_amnesia(tmp_path: Path) -> None:
         "def checks():\n"
         "    socket.socket()\n"
         "amnesia.cli.default_checks = checks\n"
-        "raise SystemExit(sans_reseau.main(['audit', '--target', 'local']))\n"
+        "raise SystemExit(sans_reseau.main(\n"
+        "    ['audit', '--target', 'local', '--authorized-by', 'LM-TEST-0001']\n"
+        "))\n"
     )
     sortie = _python(tmp_path, "-c", code)
     assert sortie.returncode == CODE_RESEAU, sortie.stderr

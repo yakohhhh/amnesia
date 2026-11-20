@@ -194,6 +194,19 @@ def _repertoire_courant_isole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.chdir(tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def _operateur_au_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    # sans perimetre declare, « amnesia audit » fait ressaisir le nom de la
+    # cible a l'operateur, et refuse hors terminal (#37). pytest n'a pas de
+    # terminal : un operateur simule ressaisit le nom attendu, pour que les
+    # tests qui portent sur autre chose lancent un audit. Le controle lui-meme
+    # (amnesia.scope.authorize) s'execute. Les tests du perimetre redefinissent
+    # cette fixture (tests/unit/test_cli_scope.py)
+    monkeypatch.setattr(
+        cli, "_confirmation_au_terminal", lambda: lambda _cible, attendu: attendu
+    )
+
+
 class CheckFactice(Check):
     """Check sans effet de bord : rend les Gaps fournis et note ses cibles.
 

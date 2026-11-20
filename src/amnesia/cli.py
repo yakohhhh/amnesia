@@ -52,6 +52,7 @@ from .exitcodes import (
     FATAL,
     INTERRUPTED,
     OK,
+    OUT_OF_SCOPE,
     USAGE,
     exit_code,
     table_text,
@@ -78,6 +79,16 @@ from .render import (
 )
 from .report import build_report, dumps_report, schema_bytes, schema_text
 from .runner import run_audit
+from .scope import (
+    Authorization,
+    Basis,
+    Confirm,
+    Scope,
+    ScopeError,
+    ScopeRefusal,
+    authorize,
+    parse_reference,
+)
 from .secrets import Secret, SecretError, resolve
 from .target import FORMES, Target, TargetError, Transport
 
@@ -189,6 +200,18 @@ def _options_mission() -> argparse.ArgumentParser:
         ),
     )
     g.add_argument(
+        "--scope",
+        type=Path,
+        default=None,
+        metavar="FICHIER",
+        help=(
+            "fichier de périmètre autorisé (TOML, section [scope]), à la place "
+            "de la section [scope] du fichier de mission ; une cible hors "
+            f"périmètre ou hors période est refusée avant toute collecte (code "
+            f"{OUT_OF_SCOPE}, docs/perimetre.md)"
+        ),
+    )
+    g.add_argument(
         "--set",
         action="append",
         default=[],
@@ -222,7 +245,7 @@ def _configuration(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         # apres --set : l'option dediee l'emporte
         surcharges.append(f"report.lang={args.lang}")
     try:
-        config = load_config(args.config, overrides=surcharges)
+        config = load_config(args.config, overrides=surcharges, scope_path=args.scope)
     except ConfigError as exc:
         # chemin et cles viennent de l'utilisateur : neutralises avant tout echo
         parser.error(f"configuration : {assainir(str(exc))}")
@@ -262,7 +285,142 @@ def _montrer_configuration(config: Config) -> None:
     largeur_valeur = max(len(ligne[1]) for ligne in lignes)
     for chemin, valeur, origine in lignes:
         print(f"{chemin:<{largeur_cle}}  {valeur:<{largeur_valeur}}  {origine}")
+    _montrer_perimetre(config.scope)
+    # derniere ligne : le perimetre a son propre condensat, affiche avant
     print(f"config_hash : {config.config_hash()}")
+
+
+SANS_PERIMETRE = (
+    "aucun (hors terminal, --authorized-by est obligatoire ; docs/perimetre.md)"
+)
+
+
+def _montrer_perimetre(scope: Scope | None) -> None:
+    """``amnesia config show`` : périmètre autorisé déclaré, et son condensat."""
+    if scope is None:
+        print(f"Périmètre autorisé : {SANS_PERIMETRE}")
+        return
+    print(f"Périmètre autorisé : {scope.source}")
+    lignes = [
+        ("scope.mission_id", scope.mission_id),
+        ("scope.authorization.reference", scope.authorization_reference),
+        ("scope.authorization.date", scope.authorization_date.isoformat()),
+        ("scope.authorization.signatory", scope.signatory),
+        ("scope.authorization.signatory_role", scope.signatory_role),
+        ("scope.valid_from", scope.valid_from.isoformat()),
+        ("scope.valid_until", scope.valid_until.isoformat()),
+        ("scope.active_tests", scope.active_tests),
+    ]
+    for sens, regles in (("include", scope.include), ("exclude", scope.exclude)):
+        lignes += [
+            (f"scope.{sens}.{type_}", valeurs)
+            for type_, valeurs in regles.to_dict().items()
+            if valeurs
+        ]
+    largeur = max(len(cle) for cle, _ in lignes)
+    for cle, valeur in lignes:
+        # textes du fichier : neutralises comme toute valeur affichee
+        print(f"{cle:<{largeur}}  {assainir(json.dumps(valeur, ensure_ascii=False))}")
+    print(f"scope.sha256 : {scope.sha256()}")
+
+
+def _reference(valeur: str) -> str:
+    """Type argparse de --authorized-by : un refus devient une erreur d'usage."""
+    try:
+        return parse_reference(valeur)
+    except ScopeError as exc:
+        # ArgumentTypeError : argparse affiche ce message et non la saisie brute
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _terminal_interactif() -> bool:
+    """Vrai si l'opérateur peut lire une question (stderr) et y répondre (stdin)."""
+    for flux in (sys.stdin, sys.stderr):
+        try:
+            if flux is None or not flux.isatty():
+                return False
+        except (AttributeError, ValueError, OSError):
+            # flux remplace ou ferme
+            return False
+    return True
+
+
+def _saisir_confirmation(target: Target, attendu: str) -> str | None:
+    """Fait ressaisir à l'opérateur le nom de la cible ; ``None`` sans saisie.
+
+    La question va sur stderr : stdout peut porter le rapport (``--out -``).
+    """
+    sys.stderr.write(
+        "Aucun périmètre déclaré (--scope FICHIER, ou section [scope] du "
+        "fichier de mission).\n"
+        f"Cible : {target.id}\n"
+        "N'audite que ce qu'une autorisation écrite couvre. Pour confirmer, "
+        f"saisis le nom exact de la cible ({attendu}) : "
+    )
+    sys.stderr.flush()
+    try:
+        saisie = sys.stdin.readline()
+    except (OSError, ValueError):
+        return None
+    # fin de fichier : rien n'a ete saisi
+    return saisie or None
+
+
+def _confirmation_au_terminal() -> Confirm | None:
+    """Saisie de confirmation, ou ``None`` hors terminal (CI, tâche planifiée)."""
+    return _saisir_confirmation if _terminal_interactif() else None
+
+
+def _autoriser(
+    args: argparse.Namespace, config: Config, parser: argparse.ArgumentParser
+) -> Authorization:
+    """Base d'autorisation de l'audit, avant toute collecte ; ``ScopeRefusal`` sinon.
+
+    Avec un périmètre déclaré (section ``[scope]`` ou ``--scope``) : cible et
+    période vérifiées par ``amnesia.scope``. Sans périmètre : ``--authorized-by``,
+    sinon confirmation au terminal. La décision est journalisée : périmètre,
+    ``scope.sha256`` et identifiant de mission (journal d'exécution : #40).
+    """
+    target: Target = args.target
+    reference: str | None = args.authorized_by
+    scope = config.scope
+    if scope is not None and reference is not None:
+        parser.error(
+            "--authorized-by : sans objet quand un périmètre est déclaré, dont "
+            "la référence d'autorisation fait foi (retire l'option, ou le "
+            "périmètre)"
+        )
+    confirmer = None
+    if scope is None and reference is None and target.transport is not Transport.BUNDLE:
+        confirmer = _confirmation_au_terminal()
+    autorisation = authorize(
+        target, scope=scope, authorized_by=reference, confirm=confirmer
+    )
+    if autorisation.basis is Basis.SCOPE and scope is not None:
+        logger.info(
+            "périmètre autorisé : mission %s, autorisation %s, scope.sha256 %s "
+            "(%s) ; cible %s incluse",
+            scope.mission_id,
+            scope.authorization_reference,
+            scope.sha256(),
+            scope.source,
+            target.id,
+        )
+    elif autorisation.basis is Basis.AUTHORIZED_BY:
+        # la cible n'est comparee a rien : visible sans -v
+        logger.warning(
+            "aucun périmètre déclaré : la cible %s n'est comparée à aucune "
+            "autorisation ; audit lancé sur la foi de --authorized-by (%s)",
+            target.id,
+            reference,
+        )
+    elif autorisation.basis is Basis.CONFIRMATION:
+        logger.info(
+            "aucun périmètre déclaré : cible %s confirmée au terminal", target.id
+        )
+    else:
+        logger.info("cible %s : aucun système joint, périmètre non appliqué", target.id)
+    return autorisation
 
 
 def _initialiser(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -708,11 +866,19 @@ def _auditer(
     par git. ``--out -`` : le JSON va sur stdout et le rendu texte sur stderr
     (rien d'autre avec ``--format json``). Écriture : ``amnesia.output``.
     """
-    # avant tout le reste : un refus (code 2) ne laisse rien sur le disque, et
-    # la variable d'environnement a quitte le processus avant le premier
-    # sous-processus (git check-ignore, collecte)
-    mot_de_passe = _mot_de_passe(args, argv, parser)
+    # avant tout le reste : un refus (codes 2 et 5) ne laisse rien sur le
+    # disque, et la variable d'environnement a quitte le processus avant le
+    # premier sous-processus (git check-ignore, collecte)
     config = _configuration(args, parser)
+    try:
+        # avant de lire un secret ou d'en demander un : une cible hors
+        # perimetre n'est ni jointe ni authentifiee
+        autorisation = _autoriser(args, config, parser)
+    except ScopeRefusal as exc:
+        # nom d'hote local, saisie : neutralises avant tout echo
+        logger.error("audit refusé avant toute collecte : %s", assainir(exc.message))
+        return OUT_OF_SCOPE
+    mot_de_passe = _mot_de_passe(args, argv, parser)
     if mot_de_passe is not None:
         # le collecteur WinRM (#63) le recevra ici, et n'appellera reveal()
         # qu'au moment de s'authentifier
@@ -751,7 +917,7 @@ def _auditer(
         config=config.for_checks(),
         debug=args.debug,
     )
-    rapport = build_report(audit, argv=argv, config=config)
+    rapport = build_report(audit, argv=argv, config=config, authorization=autorisation)
     texte_json = dumps_report(rapport)
     octets = texte_json.encode("utf-8")
     if chemin is None:
@@ -802,6 +968,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     a.add_argument(
         "--target", default="localhost", type=_cible, help=f"cible : {FORMES}"
+    )
+    a.add_argument(
+        "--authorized-by",
+        type=_reference,
+        default=None,
+        metavar="REFERENCE",
+        help=(
+            "référence de l'autorisation écrite (lettre de mission) qui couvre "
+            "la cible, recopiée dans le rapport ; obligatoire sans périmètre "
+            "déclaré quand aucun terminal ne permet de confirmer la cible "
+            f"(sinon code {OUT_OF_SCOPE}), refusée avec un périmètre"
+        ),
     )
     a.add_argument(
         "--password-file",

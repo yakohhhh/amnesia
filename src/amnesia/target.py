@@ -133,6 +133,21 @@ def _ipv6(hote: str) -> str:
     return str(adresse)
 
 
+def normalize_host(brut: str) -> str:
+    """Hôte normalisé comme ``Target.address`` ; lève TargetError sinon.
+
+    IPv4, IPv6 (avec ou sans crochets) ou nom d'hôte, en minuscules et sans
+    point final : la forme sur laquelle une entrée de périmètre
+    (``amnesia.scope``) se compare à une cible.
+    """
+    _verifier_caracteres(brut)
+    if brut.startswith("[") and brut.endswith("]"):
+        return _ipv6(brut[1:-1])
+    if ":" in brut:
+        return _ipv6(brut)
+    return _nom_ou_ipv4(brut)
+
+
 def _port(brut: str) -> int:
     if not _PORT.fullmatch(brut) or not 1 <= int(brut) <= 65535:
         raise TargetError("port invalide : entier entre 1 et 65535 attendu")

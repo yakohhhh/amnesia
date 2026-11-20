@@ -116,9 +116,56 @@
       "description": "SHA-256 (hexadécimal) du JSON canonique de la configuration effective : mission, profil, rapport et seuils ; depuis 1.1.0.",
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope": {
+      "description": "Base d'autorisation de l'audit, établie avant toute collecte (docs/perimetre.md) ; depuis 1.2.0. null si le rapport n'a pas été produit par la commande audit.",
+      "type": ["object", "null"],
+      "required": ["basis", "source", "mission_id", "sha256", "authorization"],
+      "properties": {
+        "basis": {
+          "description": "Sur quoi repose l'autorisation : « scope », cible comparée au périmètre déclaré et incluse ; « authorized-by », aucun périmètre, référence déclarée par --authorized-by, cible non vérifiée ; « confirmation », aucun périmètre, nom de la cible ressaisi au terminal ; « offline », bundle, aucun système joint et aucun contrôle appliqué.",
+          "enum": ["scope", "authorized-by", "confirmation", "offline"]
+        },
+        "source": {
+          "description": "D'où vient le périmètre déclaré : « mission » pour la section [scope] du fichier de mission, « --scope » pour un fichier de périmètre ; null sans périmètre.",
+          "enum": ["mission", "--scope", null]
+        },
+        "mission_id": { "description": "Identifiant de mission du périmètre ; null sans périmètre.", "type": ["string", "null"], "minLength": 1 },
+        "sha256": {
+          "description": "SHA-256 (hexadécimal) du JSON canonique du périmètre déclaré, signataire compris ; null sans périmètre.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorization": {
+          "description": "Autorisation écrite : celle du périmètre, sinon la référence déclarée par --authorized-by.",
+          "type": "object",
+          "required": ["reference", "date"],
+          "properties": {
+            "reference": { "description": "Référence de l'autorisation écrite (lettre de mission) ; null si aucune n'a été déclarée.", "type": ["string", "null"], "minLength": 1 },
+            "date": { "description": "Date de l'autorisation écrite, ISO 8601 ; null sans périmètre.", "type": ["string", "null"], "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+          }
+        },
+        "valid_from": { "description": "Premier jour de validité du périmètre, date ISO 8601 ; null sans périmètre.", "type": ["string", "null"], "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "valid_until": { "description": "Dernier jour de validité du périmètre, inclus ; null sans périmètre.", "type": ["string", "null"], "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "active_tests": { "description": "Vrai si le périmètre autorise les tests actifs ; faux par défaut et sans périmètre.", "type": "boolean" },
+        "include": { "description": "Inclusions du périmètre ; null sans périmètre.", "oneOf": [{ "$ref": "#/$defs/scope_rules" }, { "type": "null" }] },
+        "exclude": { "description": "Exclusions du périmètre, prioritaires sur les inclusions ; null sans périmètre.", "oneOf": [{ "$ref": "#/$defs/scope_rules" }, { "type": "null" }] }
+      }
     }
   },
   "$defs": {
+    "scope_rules": {
+      "description": "Règles typées d'un périmètre, normalisées et triées ; une liste vide si le type n'est pas déclaré.",
+      "type": "object",
+      "properties": {
+        "hosts": { "description": "Noms d'hôte ou adresses IP exacts.", "type": "array", "items": { "type": "string" } },
+        "dns": { "description": "Motifs « *.domaine » : un seul label en inclusion, toute profondeur en exclusion.", "type": "array", "items": { "type": "string" } },
+        "ad_domains": { "description": "Domaines Active Directory.", "type": "array", "items": { "type": "string" } },
+        "cidrs": { "description": "Plages d'adresses IPv4 ou IPv6, en notation CIDR.", "type": "array", "items": { "type": "string" } },
+        "entra_tenants": { "description": "GUID de tenants Entra.", "type": "array", "items": { "type": "string" } },
+        "aws_accounts": { "description": "Identifiants de comptes AWS (12 chiffres).", "type": "array", "items": { "type": "string" } }
+      }
+    },
     "timestamp": {
       "description": "Horodatage RFC 3339 en UTC, suffixe Z.",
       "type": "string",

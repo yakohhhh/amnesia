@@ -18,6 +18,10 @@ Code  Signification
       « conforme ». ``not_applicable`` ne rend pas l'audit incomplet
 4     erreur fatale : aucune cible exploitable, rapport impossible à écrire ou
       à lire
+5     audit refusé avant toute collecte : cible hors du périmètre autorisé,
+      périmètre expiré ou pas encore valide, ou aucune autorisation déclarée
+      (``amnesia.scope``) ; aucune connexion n'a été ouverte, aucun rapport
+      n'est écrit
 130   interruption (Ctrl-C) ; un rapport partiel est écrit avec
       ``run.interrupted = true``
 ====  =========================================================================
@@ -50,6 +54,10 @@ INCOMPLETE = 3
 FATAL = 4
 """Erreur fatale : aucune cible exploitable, rapport impossible à écrire ou à lire."""
 
+OUT_OF_SCOPE = 5
+"""Audit refusé avant toute collecte : cible hors du périmètre autorisé, hors de
+sa période de validité, ou sans autorisation déclarée ; aucune connexion."""
+
 INTERRUPTED = 130
 """Interruption Ctrl-C ; rapport partiel écrit avec ``run.interrupted = true``."""
 
@@ -75,6 +83,12 @@ TABLE: tuple[tuple[int, str], ...] = (
         FATAL,
         "erreur fatale : aucune cible exploitable, rapport impossible à écrire "
         "ou à lire",
+    ),
+    (
+        OUT_OF_SCOPE,
+        "audit refusé avant toute collecte : cible hors du périmètre autorisé "
+        "(--scope), périmètre expiré ou pas encore valide, ou aucune "
+        "autorisation déclarée (--authorized-by) ; aucune connexion ouverte",
     ),
     (INTERRUPTED, "interruption (Ctrl-C) ; rapport partiel, run.interrupted = true"),
 )
@@ -130,6 +144,7 @@ __all__ = [
     "INTERRUPTED",
     "NEVER",
     "OK",
+    "OUT_OF_SCOPE",
     "TABLE",
     "USAGE",
     "exit_code",
