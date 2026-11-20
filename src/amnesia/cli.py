@@ -84,8 +84,14 @@ from .render import (
     load_report,
     render_report,
 )
-from .report import build_report, dumps_report, schema_bytes, schema_text
-from .runner import run_audit
+from .report import (
+    ReportPrivacyError,
+    build_report,
+    dumps_report,
+    schema_bytes,
+    schema_text,
+)
+from .runner import new_run_id, run_audit
 from .secrets import Secret, SecretError, resolve
 from .target import FORMES, Target, TargetError, Transport
 
@@ -536,10 +542,14 @@ def _collecteur(target: Target, raw: RawSink | None = None) -> Collector:
     return _CollecteurAbsent(target.transport)
 
 
-def _sorties_brutes() -> RawSink | int:
-    """Dossier des sorties brutes (``--keep-raw``), ou un code s'il est refusé."""
+def _sorties_brutes(run_id: str) -> RawSink | int:
+    """Dossier des sorties brutes (``--keep-raw``), ou un code s'il est refusé.
+
+    Sous-dossier propre à l'exécution, nommé d'après ``run_id`` : le ``run.id``
+    du rapport désigne ainsi le lot de sorties brutes à supprimer.
+    """
     try:
-        return keep_raw()
+        return keep_raw(run_id=run_id)
     except UnsafeDestinationError as exc:
         logger.error("--keep-raw : dossier refusé : %s", exc.strerror or exc)
         return USAGE
@@ -764,9 +774,10 @@ def _auditer(
             return code
     # instances neuves : aucun etat ne passe d'un audit a l'autre
     checks = default_checks()
+    run_id = new_run_id()
     if args.keep_raw:
         # opt-in (#41) : sans lui, aucune sortie brute n'est ecrite sur disque
-        brut = _sorties_brutes()
+        brut = _sorties_brutes(run_id)
         if isinstance(brut, int):
             return brut
         collecteur = _collecteur(args.target, brut)
@@ -778,8 +789,16 @@ def _auditer(
         collecteur,
         config=config.for_checks(),
         debug=args.debug,
+        run_id=run_id,
     )
-    rapport = build_report(audit, argv=argv, config=config)
+    try:
+        rapport = build_report(audit, argv=argv, config=config)
+    except ReportPrivacyError as exc:
+        # minimisation (#41) : un rapport qui porterait un texte hors schema
+        # n'est ni ecrit ni affiche ; les ecarts citent des chemins, jamais
+        # une valeur
+        logger.error("rapport non écrit : %s", exc)
+        return FATAL
     texte_json = dumps_report(rapport)
     octets = texte_json.encode("utf-8")
     if chemin is None:
@@ -865,7 +884,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "garde les sorties brutes des commandes de collecte dans "
-            "amnesia-out/raw (0700) ; par défaut rien n'est gardé : elles "
+            "amnesia-out/raw/<run.id> (0700), avec un avertissement que "
+            "--quiet ne masque pas ; par défaut rien n'est gardé : elles "
             "peuvent contenir des données personnelles (docs/DONNEES.md)"
         ),
     )

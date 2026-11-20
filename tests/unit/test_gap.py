@@ -32,6 +32,7 @@ from amnesia.checks.base import (
     Severity,
     _lisible,
 )
+from amnesia.privacy import LIST_MAX_LENGTH, LOG_MODES
 
 GRILLE = Path(__file__).resolve().parents[2] / "docs" / "severite.md"
 VALEURS = "critical, high, medium, low, info"
@@ -458,9 +459,12 @@ def test_chemin_d_erreur_construit_seulement_en_cas_d_erreur() -> None:
     assert time.process_time() - debut < 1
     assert len(str(hors_schema.value)) < 200
     assert "AAAA" not in str(hors_schema.value)
-    # hors chrono : une preuve volumineuse du schema reste admise
-    preuve = _preuve(observed=[0] * 300_000, details={"channels": ["S"] * 300_000})
-    assert len(preuve.details["channels"]) == 300_000  # type: ignore[arg-type]
+    # hors chrono : une liste du schema est bornee (LIST_MAX_LENGTH) ; a la
+    # borne, elle reste admise
+    preuve = _preuve(
+        observed=[0] * LIST_MAX_LENGTH, details={"channels": ["S"] * LIST_MAX_LENGTH}
+    )
+    assert len(preuve.details["channels"]) == LIST_MAX_LENGTH  # type: ignore[arg-type]
     # en cas d'erreur, le chemin de la valeur fautive est donne une seule fois
     with pytest.raises(TypeError) as erreur:
         _preuve(details={"channels": [0, object()]})
@@ -602,10 +606,13 @@ def test_confiance_en_chaine_convertie() -> None:
 
 
 # preuves du schema ferme (amnesia.privacy, #41) : nombres, booleens, noms de
-# parametres de 256 caracteres au plus (sans NaN ni infini, hors JSON)
+# parametres sans espace, noms de journaux (sans NaN ni infini, hors JSON)
 ENTIERS = st.integers(min_value=-(2**63), max_value=2**64 - 1)
 FLOTTANTS = st.floats(allow_nan=False, allow_infinity=False)
-PARAMETRES = st.text(max_size=256)
+PARAMETRES = st.from_regex(r"[A-Za-z0-9_.:\\/{}*-]{1,256}", fullmatch=True)
+JOURNAUX = st.from_regex(
+    r"[A-Za-z0-9_./-]{1,40}( [A-Za-z0-9_./-]{1,40}){0,2}", fullmatch=True
+)
 SCALAIRES: st.SearchStrategy[JSON] = (
     st.none() | st.booleans() | ENTIERS | FLOTTANTS | PARAMETRES
 )
@@ -617,8 +624,9 @@ DETAILS: st.SearchStrategy[dict[str, JSON]] = st.fixed_dictionaries(
         "events_per_day": st.none() | FLOTTANTS,
         "retention_days": st.none() | st.floats(min_value=0, allow_infinity=False),
         "enabled": st.none() | st.booleans(),
-        "log_mode": st.none() | PARAMETRES,
-        "channels": st.lists(PARAMETRES, max_size=4),
+        "log_mode": st.none() | st.sampled_from(LOG_MODES),
+        "setting": st.none() | PARAMETRES,
+        "channels": st.lists(JOURNAUX, max_size=4),
     },
 )
 

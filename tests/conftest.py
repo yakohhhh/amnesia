@@ -41,7 +41,7 @@ from typing import Any, NoReturn
 import pytest
 import pytest_socket
 
-from amnesia import cli
+from amnesia import cli, privacy
 from amnesia.checks import Check, Gap
 from amnesia.checks.base import CheckResult, Confidence, Evidence, Severity
 from amnesia.checks.context import Context
@@ -192,6 +192,19 @@ def _repertoire_courant_isole(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     # le rapport par defaut (amnesia-out/amnesia-report.json) est relatif au repertoire
     # courant : aucun test ne doit pouvoir l'ecrire dans le depot
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _schemas_de_faits_isoles() -> Generator[None, None, None]:
+    # un schema de fait ne se retire ni ne se remplace par l'API publique
+    # (amnesia.privacy.declare_fact_schema) : ceux qu'un test declare pour ses
+    # faits factices ne survivent pas au test
+    declares = dict(privacy.FACT_SCHEMAS)
+    try:
+        yield
+    finally:
+        privacy._schemas_de_faits.clear()
+        privacy._schemas_de_faits.update(declares)
 
 
 class CheckFactice(Check):

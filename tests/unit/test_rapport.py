@@ -44,6 +44,7 @@ from amnesia.checks.context import Context
 from amnesia.cli import main
 from amnesia.config import load_config
 from amnesia.facts import Fact, FactSet
+from amnesia.privacy import FACT_SCHEMAS, FactSchema, Nature, declare_fact_schema
 from amnesia.report import (
     MASK,
     PATH_OPTIONS,
@@ -68,6 +69,19 @@ RUN_ID = "5f0c6b1e-8a3d-4c2b-9e7f-1a2b3c4d5e6f"
 RFC3339_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
 SCHEMA = load_schema()
 VALIDATEUR = jsonschema.Draft202012Validator(SCHEMA)
+
+
+def fait_observe(nom: str, *, source: str = "test") -> Fact:
+    """Fait observé d'un collecteur factice, admis quel que soit son nom.
+
+    Un fait observé sans schéma déclaré est refusé (#41) : un nom factice en
+    reçoit un, booléen, le temps du test (conftest, ``_schemas_de_faits_isoles``).
+    La valeur est ``None`` (option absente de la cible), que tout schéma admet.
+    """
+    base = nom.partition(":")[0]
+    if base not in FACT_SCHEMAS:
+        declare_fact_schema(FactSchema(base, "fait factice", scalar=Nature.BOOLEAN))
+    return Fact.ok(nom, None, source=source, collected_at=INSTANT)
 
 
 def _strict(schema: Any) -> Any:
@@ -173,9 +187,7 @@ class CollecteurFactice:
     def collect(
         self, target: Target, names: Iterable[str], *, timeout: float
     ) -> FactSet:
-        return FactSet(
-            Fact.ok(nom, True, source="test", collected_at=INSTANT) for nom in names
-        )
+        return FactSet(fait_observe(nom) for nom in names)
 
 
 def auditer(checks: Iterable[Check | type[Check]]) -> AuditResult:

@@ -47,7 +47,7 @@ en vient, et un test vérifie qu'elles concordent.
 | Données de mission : client, référence, auditeur ou équipe (`declared_auditor`), dates, marquage TLP, profil | Fichier de mission `amnesia.toml`, saisi par l'auditeur ; rien n'est lu sur la cible | Identifier le livrable, son auteur et son destinataire | Rapport (`mission`, `run.profile`) ; ce que le fichier ne renseigne pas vaut `null` | Celle du rapport |
 | Ligne de commande de l'audit | Poste de l'auditeur | Reproduire l'audit | Rapport (`run.argv`), secrets et chemins masqués | Celle du rapport |
 | Diagnostics d'un check qui n'a pas conclu | amnesia | Expliquer pourquoi un point n'a pas été évalué | Rapport (`results[].message`, `results[].error`), journal | Celle du rapport et du journal |
-| Sorties brutes des commandes de collecte | Cible | Diagnostic d'un collecteur, sur demande explicite | Aucun par défaut ; `amnesia-out/raw/` avec `--keep-raw` | À supprimer dès la fin de l'analyse |
+| Sorties brutes des commandes de collecte | Cible | Diagnostic d'un collecteur, sur demande explicite | Aucun par défaut ; `amnesia-out/raw/<run.id>/` avec `--keep-raw` | À supprimer dès la fin de l'analyse |
 
 amnesia ne supprime aucun fichier de lui-même : la durée de conservation du
 rapport et du journal est celle que fixe le contrat entre l'auditeur et son
@@ -89,10 +89,17 @@ Propriétés d'un événement qu'aucun script de collecte ne lit ni ne nomme :
 contenu entier d'un événement (`ToXml`, `FormatDescription`) sont refusées de
 la même façon.
 
-Champs d'`EventData` : `EventData`, `UserData`, `TargetUserName`,
-`TargetDomainName`, `TargetUserSid`, `TargetLogonId`, `SubjectUserName`,
-`SubjectDomainName`, `SubjectUserSid`, `SubjectLogonId`, `IpAddress`, `IpPort`,
-`WorkstationName`.
+Champs d'`EventData` et de l'enveloppe d'un événement : `EventData`,
+`UserData`, `TargetUserName`, `TargetDomainName`, `TargetUserSid`,
+`TargetLogonId`, `SubjectUserName`, `SubjectDomainName`, `SubjectUserSid`,
+`SubjectLogonId`, `IpAddress`, `IpPort`, `WorkstationName`, `Xml`, `User`,
+`UserName`, `AccountName`, `AccountDomain`, `Computer`, `ComputerName`,
+`LogonId`, `TargetSid`, `ProcessName`, `CommandLine`, `ParentCommandLine`.
+
+Cette liste nomme ce qui est refusé ; elle ne prétend pas être complète. Ce
+qui garantit qu'aucun contenu d'événement ne devient un fait est le schéma
+fermé de la section « Faits » : une clé qu'il ne déclare pas est refusée,
+qu'elle figure ou non dans la liste ci-dessus.
 
 Trois contrôles, indépendants :
 
@@ -112,49 +119,97 @@ Trois contrôles, indépendants :
    variable est refusé de même : l'analyse ne suit pas ce qu'elle devient.
    `Get-WinEvent -ListLog` et `-ListProvider` rendent une configuration et ne
    sont pas concernés.
-2. **Faits.** Un fait dont la valeur porte une des clés ci-dessus, à n'importe
-   quelle profondeur et quelle que soit la casse, est refusé en entier
-   (`FactsFormatError`) : un bundle importé ou un collecteur fautif ne fait pas
-   entrer un événement dans l'audit. Le check qui l'attendait est en erreur,
-   jamais conforme.
-3. **Preuves et rapport.** Voir la section suivante.
+2. **Faits.** La valeur d'un fait suit le schéma fermé déclaré pour son nom
+   (section « Faits ») ; un fait sans schéma, une clé inconnue ou une valeur
+   d'une autre nature sont refusés en entier (`FactsFormatError`). En plus, un
+   fait dont la valeur porte une des clés ci-dessus, à n'importe quelle
+   profondeur, est refusé en la nommant ; la comparaison ignore la casse, les
+   espaces, la ponctuation et les formes de compatibilité Unicode (`Message`,
+   `message` suivi d'une espace, sa forme en pleine chasse et
+   `target_user_name` sont reconnus). Un bundle importé ou un collecteur
+   fautif ne fait pas entrer un événement dans l'audit. Le check qui attendait
+   le fait est en erreur, jamais conforme.
+3. **Preuves et rapport.** Voir la section « Preuve d'un angle mort ».
 
-Aucun message de refus ne reprend la valeur refusée, ni une clé inconnue.
+Aucun message de refus ne reprend la valeur refusée, ni une clé reçue : il
+cite le nom du fait, un champ du schéma et une profondeur. Dans un fait qui
+serait indexé par compte ou par poste, la clé est elle-même la donnée.
 
 Collecteurs cloud à venir (#95) : pour Microsoft Graph, seul `createdDateTime`
 sera sérialisé (`$select` là où l'API le permet), jamais `userPrincipalName`,
 `ipAddress` ni `location` d'un journal de connexion ; pour AWS, lecture de
 configuration uniquement.
 
+## Faits
+
+La valeur d'un fait observé suit un schéma fermé, déclaré par nom de fait dans
+`amnesia.privacy.FACT_SCHEMAS` : les clés admises, la nature de chaque valeur,
+sa forme et sa longueur. **Un fait dont le nom n'a pas de schéma déclaré est
+refusé**, quelle que soit sa valeur ; un fait indisponible, qui n'a pas de
+valeur, n'en demande pas.
+
+| Fait | Contenu |
+|---|---|
+| `windows.auditpol.backup` | Politique d'audit avancée : pour chaque sous-catégorie, son GUID et sa valeur numérique |
+| `windows.eventlog.config` | Configuration et métadonnées d'un journal (désigné par le qualificatif, `:Security`) : tailles, nombre d'enregistrements, mode de rétention, activation, horodatages du plus ancien et du plus récent événement |
+| `windows.powershell.logging_policy` | Stratégies de journalisation de PowerShell : blocs de script, modules (et leurs noms), transcription |
+| `windows.sysmon.service` | Service Sysmon : présence, nom, état, mode de démarrage, version |
+| `windows.sysmon.config` | Configuration chargée par Sysmon : version de schéma, empreinte, algorithmes, nombre de règles |
+| `windows.w32time.config` | Service de temps : mode de synchronisation, nombre de serveurs NTP (pas leurs noms), état et démarrage du service, intervalle |
+| `windows.w32time.status` | Synchronisation horaire : synchronisée ou non, strate, dernière synchronisation, écart |
+
+Le détail des champs est dans [`docs/dev/faits.md`](dev/faits.md). Dans tout
+schéma :
+
+- une valeur est un nombre (fini, borné), une durée, un horodatage avec
+  fuseau, un booléen, ou un **paramètre** ; un paramètre est une valeur d'une
+  énumération (`Circular`, `AutoBackup`, `Retain`) ou un texte d'une forme
+  bornée prise dans une liste fermée : nom de journal (128 caractères), nom de
+  paramètre sans espace (256), nom de service ou de module (128), GUID,
+  empreinte hexadécimale, numéro de version. Aucune nature n'admet un texte
+  libre, et un fait n'est jamais un texte seul ;
+- une liste a 256 éléments au plus ;
+- un qualificatif (`:Security`) n'est admis que si le schéma en déclare la
+  forme.
+
+Un collecteur qui rend un fait nouveau en déclare le schéma par
+`amnesia.privacy.declare_fact_schema()`, et l'ajoute à cette table dans la
+même PR : chaque donnée nouvelle passe ainsi en revue. Un schéma déclaré ne se
+remplace pas.
+
 ## Preuve d'un angle mort
 
 La preuve d'un Gap (`gaps[].evidence`) suit un schéma fermé : des nombres, des
 durées, des horodatages et des noms de paramètres. Une clé absente de la table
 est refusée à la construction (`ValueError`), comme une valeur d'une autre
-nature que celle déclarée.
+nature ou d'une autre forme que celle déclarée.
 
 | Clé de `details` | Nature | Contenu |
 |---|---|---|
 | `max_size_bytes` | nombre | Taille maximale du journal (`MaximumSizeInBytes`) |
 | `file_size_bytes` | nombre | Taille du fichier du journal (`FileSize`) |
 | `record_count` | nombre | Nombre d'enregistrements (`RecordCount`) |
-| `log_mode` | paramètre | Mode de rétention (`LogMode` : `Circular`, `AutoBackup`, `Retain`) |
+| `log_mode` | paramètre (énumération) | Mode de rétention (`LogMode` : `Circular`, `AutoBackup`, `Retain`) ; toute autre valeur est refusée |
 | `oldest_event_utc` | horodatage | Horodatage du plus ancien événement |
 | `newest_event_utc` | horodatage | Horodatage du plus récent événement |
 | `events_per_day` | nombre | Débit estimé |
 | `retention_days` | durée | Durée de conservation configurée, en jours |
 | `enabled` | booléen | Journal, stratégie ou service activé ou non |
-| `setting` | paramètre | Nom du paramètre en défaut |
-| `settings` | liste de paramètres | Noms des paramètres en défaut |
-| `channels` | liste de paramètres | Noms des journaux concernés |
+| `setting` | paramètre (sans espace, 256 caractères) | Nom du paramètre en défaut : valeur de registre, GUID de sous-catégorie d'audit |
+| `settings` | liste de paramètres (sans espace) | Noms des paramètres en défaut |
+| `channels` | liste de noms de journaux (128 caractères) | Noms des journaux concernés |
 
 `observed` et `expected` portent un nombre, un booléen, un horodatage, un nom
-ou une valeur de paramètre, une liste plate de ces valeurs, ou un dictionnaire
-aux clés de la table. Un texte y est borné à 256 caractères.
+ou une valeur de paramètre sans espace, une liste plate de ces valeurs, ou un
+dictionnaire aux clés de la table. Une liste a 256 éléments au plus. `source`
+nomme la commande ou l'API lue : une ligne imprimable de 256 caractères au
+plus.
 
-Limite : le schéma ferme les clés et type les valeurs, il ne lit pas le sens
-d'un texte court. Qu'un check ne range que des noms de paramètres dans une
-valeur de nature « paramètre » reste vérifié en revue, check par check.
+Limite : le schéma ferme les clés, type les valeurs et borne leur forme ; il
+ne lit pas le sens d'un texte court. Un paramètre sans espace ne peut pas être
+une phrase, mais un nom de compte y tiendrait, et un nom de journal admet des
+espaces. Qu'un check ne range que des noms de paramètres dans une valeur de
+nature « paramètre » reste vérifié en revue, check par check.
 
 Un check qui a besoin d'une nouvelle valeur l'ajoute à
 `amnesia.privacy.EVIDENCE_FIELDS` et à cette table, dans la même PR : chaque
@@ -162,8 +217,11 @@ donnée nouvelle passe ainsi en revue.
 
 Le rapport entier suit la même logique :
 `amnesia.privacy.report_text_violations()` parcourt un rapport JSON et signale
-tout champ texte hors de `REPORT_TEXT_FIELDS`. Un test l'applique aux rapports
-de référence et à ceux que produit `amnesia audit`.
+tout champ texte hors de `REPORT_TEXT_FIELDS`, toute clé de preuve hors schéma
+et tout texte de preuve d'une autre forme que celle déclarée. Ce contrôle est
+appliqué à chaque rapport avant son écriture (`amnesia.report.build_report`) :
+au premier écart, `amnesia audit` s'arrête en erreur (code 4) sans écrire ni
+afficher le rapport, et ne cite que le chemin du champ en cause.
 
 ## Sorties brutes
 
@@ -173,9 +231,15 @@ aucun cache d'un audit à l'autre.
 `amnesia audit --keep-raw` est un choix explicite, pour diagnostiquer un
 collecteur :
 
-- les sorties vont dans `amnesia-out/raw/`, créé en 0700 (ACL du seul compte
-  courant sous Windows), chaque fichier en 0600, le tout ignoré par git ;
-- un avertissement est affiché à chaque audit ;
+- les sorties vont dans `amnesia-out/raw/<run.id>/`, un sous-dossier par
+  exécution qui porte l'identifiant du rapport correspondant (`run.id`) :
+  dossiers créés en 0700 (ACL du seul compte courant sous Windows), chaque
+  fichier en 0600, le tout ignoré par git ;
+- un avertissement est affiché à chaque audit, y compris avec `--quiet` ; il
+  signale aussi un dossier qui se trouverait dans un dépôt git sans y être
+  ignoré (un `.gitignore` déjà présent n'est jamais réécrit) ;
+- une sortie qui ne peut pas être écrite (disque plein) est signalée sans
+  faire échouer la collecte ;
 - ces sorties n'entrent jamais dans le rapport ;
 - elles peuvent contenir des données personnelles : elles se suppriment dès la
   fin de l'analyse et ne se transmettent pas.

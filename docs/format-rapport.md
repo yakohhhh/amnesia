@@ -151,12 +151,16 @@ Forme de `Gap.to_dict()` (modèle Gap v1, #16 ; grille de sévérité :
 | `observed_window_days` | nombre ou `null` | Fenêtre couverte, en jours. |
 | `required_window_days` | nombre ou `null` | Fenêtre exigée, en jours. |
 | `confidence` | énumération | `measured` (lue), `estimated` (extrapolée) ou `assumed` (supposée). |
-| `source` | chaîne | Commande ou API lue, caviardée. |
+| `source` | chaîne | Commande ou API lue, caviardée : une ligne imprimable de 256 caractères au plus. |
 | `details` | objet | Valeurs brutes, aux clés d'un schéma fermé ([`DONNEES.md`](DONNEES.md)) ; un horodatage y est en RFC 3339 UTC. |
 
 Une preuve ne porte que des nombres, des durées, des horodatages et des noms de
-paramètres (#41) : `details` refuse toute clé hors schéma, et un texte de
-`observed` ou `expected` ne dépasse pas 256 caractères.
+paramètres (#41) : `details` refuse toute clé hors schéma et toute valeur
+d'une autre forme que celle déclarée (`log_mode` vaut `Circular`, `AutoBackup`
+ou `Retain`) ; un texte de `observed` ou `expected` est un nom ou une valeur
+de paramètre sans espace, de 256 caractères au plus ; une liste a 256 éléments
+au plus. amnesia applique ce contrôle au rapport entier avant de l'écrire
+([`DONNEES.md`](DONNEES.md)).
 
 `references[]` :
 
@@ -208,8 +212,9 @@ Ces règles s'appliquent à partir de la première publication d'amnesia
 fois sans changer de version : en `1.0.0`, depuis le catalogue de questions
 (#46), `tool.catalog_version` et `question_id` ne valent plus jamais `null` ;
 en `1.1.0`, depuis la minimisation des données (#41), `evidence.details`
-n'admet plus que les clés de son schéma, et un texte de `observed` ou
-`expected` est borné à 256 caractères.
+n'admet plus que les clés de son schéma, avec des valeurs de la forme
+déclarée, et un texte de `observed` ou `expected` est un paramètre sans
+espace, borné à 256 caractères.
 
 Versions du format :
 

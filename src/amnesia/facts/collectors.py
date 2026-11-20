@@ -155,7 +155,10 @@ def run_command(
 
     Minimisation (#41) : la sortie brute n'est écrite nulle part. ``raw``,
     absent par défaut, la reçoit quand l'auditeur a demandé à la garder
-    (``--keep-raw``) ; elle n'entre jamais dans le rapport.
+    (``--keep-raw``) ; elle n'entre jamais dans le rapport. Garder la sortie
+    est un à-côté du diagnostic : si ``raw`` échoue (``OSError`` : disque
+    plein, dossier retiré), l'échec est journalisé et la sortie est rendue
+    quand même, pour que le fait reste collecté.
     """
     _verifier_timeout(timeout)
     commande = check_command(argv)
@@ -168,7 +171,14 @@ def run_command(
         env=subprocess_env(),
     )
     if raw is not None:
-        raw(PureWindowsPath(commande[0]).stem, resultat.stdout)
+        try:
+            raw(PureWindowsPath(commande[0]).stem, resultat.stdout)
+        except OSError as exc:
+            # la commande a reussi : son fait ne doit pas devenir indisponible
+            # parce que sa copie brute n'a pas pu etre ecrite
+            logger.warning(
+                "--keep-raw : sortie brute non gardée : %s", exc.strerror or exc
+            )
     return resultat
 
 

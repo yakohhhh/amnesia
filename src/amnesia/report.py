@@ -67,6 +67,7 @@ from .checks import REGISTRY
 from .checks.base import CheckResult, Gap, assainir
 from .config import Config
 from .log import mask_secrets
+from .privacy import report_text_violations
 from .runner import AuditResult, AuditSummary
 from .target import Target
 
@@ -88,6 +89,27 @@ PATH_OPTIONS = ("--out", "--log-file", "--password-file", "--config")
 
 _CONTROLES_BRUTS = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]")
 """DEL, C1, bidi et U+2028/U+2029 : échappés en ``\\u009b`` par ``dumps_report()``."""
+
+
+class ReportPrivacyError(ValueError):
+    """Rapport refusé avant écriture : il sort du schéma de minimisation (#41).
+
+    ``violations`` : les écarts rendus par
+    ``amnesia.privacy.report_text_violations()``. Chacun donne un chemin du
+    rapport, jamais une valeur : le message peut être journalisé.
+    """
+
+    _APERCU = 5
+
+    def __init__(self, violations: Sequence[str]) -> None:
+        self.violations = tuple(violations)
+        apercu = " ; ".join(self.violations[: self._APERCU])
+        reste = len(self.violations) - self._APERCU
+        suite = f" ; et {reste} autre(s)" if reste > 0 else ""
+        super().__init__(
+            f"{len(self.violations)} écart(s) au schéma des champs admis "
+            f"(docs/DONNEES.md) : {apercu}{suite}"
+        )
 
 
 def load_schema() -> dict[str, Any]:
@@ -354,6 +376,12 @@ def build_report(
     cible, et enfin par ``Gap.sort_key()``. Aucun résultat n'est omis, quel que
     soit son statut.
 
+    Minimisation (#41) : avant d'être rendu, le rapport passe
+    ``amnesia.privacy.report_text_violations()``. Un champ texte hors de
+    ``REPORT_TEXT_FIELDS``, une clé de preuve hors schéma ou un texte de preuve
+    d'une autre forme que celle déclarée lève ``ReportPrivacyError`` : rien
+    n'est écrit.
+
     Lève ``ValueError`` si ``run_id`` n'est pas un UUID, si un horodatage n'a
     pas de fuseau ou si une version de check n'est pas un entier >= 1.
     """
@@ -389,6 +417,9 @@ def build_report(
         "summary": _resume(resultats),
     }
     resultat: dict[str, Any] = _sans_surrogates(rapport)
+    ecarts = report_text_violations(resultat)
+    if ecarts:
+        raise ReportPrivacyError(ecarts)
     return resultat
 
 

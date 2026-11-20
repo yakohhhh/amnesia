@@ -36,6 +36,7 @@ from amnesia.checks.base import (
 from amnesia.checks.context import Context
 from amnesia.facts import Fact, FactSet, UnavailableReason
 from amnesia.inputs import load_xml
+from amnesia.privacy import FACT_SCHEMAS, FactSchema, Nature, declare_fact_schema
 from amnesia.runner import DEFAULT_TIMEOUT, OPERATEUR_INCONNU, AuditSummary
 from amnesia.target import Target
 
@@ -43,6 +44,19 @@ CIBLE = Target.parse("winrm://dc01")
 INSTANT = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
 
 # --- collecteurs et checks factices ------------------------------------------
+
+
+def fait_observe(nom: str, *, source: str = "test") -> Fact:
+    """Fait observé d'un collecteur factice, admis quel que soit son nom.
+
+    Un fait observé sans schéma déclaré est refusé (#41) : un nom factice en
+    reçoit un, booléen, le temps du test (conftest, ``_schemas_de_faits_isoles``).
+    La valeur est ``None`` (option absente de la cible), que tout schéma admet.
+    """
+    base = nom.partition(":")[0]
+    if base not in FACT_SCHEMAS:
+        declare_fact_schema(FactSchema(base, "fait factice", scalar=Nature.BOOLEAN))
+    return Fact.ok(nom, None, source=source, collected_at=INSTANT)
 
 
 class CollecteurFactice:
@@ -60,7 +74,7 @@ class CollecteurFactice:
             self.appels[nom] += 1
             raison = self.indisponibles.get(nom)
             if raison is None:
-                faits.append(Fact.ok(nom, True, source="test", collected_at=INSTANT))
+                faits.append(fait_observe(nom))
             else:
                 faits.append(
                     Fact.unavailable(nom, raison, source="test", collected_at=INSTANT)
@@ -427,7 +441,8 @@ def test_fait_partage_collecte_une_fois_par_audit() -> None:
     fait = "windows.auditpol.backup"
 
     def lit(check: Factice, facts: FactSet, ctx: Context) -> CheckResult:
-        assert facts.value(fait) is True
+        assert facts[fait].available
+        assert facts.value(fait) is None
         return CheckResult.passed(check.id, ctx.target.id)
 
     checks = [Factice("test.a", lit, (fait,)), Factice("test.b", lit, (fait,))]

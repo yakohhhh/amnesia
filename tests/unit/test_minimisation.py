@@ -11,12 +11,15 @@ brute n'est ecrite sur disque que sur demande (--keep-raw).
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
+import shutil
 import stat
 import subprocess
 import sys
-from collections.abc import Iterable
+import uuid
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,7 +27,7 @@ from typing import Any
 import pytest
 
 from amnesia import cli
-from amnesia.checks import Check
+from amnesia.checks import REGISTRY, Check
 from amnesia.checks.base import (
     CheckResult,
     Confidence,
@@ -34,7 +37,7 @@ from amnesia.checks.base import (
 )
 from amnesia.checks.context import Context
 from amnesia.cli import main
-from amnesia.exitcodes import OK
+from amnesia.exitcodes import FATAL, GAPS, OK
 from amnesia.facts import (
     Collector,
     Fact,
@@ -42,6 +45,7 @@ from amnesia.facts import (
     FactsFormatError,
     FixtureCollector,
     LocalCollector,
+    UnavailableReason,
     load_facts,
     run_command,
 )
@@ -51,17 +55,31 @@ from amnesia.privacy import (
     EVENT_METADATA,
     EVENT_PROPERTIES,
     EVIDENCE_FIELDS,
+    FACT_SCHEMAS,
+    LIST_MAX_LENGTH,
+    NUMBER_MAX,
     PERSONAL_FIELDS,
     REPORT_TEXT_FIELDS,
     SETTING_MAX_LENGTH,
+    SOURCE_MAX_LENGTH,
+    EvidenceField,
+    FactField,
+    FactSchema,
+    Nature,
+    TextFormat,
     check_evidence,
     check_evidence_keys,
+    check_fact_value,
     check_script_privacy,
+    check_source,
+    declare_fact_schema,
     event_content_field,
+    normalize_key,
     report_text_violations,
 )
 from amnesia.readonly import check_script_inventory
-from amnesia.report import load_schema
+from amnesia.report import ReportPrivacyError, load_schema
+from amnesia.runner import new_run_id, run_audit
 from amnesia.target import Target
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -72,6 +90,7 @@ FAIT = "windows.eventlog.oldest:Security"
 INSTANT = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
 # valeurs fictives du critere d'acceptation : compte, adresse IP, poste
 VALEURS = ("jdupont", "10.1.2.3", "PC-COMPTA")
+RUN_ID = "3f2b8c1e-5d4a-4f6b-9a7c-0e1d2c3b4a59"
 WEVTUTIL = "C:\\Windows\\System32\\wevtutil.exe"
 
 posix = pytest.mark.skipif(sys.platform == "win32", reason="droits POSIX")
@@ -291,7 +310,10 @@ def test_preuve_conforme_au_schema() -> None:
         "retention_days": 0,
         "enabled": False,
         "setting": "EnableScriptBlockLogging",
-        "settings": ["Logon", "Process Creation"],
+        "settings": [
+            "{0CCE9215-69AE-11D9-BED3-505054503030}",
+            "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell",
+        ],
         "channels": ["Security", "Microsoft-Windows-Sysmon/Operational"],
     }
     assert set(details) == set(EVIDENCE_FIELDS)
@@ -531,22 +553,24 @@ def test_avec_keep_raw_sortie_brute_dans_un_dossier_prive(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.WARNING):
-        depot = keep_raw()
-    dossier = tmp_path / "amnesia-out" / RAW_DIR
+        depot = keep_raw(run_id=RUN_ID)
+    # un sous-dossier par execution, nomme d'apres le run.id du rapport
+    dossier = tmp_path / "amnesia-out" / RAW_DIR / RUN_ID
     assert depot.directory.resolve() == dossier.resolve()
     (avertissement,) = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert "--keep-raw" in avertissement.getMessage()
     assert "données personnelles" in avertissement.getMessage()
     run_command([WEVTUTIL, "gl", "Security"], timeout=5, raw=depot)
     run_command([WEVTUTIL, "gl", "System"], timeout=5, raw=depot)
-    fichiers = sorted(f.name for f in dossier.iterdir() if f.name != ".gitignore")
+    fichiers = sorted(f.name for f in dossier.iterdir())
     assert fichiers == ["0001-wevtutil.bin", "0002-wevtutil.bin"]
     assert (dossier / fichiers[0]).read_bytes() == b"sortie brute"
     # ignores par git, comme le rapport
-    assert (dossier / ".gitignore").read_bytes() == b"*\n"
+    assert (dossier.parent / ".gitignore").read_bytes() == b"*\n"
     if sys.platform != "win32":
         assert _mode(dossier) == 0o700
         assert _mode(dossier.parent) == 0o700
+        assert _mode(dossier.parent.parent) == 0o700
         assert _mode(dossier / fichiers[0]) == 0o600
 
 
@@ -555,8 +579,10 @@ def test_dossier_brut_existant_ramene_en_0700(tmp_path: Path) -> None:
     dossier = tmp_path / "brut"
     dossier.mkdir(mode=0o755)
     dossier.chmod(0o755)
-    keep_raw(dossier)
+    depot = keep_raw(dossier)
     assert _mode(dossier) == 0o700
+    assert depot.directory.parent == dossier
+    assert _mode(depot.directory) == 0o700
 
 
 def test_nom_de_sortie_brute_reduit_a_un_nom_de_fichier(tmp_path: Path) -> None:
@@ -584,15 +610,17 @@ def test_audit_avec_keep_raw_dossier_prive_et_avertissement(
 ) -> None:
     rapport = tmp_path / "rapport.json"
     main(["audit", "--keep-raw", "--out", str(rapport)])
-    dossier = tmp_path / "amnesia-out" / RAW_DIR
+    texte = rapport.read_text(encoding="utf-8")
+    # le dossier de l'execution porte le run.id du rapport
+    dossier = tmp_path / "amnesia-out" / RAW_DIR / json.loads(texte)["run"]["id"]
     assert dossier.is_dir()
     if sys.platform != "win32":
         assert _mode(dossier) == 0o700
+        assert _mode(dossier.parent) == 0o700
     erreur = capsys.readouterr().err
-    assert "--keep-raw" in erreur
+    assert erreur.count("--keep-raw") == 1
     assert "données personnelles" in erreur
     # les sorties brutes n'entrent jamais dans le rapport
-    texte = rapport.read_text(encoding="utf-8")
     assert RAW_DIR not in json.loads(texte)
     assert report_text_violations(json.loads(texte)) == []
 
@@ -619,6 +647,696 @@ def test_collecteur_local_recoit_le_depot_des_sorties_brutes(tmp_path: Path) -> 
     assert isinstance(sans, LocalCollector)
     assert avec.raw is depot
     assert sans.raw is None
+
+
+# --- seconde revue : schema ferme des faits (constat 1) ---------------------------
+
+JOURNAL = "windows.eventlog.config:Security"
+AUDITPOL = "windows.auditpol.backup"
+GUID_LOGON = "{0CCE9215-69AE-11D9-BED3-505054503030}"
+PHRASE = "Account Name: alice"
+
+
+def _fait(valeur: object, nom: str = JOURNAL) -> Fact:
+    return Fact.ok(nom, valeur, source="collecteur factice", collected_at=INSTANT)
+
+
+@pytest.mark.parametrize(
+    ("cle", "nom"),
+    [
+        ("message ", "Message"),
+        (" Message\t", "Message"),
+        # espace sans chasse, pleine chasse (formes de compatibilite, NFKC)
+        ("Message\u200b", "Message"),
+        ("\uff2d\uff45\uff53\uff53\uff41\uff47\uff45", "Message"),
+        ("MESSAGE", "Message"),
+        ("target_user_name", "TargetUserName"),
+        ("Target-User.Name", "TargetUserName"),
+        ("event_data", "EventData"),
+        ("ip address", "IpAddress"),
+        ("machine_name", "MachineName"),
+        ("Xml", "Xml"),
+        ("User", "User"),
+        ("account_name", "AccountName"),
+        ("Computer", "Computer"),
+        ("LogonId", "LogonId"),
+        ("TargetSid", "TargetSid"),
+        ("process_name", "ProcessName"),
+        ("COMMANDLINE", "CommandLine"),
+    ],
+)
+def test_champ_d_evenement_reconnu_quelle_que_soit_sa_graphie(
+    cle: str, nom: str
+) -> None:
+    assert event_content_field(cle) == nom
+    with pytest.raises(FactsFormatError, match="contenu d'événement refusé") as erreur:
+        _fait({cle: PHRASE})
+    # le nom cite est celui du module ; ni la cle recue ni la valeur
+    assert f"({nom})" in str(erreur.value)
+    assert "alice" not in str(erreur.value)
+
+
+def test_normalisation_des_cles() -> None:
+    assert normalize_key("Target_User-Name \u200b") == "targetusername"
+    assert normalize_key("\uff2d\uff53\uff47") == "msg"
+    # un homoglyphe cyrillique n'est pas ramene a sa lettre latine : il n'est
+    # pas reconnu ici, et c'est le schema ferme qui le refuse
+    assert event_content_field("\u041cessage") is None
+    assert normalize_key("") == ""
+
+
+@pytest.mark.parametrize(
+    "valeur",
+    [
+        # contournements de la liste noire releves en revue : cle abregee,
+        # homoglyphe, champ reel absent de la liste, contenu glisse dans une valeur
+        {"Msg": PHRASE},
+        {"\u041cessage": PHRASE},
+        {"Description": PHRASE},
+        {"data": [{"Name": "TargetUserName", "Value": "alice"}]},
+        {"data": [{"k": "alice"}]},
+        {"log_mode": PHRASE},
+        {"log_mode": "alice" * 2000},
+        {"log_mode": ["alice"]},
+        {"max_size_bytes": "alice"},
+        {"max_size_bytes": {"alice": 1}},
+        {"oldest_event_utc": "alice"},
+        {"oldest_event_utc": "2026-10-17T09:30:00Z alice"},
+        {"enabled": "alice"},
+        {"record_count": ["alice"]},
+        "alice",
+        ["alice"],
+        [{"log_mode": "Circular"}],
+    ],
+)
+def test_contournement_de_la_liste_noire_refuse_par_le_schema(valeur: Any) -> None:
+    with pytest.raises(FactsFormatError, match=r"hors (du )?schéma") as erreur:
+        _fait(valeur)
+    message = str(erreur.value)
+    # ni la valeur, ni la cle recue
+    for interdit in ("alice", "Msg", "essage", "Description", "data"):
+        assert interdit not in message
+    assert "windows.eventlog.config" in message
+
+
+@pytest.mark.parametrize(
+    "nom",
+    [
+        "windows.inconnu",
+        "windows.eventlog.oldest:Security",
+        "aws.cloudtrail.trails",
+        "ad.krbtgt.password_last_set",
+    ],
+)
+@pytest.mark.parametrize("valeur", [None, True, 1, {"enabled": True}, "texte"])
+def test_fait_sans_schema_declare_refuse(nom: str, valeur: Any) -> None:
+    assert nom.partition(":")[0] not in FACT_SCHEMAS
+    with pytest.raises(FactsFormatError, match="aucun schéma déclaré"):
+        _fait(valeur, nom)
+    # un fait indisponible n'a pas de valeur : aucun schema a lui opposer
+    indisponible = Fact.unavailable(
+        nom, UnavailableReason.NOT_COLLECTED, source="s", collected_at=INSTANT
+    )
+    assert not indisponible.available
+
+
+def test_qualificatif_admis_seulement_si_le_schema_le_declare() -> None:
+    assert _fait(None, "windows.eventlog.config:Windows PowerShell").available
+    assert _fait(None, AUDITPOL).available
+    with pytest.raises(FactsFormatError, match="qualificatif hors du schéma") as erreur:
+        _fait(None, f"{AUDITPOL}:jdupont")
+    assert "jdupont" not in str(erreur.value)
+    check_fact_value(JOURNAL, None)
+    with pytest.raises(ValueError, match="qualificatif"):
+        check_fact_value("windows.eventlog.config:" + "S" * 129, None)
+
+
+def test_valeurs_de_fait_bornees() -> None:
+    sous_categorie = {"guid": GUID_LOGON, "setting_value": 3}
+    assert _fait({"subcategories": [sous_categorie] * LIST_MAX_LENGTH}, AUDITPOL)
+    assert _fait({"subcategories": None}, AUDITPOL).available
+    assert _fait({"max_size_bytes": NUMBER_MAX, "record_count": -NUMBER_MAX}).available
+    refus: list[tuple[str, Any]] = [
+        (AUDITPOL, {"subcategories": [sous_categorie] * (LIST_MAX_LENGTH + 1)}),
+        (AUDITPOL, {"subcategories": sous_categorie}),
+        (AUDITPOL, {"subcategories": [None]}),
+        (AUDITPOL, {"subcategories": [GUID_LOGON]}),
+        (AUDITPOL, {"subcategories": [{"guid": GUID_LOGON, "nom": "Logon"}]}),
+        (AUDITPOL, {"subcategories": [{"guid": "Logon de jdupont"}]}),
+        (AUDITPOL, {"subcategories": [{"setting_value": "3"}]}),
+        (JOURNAL, {"max_size_bytes": NUMBER_MAX + 1}),
+        # entier que float() ne sait pas representer : refuse, jamais une
+        # OverflowError
+        (JOURNAL, {"max_size_bytes": 10**400}),
+        (JOURNAL, {"events_per_day_inconnu": 1.0}),
+        (JOURNAL, {"record_count": True}),
+        (JOURNAL, {"enabled": 1}),
+        (JOURNAL, {"oldest_event_utc": "2026-10-17T09:30:00"}),
+        # fraction de seconde demesuree : fromisoformat la tronque, pas le schema
+        (JOURNAL, {"oldest_event_utc": "2026-10-17T09:30:00." + "1" * 60 + "Z"}),
+        ("windows.sysmon.service", {"state": "running"}),
+        ("windows.sysmon.service", {"service_name": "Sysmon de jdupont"}),
+        ("windows.sysmon.service", {"version": "15.15-jdupont"}),
+        ("windows.sysmon.config", {"config_hash": "jdupont"}),
+        ("windows.sysmon.config", {"hash_algorithms": ["SHA256", "jdupont"]}),
+        ("windows.powershell.logging_policy", {"module_names": ["a b"]}),
+        ("windows.powershell.logging_policy", {"module_names": ["x" * 129]}),
+        ("windows.w32time.config", {"poll_interval_seconds": -1}),
+        ("windows.w32time.config", {"type": "time.exemple.invalid"}),
+    ]
+    for nom, valeur in refus:
+        with pytest.raises(FactsFormatError, match=r"hors (du )?schéma") as erreur:
+            _fait(valeur, nom)
+        assert "profondeur" in str(erreur.value), valeur
+        assert "jdupont" not in str(erreur.value), valeur
+    # appel direct, sans le modele (qui refuse deja un flottant non fini)
+    for infini in (float("inf"), float("nan")):
+        with pytest.raises(ValueError, match="'max_size_bytes'"):
+            check_fact_value(JOURNAL, {"max_size_bytes": infini})
+
+
+EXEMPLES: dict[str, dict[str, Any]] = {
+    AUDITPOL: {"subcategories": [{"guid": GUID_LOGON, "setting_value": 3}]},
+    JOURNAL: {
+        "max_size_bytes": 20971520,
+        "file_size_bytes": 20975616,
+        "record_count": 31337,
+        "log_mode": "Circular",
+        "enabled": True,
+        "oldest_event_utc": "2026-10-17T09:30:00Z",
+        "newest_event_utc": "2026-10-21T09:30:00+02:00",
+    },
+    "windows.powershell.logging_policy": {
+        "script_block_logging": True,
+        "script_block_invocation_logging": False,
+        "module_logging": True,
+        "module_names": ["*", "Microsoft.PowerShell.*"],
+        "transcription": None,
+    },
+    "windows.sysmon.service": {
+        "installed": True,
+        "service_name": "Sysmon64",
+        "state": "Running",
+        "start_mode": "Automatic",
+        "version": "15.15",
+    },
+    "windows.sysmon.config": {
+        "loaded": True,
+        "schema_version": "4.90",
+        "config_hash": "a1" * 32,
+        "hash_algorithms": ["SHA256", "IMPHASH"],
+        "rule_count": 412,
+    },
+    "windows.w32time.config": {
+        "type": "NT5DS",
+        "ntp_server_count": 2,
+        "service_state": "Running",
+        "service_start_mode": "Automatic",
+        "poll_interval_seconds": 3600,
+    },
+    "windows.w32time.status": {
+        "synchronized": True,
+        "stratum": 3,
+        "last_sync_utc": "2026-10-21T09:00:00Z",
+        "offset_seconds": -0.0123,
+        "leap_indicator": 0,
+    },
+}
+
+
+def test_schemas_couvrent_les_faits_des_checks_livres() -> None:
+    requis = {nom for meta in REGISTRY.metas() for nom in meta.requires_facts}
+    assert requis
+    for nom in sorted(requis):
+        assert nom.partition(":")[0] in FACT_SCHEMAS, nom
+        assert nom in EXEMPLES, nom
+    # un exemple complet par schema livre, relu a l'identique
+    assert {nom.partition(":")[0] for nom in EXEMPLES} == set(FACT_SCHEMAS)
+    for nom, valeur in EXEMPLES.items():
+        schema = FACT_SCHEMAS[nom.partition(":")[0]]
+        assert set(valeur) == {champ.name for champ in schema.fields}, nom
+        faits = FactSet([_fait(valeur, nom)])
+        assert FactSet.from_dict(json.loads(json.dumps(faits.to_dict()))) == faits
+
+
+def test_declaration_d_un_schema_de_fait() -> None:
+    # point d'extension d'un collecteur (#48) : sans declaration, le fait est
+    # refuse ; avec, il suit le schema declare, et rien d'autre
+    nom = "windows.defender.status"
+    schema = FactSchema(
+        nom,
+        "etat factice de la protection en temps reel",
+        fields=(
+            FactField("enabled", Nature.BOOLEAN, "protection active ou non"),
+            FactField(
+                "engine_version",
+                Nature.SETTING,
+                "version du moteur",
+                format=TextFormat.VERSION,
+            ),
+        ),
+    )
+    with pytest.raises(FactsFormatError, match="aucun schéma déclaré"):
+        _fait({"enabled": True}, nom)
+    declare_fact_schema(schema)
+    declare_fact_schema(schema)  # la meme declaration, rejouee : sans effet
+    assert FACT_SCHEMAS[nom] is schema
+    assert _fait({"enabled": True, "engine_version": "1.1.24090"}, nom).available
+    with pytest.raises(FactsFormatError, match="'engine_version'"):
+        _fait({"engine_version": "1.1 de jdupont"}, nom)
+    with pytest.raises(FactsFormatError, match="clé hors du schéma du fait"):
+        _fait({"enabled": True, "signature": "x"}, nom)
+    with pytest.raises(FactsFormatError, match="qualificatif"):
+        _fait(None, f"{nom}:Security")
+    # un schema ne se remplace pas : pas de permissivite apres coup
+    autre = FactSchema(nom, "autre schema", scalar=Nature.BOOLEAN)
+    with pytest.raises(ValueError, match="déjà déclaré"):
+        declare_fact_schema(autre)
+    with pytest.raises(ValueError, match="déjà déclaré"):
+        declare_fact_schema(FactSchema(AUDITPOL, "x", scalar=Nature.BOOLEAN))
+    assert FACT_SCHEMAS[nom] is schema
+    with pytest.raises(TypeError, match="FactSchema attendu"):
+        declare_fact_schema(nom)  # type: ignore[arg-type]
+    # la vue publique est en lecture seule
+    with pytest.raises(TypeError):
+        FACT_SCHEMAS[nom] = autre  # type: ignore[index]
+
+
+def test_fait_scalaire_declare() -> None:
+    declare_fact_schema(
+        FactSchema("ad.essai.duree", "duree factice", scalar=Nature.DURATION)
+    )
+    assert _fait(12.5, "ad.essai.duree").value == 12.5
+    assert _fait(None, "ad.essai.duree").available
+    for valeur in (-1, True, "12", [12], {"valeur": 12}, NUMBER_MAX * 2):
+        with pytest.raises(FactsFormatError, match="hors schéma, duration attendu"):
+            _fait(valeur, "ad.essai.duree")
+
+
+def test_aucun_schema_n_admet_un_texte_libre() -> None:
+    booleen = FactField("actif", Nature.BOOLEAN, "d")
+    declarations: list[Callable[[], object]] = [
+        # un fait n'est jamais un texte seul, ni un objet sans champs declares
+        lambda: FactSchema("windows.x", "d", scalar=Nature.SETTING),
+        lambda: FactSchema("windows.x", "d", scalar=Nature.RECORD),
+        lambda: FactSchema("windows.x", "d"),
+        lambda: FactSchema("windows.x", "d", fields=(booleen,), scalar=Nature.NUMBER),
+        lambda: FactSchema("windows.x:Security", "d", scalar=Nature.BOOLEAN),
+        lambda: FactSchema("Windows", "d", scalar=Nature.BOOLEAN),
+        lambda: FactSchema("windows.x", "d", fields=(booleen, booleen)),
+        # un parametre declare une enumeration ou une forme, l'une des deux
+        lambda: FactField("libre", Nature.SETTING, "d"),
+        lambda: FactField(
+            "libre", Nature.SETTING, "d", choices=("a",), format=TextFormat.GUID
+        ),
+        lambda: FactField("libre", Nature.SETTING, "d", choices=("",)),
+        lambda: FactField("nombre", Nature.NUMBER, "d", choices=("a",)),
+        lambda: FactField("nombre", Nature.NUMBER, "d", format=TextFormat.GUID),
+        # un objet declare ses champs ; un scalaire n'en a pas
+        lambda: FactField("objet", Nature.RECORD, "d"),
+        lambda: FactField("actif", Nature.BOOLEAN, "d", fields=(booleen,)),
+        # nom de champ : minuscules, jamais un champ de contenu d'evenement
+        lambda: FactField("Actif", Nature.BOOLEAN, "d"),
+        lambda: FactField("message", Nature.BOOLEAN, "d"),
+        lambda: FactField("user_name", Nature.BOOLEAN, "d"),
+        lambda: FactField("target_user_name", Nature.BOOLEAN, "d"),
+        # meme regle pour les preuves
+        lambda: EvidenceField("libre", Nature.SETTING, "d"),
+        lambda: EvidenceField("objet", Nature.RECORD, "d"),
+    ]
+    for declarer in declarations:
+        with pytest.raises(ValueError):
+            declarer()
+    with pytest.raises(TypeError, match="FactField attendus"):
+        FactSchema("windows.x", "d", fields=("actif",))  # type: ignore[arg-type]
+    # imbrication bornee par la declaration elle-meme
+    champ = booleen
+    for rang in range(4):
+        champ = FactField(f"niveau_{rang}", Nature.RECORD, "d", fields=(champ,))
+    with pytest.raises(ValueError, match="trop imbriqués"):
+        FactSchema("windows.x", "d", fields=(champ,))
+    # chaque parametre des schemas livres a son enumeration ou sa forme
+    for schema in FACT_SCHEMAS.values():
+        assert schema.scalar is not Nature.SETTING
+    for preuve in EVIDENCE_FIELDS.values():
+        if preuve.nature is Nature.SETTING:
+            assert bool(preuve.choices) != (preuve.format is not None), preuve.name
+
+
+def test_faits_md_decrit_chaque_schema() -> None:
+    doc = (RACINE / "docs" / "dev" / "faits.md").read_text(encoding="utf-8")
+    inventaire = DOC.read_text(encoding="utf-8")
+
+    def champs(declares: tuple[FactField, ...], prefixe: str = "") -> Iterable[str]:
+        for champ in declares:
+            chemin = f"{prefixe}{champ.name}{'[]' if champ.repeated else ''}"
+            yield chemin
+            yield from champs(champ.fields, f"{chemin}.")
+
+    for nom, schema in FACT_SCHEMAS.items():
+        assert f"`{nom}`" in inventaire, nom
+        assert f"`{nom}`" in doc, nom
+        for chemin in champs(schema.fields):
+            assert f"| `{chemin}` |" in doc, (nom, chemin)
+    assert "declare_fact_schema" in doc
+    assert "declare_fact_schema" in inventaire
+
+
+# --- constat 5 : un refus ne cite aucune cle recue --------------------------------
+
+
+@pytest.mark.parametrize(
+    ("valeur", "motif"),
+    [
+        # un fait indexe par compte ou par poste : la cle est la donnee
+        ({"jdupont": 1}, "clé hors du schéma du fait à la profondeur 0"),
+        ({"PC-COMPTA": {"Message": "x"}}, r"\(profondeur 1\) : champ de contenu"),
+        ({"PC-COMPTA": {"x": float("inf")}}, r"\(profondeur 2\) : flottant non fini"),
+        ({"jdupont": {4624: "a"}}, r"\(profondeur 1\) : clé non textuelle"),
+        ({"10.1.2.3": [object()]}, r"\(profondeur 2\) : type non JSON"),
+        ({("jdupont", "PC-COMPTA"): 1}, r"\(profondeur 0\) : clé non textuelle"),
+    ],
+)
+def test_refus_d_un_fait_sans_cle_recue(valeur: Any, motif: str) -> None:
+    with pytest.raises(FactsFormatError, match=motif) as erreur:
+        _fait(valeur)
+    message = str(erreur.value)
+    assert message.startswith("windows.eventlog.config")
+    for interdit in VALEURS:
+        assert interdit not in message
+
+
+# --- constat 2 : preuves bornees, rapport controle avant ecriture -----------------
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        {"log_mode": PHRASE},
+        {"log_mode": "circular"},
+        {"log_mode": "alice"},
+        {"setting": PHRASE},
+        {"setting": "Process Creation"},
+        {"setting": "x" * (SETTING_MAX_LENGTH + 1)},
+        {"settings": ["EnableScriptBlockLogging", "ouverture de session alice"]},
+        {"settings": ["x"] * (LIST_MAX_LENGTH + 1)},
+        {"channels": ["Security\nalice"]},
+        {"channels": ["Security", "alice (10.1.2.3)"]},
+        {"channels": ["S" * 129]},
+        {"channels": ["Security"] * (LIST_MAX_LENGTH + 1)},
+        {"oldest_event_utc": "2026-10-17T09:30:00." + "7" * 60 + "Z"},
+    ],
+)
+def test_parametre_de_preuve_hors_de_sa_forme_refuse(details: dict[str, Any]) -> None:
+    (cle,) = details
+    with pytest.raises(
+        ValueError, match=rf"details\['{cle}'\] : valeur hors schéma"
+    ) as e:
+        _preuve(details=details)
+    assert "alice" not in str(e.value)
+    # a la borne, la liste reste admise
+    assert _preuve(details={"channels": ["Security"] * LIST_MAX_LENGTH})
+    assert _preuve(details={"settings": [GUID_LOGON] * LIST_MAX_LENGTH})
+
+
+@pytest.mark.parametrize(
+    "valeur",
+    [
+        PHRASE,
+        "connexion de jdupont depuis 10.1.2.3",
+        "Windows PowerShell",
+        "",
+        ["Circular", "ouverture de session"],
+        [0] * (LIST_MAX_LENGTH + 1),
+    ],
+)
+@pytest.mark.parametrize("champ", ["observed", "expected"])
+def test_texte_libre_refuse_dans_observe_et_attendu(champ: str, valeur: Any) -> None:
+    with pytest.raises(ValueError, match=f"{champ} : valeur hors schéma") as erreur:
+        _preuve(**{champ: valeur})
+    for interdit in ("alice", "jdupont", "10.1.2.3"):
+        assert interdit not in str(erreur.value)
+    admis: list[Any] = [
+        "Circular",
+        "EnableScriptBlockLogging",
+        "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell",
+        GUID_LOGON,
+        "2026-10-21T09:30:00+02:00",
+        ["AutoBackup", 4294967296, None, True],
+        [0] * LIST_MAX_LENGTH,
+    ]
+    for conforme in admis:
+        assert _preuve(**{champ: conforme})
+
+
+def test_source_bornee() -> None:
+    limite = "x" * SOURCE_MAX_LENGTH
+    assert _preuve(source=limite).source == limite
+    assert _fait(None).source == "collecteur factice"
+    for source in (limite + "x", "Get-WinEvent\nAccount Name: alice", " ", ""):
+        with pytest.raises(ValueError) as erreur:
+            _preuve(source=source)
+        assert "alice" not in str(erreur.value)
+        with pytest.raises(FactsFormatError) as refus:
+            Fact.ok(JOURNAL, None, source=source, collected_at=INSTANT)
+        assert "alice" not in str(refus.value)
+    with pytest.raises(ValueError, match="source hors schéma") as longue:
+        _preuve(source=limite + "x")
+    assert "xxxx" not in str(longue.value)
+    with pytest.raises(FactsFormatError, match="source hors schéma"):
+        Fact.ok(JOURNAL, None, source=limite + "x", collected_at=INSTANT)
+    for invalide in (None, 4624, limite + "x", "a\tb"):
+        with pytest.raises(ValueError, match="source hors schéma"):
+            check_source(invalide)
+
+
+@pytest.mark.usefixtures("registre_factice")
+def test_texte_de_preuve_hors_forme_detecte_dans_le_rapport(tmp_path: Path) -> None:
+    rapport = _rapport_d_audit(tmp_path)
+    preuve = rapport["gaps"][0]["evidence"]
+    preuve["source"] = "x" * (SOURCE_MAX_LENGTH + 1)
+    preuve["observed"] = "connexion de jdupont depuis 10.1.2.3"
+    preuve["expected"] = ["Circular", "poste PC-COMPTA"]
+    preuve["details"] = {
+        "log_mode": "jdupont",
+        "setting": "Process Creation",
+        "settings": ["EnableScriptBlockLogging"],
+        "channels": ["Security"] * (LIST_MAX_LENGTH + 1),
+        "oldest_event_utc": "hier",
+    }
+    ecarts = report_text_violations(rapport)
+    assert sorted(e.split(" : ")[0] for e in ecarts) == [
+        "gaps[].evidence.details.channels",
+        "gaps[].evidence.details.log_mode",
+        "gaps[].evidence.details.oldest_event_utc",
+        "gaps[].evidence.details.setting",
+        "gaps[].evidence.expected[]",
+        "gaps[].evidence.observed",
+        "gaps[].evidence.source",
+    ]
+    for valeur in (*VALEURS, "xxxx", "hier", "Process"):
+        assert not [e for e in ecarts if valeur in e]
+
+
+@pytest.mark.usefixtures("registre_factice")
+@pytest.mark.parametrize("sortie", ["fichier", "stdout"])
+def test_rapport_hors_schema_jamais_ecrit(
+    sortie: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # regression simulee : un champ texte hors schema (le compte d'un
+    # utilisateur) arrive dans un Gap. Le controle joue avant toute ecriture
+    origine = Gap.to_dict
+
+    def bavard(self: Gap) -> dict[str, Any]:
+        return origine(self) | {"last_user": "jdupont"}
+
+    monkeypatch.setattr(Gap, "to_dict", bavard)
+    rapport = tmp_path / "rapport.json"
+    destination = str(rapport) if sortie == "fichier" else "-"
+    assert main(["audit", "--out", destination]) == FATAL
+    assert not rapport.exists()
+    sorties = capsys.readouterr()
+    assert sorties.out == ""
+    assert "rapport non écrit" in sorties.err
+    assert "gaps[].last_user : champ texte hors schéma" in sorties.err
+    assert "jdupont" not in sorties.err
+
+
+def test_erreur_de_rapport_hors_schema_sans_valeur() -> None:
+    ecarts = [
+        f"gaps[].evidence.details.cle_{n} : champ texte hors schéma" for n in range(7)
+    ]
+    erreur = ReportPrivacyError(ecarts)
+    assert erreur.violations == tuple(ecarts)
+    assert str(erreur).startswith("7 écart(s)")
+    assert "cle_4" in str(erreur)
+    assert "cle_5" not in str(erreur)
+    assert "et 2 autre(s)" in str(erreur)
+    assert "autre(s)" not in str(ReportPrivacyError(ecarts[:5]))
+
+
+# --- constat 3 : l'avertissement de --keep-raw survit a --quiet -------------------
+
+
+@pytest.fixture
+def niveau_de_journal_restaure() -> Iterator[None]:
+    # -q laisse le logger « amnesia » au niveau ERROR : sans effet sur la suite
+    journal = logging.getLogger("amnesia")
+    niveau = journal.level
+    yield
+    journal.setLevel(niveau)
+
+
+@pytest.mark.usefixtures("registre_factice", "niveau_de_journal_restaure")
+@pytest.mark.parametrize("options", [["-q"], ["--quiet"], [], ["-v"]])
+def test_avertissement_keep_raw_meme_en_mode_silencieux(
+    options: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rapport = tmp_path / "rapport.json"
+    main(["audit", *options, "--keep-raw", "--out", str(rapport)])
+    erreur = capsys.readouterr().err
+    # une fois, ni zero ni deux
+    assert erreur.count("--keep-raw : les sorties brutes") == 1
+    assert "données personnelles" in erreur
+    assert json.loads(rapport.read_text(encoding="utf-8"))["run"]["id"] in erreur
+
+
+def test_avertissement_keep_raw_sous_un_journal_reduit_aux_erreurs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.ERROR, logger="amnesia"):
+        depot = keep_raw(tmp_path / "brut")
+    erreur = capsys.readouterr().err
+    assert erreur.startswith("avertissement : --keep-raw")
+    assert "données personnelles" in erreur
+    assert depot.directory.name in erreur
+    # journal non reduit : l'avertissement passe par lui seul, pas deux fois
+    with caplog.at_level(logging.WARNING, logger="amnesia"):
+        keep_raw(tmp_path / "brut")
+    assert "avertissement : --keep-raw" not in capsys.readouterr().err
+    assert "--keep-raw" in caplog.text
+
+
+@posix
+def test_avertissement_keep_raw_direct_neutralise_le_chemin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    # ecrit hors du journal, donc hors de son formateur : le chemin, qui peut
+    # venir d'un appelant, ne doit pas agir sur le terminal
+    with caplog.at_level(logging.ERROR, logger="amnesia"):
+        keep_raw(tmp_path / "brut\x1b[2J")
+    erreur = capsys.readouterr().err
+    assert "\x1b" not in erreur
+    assert "\\x1b[2J" in erreur
+
+
+# --- constat 4 : un dossier par execution, echec d'ecriture sans effet ------------
+
+
+@pytest.mark.usefixtures("faux_run")
+def test_deux_executions_keep_raw_dans_le_meme_dossier(tmp_path: Path) -> None:
+    premier, second = keep_raw(), keep_raw()
+    racine = tmp_path / "amnesia-out" / RAW_DIR
+    assert premier.directory != second.directory
+    assert premier.directory.parent.resolve() == racine.resolve()
+    assert second.directory.parent.resolve() == racine.resolve()
+    for depot in (premier, second):
+        resultat = run_command([WEVTUTIL, "gl", "Security"], timeout=5, raw=depot)
+        assert resultat.stdout == b"sortie brute"
+        assert [f.name for f in depot.directory.iterdir()] == ["0001-wevtutil.bin"]
+    # un identifiant d'execution ne sert qu'une fois : jamais deux lots meles
+    assert keep_raw(run_id=RUN_ID.upper()).directory.name == RUN_ID
+    with pytest.raises(FileExistsError):
+        keep_raw(run_id=RUN_ID)
+    # ... et n'est jamais un chemin
+    for invalide in ("../../ailleurs", "raw", ""):
+        with pytest.raises(ValueError):
+            keep_raw(run_id=invalide)
+    assert not (tmp_path / "ailleurs").exists()
+
+
+@pytest.mark.usefixtures("registre_factice")
+def test_deux_audits_keep_raw_successifs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    identifiants = set()
+    for rang in (1, 2):
+        rapport = tmp_path / f"rapport-{rang}.json"
+        assert main(["audit", "--keep-raw", "--out", str(rapport)]) == GAPS
+        identifiants.add(json.loads(rapport.read_text(encoding="utf-8"))["run"]["id"])
+    racine = tmp_path / "amnesia-out" / RAW_DIR
+    assert {d.name for d in racine.iterdir() if d.is_dir()} == identifiants
+    assert len(identifiants) == 2
+    assert "existe déjà" not in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("faux_run")
+def test_echec_d_ecriture_brute_sans_effet_sur_la_commande(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def disque_plein(name: str, data: bytes) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    with caplog.at_level(logging.WARNING, logger="amnesia"):
+        resultat = run_command(
+            [WEVTUTIL, "gl", "Security"], timeout=5, raw=disque_plein
+        )
+    assert resultat.stdout == b"sortie brute"
+    assert "sortie brute non gardée : No space left on device" in caplog.text
+    # deux depots sur le meme dossier (ce que keep_raw() ne fait plus) : le
+    # refus d'ecraser ne remonte pas jusqu'a la collecte
+    dossier = tmp_path / "partage"
+    dossier.mkdir()
+    for depot in (RawStore(dossier), RawStore(dossier)):
+        assert run_command([WEVTUTIL, "gl", "Security"], timeout=5, raw=depot)
+    assert [f.name for f in dossier.iterdir()] == ["0001-wevtutil.bin"]
+    # toute autre exception reste une erreur de programmation, et remonte
+
+    def casse(name: str, data: bytes) -> None:
+        raise RuntimeError("bug")
+
+    with pytest.raises(RuntimeError):
+        run_command([WEVTUTIL, "gl", "Security"], timeout=5, raw=casse)
+
+
+def test_run_audit_garde_l_identifiant_impose() -> None:
+    identifiant = new_run_id()
+    assert str(uuid.UUID(identifiant)) == identifiant
+    assert new_run_id() != identifiant
+    audit = run_audit([], Target.parse("local"), LocalCollector(), run_id=identifiant)
+    assert audit.run_id == identifiant
+    libre = run_audit([], Target.parse("local"), LocalCollector())
+    assert libre.run_id not in ("", identifiant)
+
+
+# --- constat 6 : git consulte meme quand raw/.gitignore existe deja ---------------
+
+
+def test_keep_raw_controle_git_quand_le_gitignore_existe_deja(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # sans binaire git : seul le .gitignore ecrit par amnesia (« * ») est reconnu
+    monkeypatch.setattr(shutil, "which", lambda nom: None)
+    (tmp_path / ".git").mkdir()
+    with caplog.at_level(logging.WARNING, logger="amnesia"):
+        keep_raw()
+    assert "dépôt git" not in caplog.text
+    caplog.clear()
+    # l'auditeur a retouche raw/.gitignore, jamais reecrit : plus rien n'y est
+    # ignore, et un « git add -A » emporterait les sorties brutes
+    gitignore = tmp_path / "amnesia-out" / RAW_DIR / ".gitignore"
+    gitignore.write_bytes(b"# rien\n")
+    with caplog.at_level(logging.WARNING, logger="amnesia"):
+        depot = keep_raw()
+    assert gitignore.read_bytes() == b"# rien\n"
+    messages = [r.getMessage() for r in caplog.records]
+    assert [m for m in messages if "sans pouvoir vérifier qu'il y est ignoré" in m]
+    (avertissement,) = [m for m in messages if m.startswith("--keep-raw")]
+    assert "dépôt git sans y être ignoré" in avertissement
+    assert depot.directory.name in avertissement
 
 
 # --- scripts PowerShell : verdict sur l'inventaire de l'AST ----------------------

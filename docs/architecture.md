@@ -131,7 +131,7 @@ modules.
 | `amnesia.render.text` | `amnesia.render.base`, `amnesia.render.safe` |
 | `amnesia.render.safe` | aucune |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.report` |
-| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.privacy`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.inputs`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.catalog`, `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
