@@ -7,6 +7,7 @@ import io
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,21 @@ def _cli(
     )
 
 
+def _perimetre(tmp_path: Path, hote: str) -> str:
+    # hors terminal, un audit exige un perimetre ou --authorized-by (#37) ; le
+    # perimetre ne laisse rien sur stderr, que ces tests veulent vide
+    hier = (datetime.now(UTC) - timedelta(days=1)).date().isoformat()
+    demain = (datetime.now(UTC) + timedelta(days=1)).date().isoformat()
+    (tmp_path / "perimetre.toml").write_text(
+        f'[scope]\nmission_id = "MISSION-0001"\nvalid_from = {hier}\n'
+        f"valid_until = {demain}\n\n[scope.authorization]\n"
+        f'reference = "LM-2026-001"\ndate = {hier}\nsignatory = "Prénom Nom"\n'
+        f'signatory_role = "RSSI"\n\n[scope.include]\nhosts = ["{hote}"]\n',
+        encoding="utf-8",
+    )
+    return "perimetre.toml"
+
+
 @pytest.mark.parametrize("encodage", ["utf-8", "cp1252", "cp850"])
 def test_sortie_redirigee_page_de_code(tmp_path: Path, encodage: str) -> None:
     # « ’ » vient du nom du rapport, repete sur stdout ; absent de cp850 : sans
@@ -75,6 +91,8 @@ def test_sortie_redirigee_page_de_code(tmp_path: Path, encodage: str) -> None:
         "audit",
         "--target",
         "winrm://poste-essai.invalid",
+        "--scope",
+        _perimetre(tmp_path, "poste-essai.invalid"),
         "--out",
         "rapport d’audit.json",
     )
@@ -110,6 +128,8 @@ def test_argv_non_utf8_sortie_utf8(tmp_path: Path) -> None:
         "audit",
         "--target",
         "winrm://essai.invalid",
+        "--scope",
+        _perimetre(tmp_path, "essai.invalid"),
         "--out",
         b"a\xffb.json",
     )

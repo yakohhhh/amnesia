@@ -237,9 +237,10 @@ def test_main_ne_rend_que_des_codes_connus() -> None:
         exitcodes.USAGE,
         exitcodes.INCOMPLETE,
         exitcodes.FATAL,
+        exitcodes.OUT_OF_SCOPE,
         exitcodes.INTERRUPTED,
     }
-    assert codes == {code for code, _ in exitcodes.TABLE} == {0, 1, 2, 3, 4, 130}
+    assert codes == {code for code, _ in exitcodes.TABLE} == {0, 1, 2, 3, 4, 5, 130}
     assert cli.CODE_RAPPORT_ILLISIBLE == exitcodes.FATAL
 
 

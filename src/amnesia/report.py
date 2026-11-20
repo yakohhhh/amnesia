@@ -11,7 +11,7 @@ draft 2020-12 embarqué dans le paquet : ``amnesia/schemas/report-v1.schema.json
 
 Structure :
 
-- ``schema_version`` : SemVer du format (``1.1.0``) ;
+- ``schema_version`` : SemVer du format (``1.2.0``) ;
 - ``tool`` : nom, version d'amnesia, version du catalogue de questions (#46) ;
 - ``run`` : identifiant (UUID4), horodatages RFC 3339 en UTC (suffixe ``Z``),
   durée, ``complete``, ``interrupted``, nom du profil (fichier de mission,
@@ -20,6 +20,10 @@ Structure :
 - ``mission`` : client, référence, auditeur, dates et marquage TLP du fichier
   de mission (``amnesia.config``), ``null`` pour ce qu'il ne renseigne pas ;
 - ``config_hash`` : SHA-256 du JSON canonique de la configuration effective ;
+- ``scope`` : base d'autorisation de l'audit (``amnesia.scope``) : périmètre
+  déclaré (identifiant de mission, référence de l'autorisation, période,
+  inclusions, exclusions, ``sha256``), ou ce qui en a tenu lieu ; ``null`` si
+  l'appelant n'en fournit pas ;
 - ``targets`` : cibles auditées (identifiant, type, transport) ;
 - ``results`` : un résultat par check et par cible, quel que soit son statut ;
 - ``gaps`` : Gaps v1 (#16), du plus grave au moins grave ;
@@ -47,7 +51,8 @@ piloter le terminal ni inverser le texte affiché (Trojan Source).
 Le rapport ne porte ni le nom du compte local qui a lancé l'audit
 (``AuditResult.operator``), ni l'arborescence de son poste : il est remis au
 client. ``run.argv`` omet le programme et ne garde que le nom de fichier des
-options à chemin (``--out``, ``--log-file``, ``--password-file``). La valeur
+options à chemin (``--out``, ``--log-file``, ``--password-file``, ``--config``,
+``--scope``). La valeur
 d'un secret lu pendant l'audit (``amnesia.secrets``) est masquée dans toute
 chaîne du rapport.
 """
@@ -68,9 +73,10 @@ from .checks.base import CheckResult, Gap, assainir
 from .config import Config
 from .log import mask_secrets
 from .runner import AuditResult, AuditSummary
+from .scope import Authorization
 from .target import Target
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 """Version du format (SemVer) : MAJEURE si incompatible, MINEURE si champ ajouté."""
 
 SCHEMA_RESOURCE = "schemas/report-v1.schema.json"
@@ -83,7 +89,7 @@ SENSITIVE_OPTIONS = ("--password", "--token", "--secret", "--client-secret")
 
 MASK = "***"
 
-PATH_OPTIONS = ("--out", "--log-file", "--password-file", "--config")
+PATH_OPTIONS = ("--out", "--log-file", "--password-file", "--config", "--scope")
 """Options à chemin : seul le nom de fichier est gardé dans ``run.argv``."""
 
 _CONTROLES_BRUTS = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]")
@@ -132,8 +138,9 @@ def redact_argv(argv: Iterable[str]) -> list[str]:
     ``--token abc`` devient ``--token ***`` et ``--token=abc`` ``--token=***``,
     pour ``--password``, ``--token``, ``--secret``, ``--client-secret`` et
     leurs abréviations. L'argument qui suit une option sensible est masqué quelle
-    que soit sa forme. ``--out``, ``--log-file`` et ``--password-file``
-    (abréviations et forme ``--out=...`` comprises) ne gardent que le nom de
+    que soit sa forme. Les options à chemin (``PATH_OPTIONS`` : ``--out``,
+    ``--log-file``, ``--password-file``, ``--config``, ``--scope`` ;
+    abréviations et forme ``--out=...`` comprises) ne gardent que le nom de
     fichier :
     ``--out /home/<compte>/r.json`` devient ``--out r.json``. Les autres
     arguments passent par ``assainir()`` : identifiants dans une URL,
@@ -200,6 +207,11 @@ _STRUCTURELS: Mapping[str, frozenset[str]] = {
     "": frozenset({"schema_version", "tool", "summary", "config_hash"}),
     "run": frozenset({"id", "started_at", "finished_at", "config_source"}),
     "mission": frozenset({"start", "end", "tlp"}),
+    "scope": frozenset({"basis", "source", "sha256", "valid_from", "valid_until"}),
+    "authorization": frozenset({"date"}),
+    # types d'inclusion et d'exclusion : noms du schema, valeurs masquables
+    "include": frozenset(),
+    "exclude": frozenset(),
     "targets": frozenset({"kind", "transport"}),
     "results": frozenset({"check_id", "status", "reason"}),
     "gaps": frozenset(
@@ -337,6 +349,7 @@ def build_report(
     argv: Sequence[str] = (),
     check_versions: Mapping[str, int] | None = None,
     config: Config | None = None,
+    authorization: Authorization | None = None,
 ) -> dict[str, Any]:
     """Rapport v1 d'un audit, prêt pour ``dumps_report()``.
 
@@ -347,7 +360,9 @@ def build_report(
     ``null``. ``config`` : configuration effective (``amnesia.config``), dont
     viennent ``run.profile``, ``run.config_source``, ``mission`` et
     ``config_hash`` ; par défaut, la
-    configuration sans fichier de mission.
+    configuration sans fichier de mission. ``authorization`` : base
+    d'autorisation rendue par ``amnesia.scope.authorize()``, recopiée dans
+    ``scope`` ; ``None`` (appel hors de la CLI) : ``scope`` vaut ``null``.
 
     ``results`` est trié par ``check_id`` puis cible ; ``gaps`` par sévérité
     décroissante (de ``critical`` à ``info``), puis domaine, ``check_id``,
@@ -383,6 +398,7 @@ def build_report(
         },
         "mission": configuration.section("mission"),
         "config_hash": configuration.config_hash(),
+        "scope": None if authorization is None else authorization.to_dict(),
         "targets": [_cible(audit.target)],
         "results": [_resultat(r, versions) for r in resultats],
         "gaps": [g.to_dict() for g in gaps],

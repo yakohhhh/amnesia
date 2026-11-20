@@ -50,6 +50,10 @@ des questions d'enquête :
   commenté, `amnesia config show` affiche la configuration effective et
   l'origine de chaque valeur
   ([`docs/mission.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/mission.md)) ;
+- le périmètre autorisé : une cible hors du périmètre déclaré (`--scope`, ou
+  section `[scope]` du fichier de mission), ou un audit hors de sa période de
+  validité, est refusé avant toute collecte
+  ([`docs/perimetre.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/perimetre.md)) ;
 - le catalogue embarqué des questions d'enquête : 31 questions (Windows et
   Active Directory), chacune avec les sources de télémétrie qui permettent d'y
   répondre ; il se consulte par `amnesia catalog list` et `amnesia catalog
@@ -133,6 +137,12 @@ uv run amnesia render amnesia-out/amnesia-report.json --format md
 sous Windows, 0 sous Linux et macOS (section « État »). Relancé, il refuse
 d'écraser ce rapport : ajouter `--overwrite`, ou choisir une autre destination
 avec `--out`. `render` re-rend un rapport archivé, sans refaire l'audit.
+
+Sans périmètre déclaré, `audit` demande au terminal de ressaisir le nom exact
+de la cible (`local` pour la machine locale) avant de collecter quoi que ce
+soit. Hors terminal (CI, RMM, tâche planifiée), il refuse de se lancer (code 5)
+sans `--authorized-by "<référence de la lettre de mission>"` ; section
+« Scope & légal ».
 
 Pour voir un rendu qui contient des angles morts, un rapport fictif sert aux
 tests du dépôt :
@@ -220,6 +230,7 @@ table ; constantes dans `amnesia.exitcodes`) :
 | `2` | Erreur d'usage ou de configuration (option, cible invalide, rapport déjà présent sans `--overwrite`, destination refusée : lien symbolique, fichier spécial, `amnesia-out` d'un autre compte). |
 | `3` | Audit incomplet : un check en erreur, non exécuté ou en délai dépassé, sans angle mort au-dessus du seuil. « Pas pu vérifier » n'est pas « conforme » ; un check sans objet (`not_applicable`) ne rend pas l'audit incomplet. |
 | `4` | Erreur fatale : aucune cible exploitable, rapport impossible à écrire ou à lire. |
+| `5` | Audit refusé avant toute collecte : cible hors du périmètre autorisé ou exclue, périmètre expiré ou pas encore valide, ou aucune autorisation déclarée hors terminal (`--scope`, `--authorized-by`). Aucune connexion n'est ouverte, aucun rapport n'est écrit. |
 | `130` | Interruption (Ctrl-C) : un rapport partiel est écrit, avec `run.interrupted = true`. |
 
 `--fail-on {critical,high,medium,low,info,never}` (`low` par défaut) fixe le
@@ -362,17 +373,29 @@ encadrent la collecte :
   [`docs/READ-ONLY.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/READ-ONLY.md),
   et tout le reste est refusé avant exécution ;
 - **périmètre autorisé** : aucune cible hors du périmètre déclaré n'est
-  jointe ;
+  jointe ; le périmètre (inclusions, exclusions, période de validité,
+  référence de l'autorisation écrite) se déclare dans un fichier, la cible lui
+  est comparée avant toute collecte, et le rapport en garde la trace
+  ([`docs/perimetre.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/perimetre.md)) ;
 - **minimisation** : seules des configurations et des métadonnées de journaux
   sortent de la cible, jamais le contenu des événements ni des données métier.
 
+Accéder ou se maintenir frauduleusement dans un système de traitement
+automatisé de données est puni de trois ans d'emprisonnement et de 100 000 €
+d'amende (article 323-1 du Code pénal) ; la peine est de cinq ans et de
+150 000 € quand il en résulte la suppression ou la modification de données, ou
+une altération du fonctionnement du système. Un accès délégué (GDAP chez
+Microsoft, rôle cross-account chez AWS, agent de supervision) ne vaut pas
+mandat d'audit : il faut une autorisation écrite qui couvre la cible et la
+période.
+
 Aucune collecte n'existe encore (section « État ») : ces engagements guident la
 conception. L'allowlist des opérations de lecture
-([#39](https://github.com/yakohhhh/amnesia/issues/39)) est livrée, et les
-collecteurs à venir passeront par elle. Restent à livrer le fichier de périmètre
-vérifié avant toute connexion
-([#37](https://github.com/yakohhhh/amnesia/issues/37)) et la minimisation des
-données collectées ([#41](https://github.com/yakohhhh/amnesia/issues/41)).
+([#39](https://github.com/yakohhhh/amnesia/issues/39)) et le périmètre vérifié
+avant toute collecte ([#37](https://github.com/yakohhhh/amnesia/issues/37))
+sont livrés, et les collecteurs à venir passeront par eux. Reste à livrer la
+minimisation des données collectées
+([#41](https://github.com/yakohhhh/amnesia/issues/41)).
 
 Un rapport est confidentiel : les règles de stockage, de transmission et de
 conservation des données client, et le canal de signalement des vulnérabilités,

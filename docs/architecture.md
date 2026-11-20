@@ -109,7 +109,11 @@ basses. De bas en haut :
    `amnesia.toml` et configuration effective : il lit le fichier par
    `amnesia.inputs`, ne prend d'`amnesia.output` que le dossier par défaut
    des livrables et d'`amnesia.checks.base` que `assainir`, pour refuser un
-   texte qui ressemble à un secret) ;
+   texte qui ressemble à un secret) et `amnesia.scope` (périmètre autorisé,
+   [`perimetre.md`](perimetre.md) : déclaration lue par `amnesia.inputs`,
+   cible comparée sur la forme normalisée d'`amnesia.target`, refus avant
+   toute collecte ; il n'ouvre aucune connexion et ne résout aucun nom, la
+   résolution lui est fournie par l'appelant) ;
 7. **entrée** : `amnesia.cli`, `amnesia.__main__`.
 
 Table des dépendances internes autorisées (imports exécutés au chargement ;
@@ -122,16 +126,17 @@ modules.
 |---|---|
 | `amnesia` | `amnesia.runner` |
 | `amnesia.__main__` | `amnesia.cli` |
-| `amnesia.cli` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.config`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.secrets`, `amnesia.target` |
+| `amnesia.cli` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.config`, `amnesia.exitcodes`, `amnesia.facts`, `amnesia.log`, `amnesia.output`, `amnesia.render`, `amnesia.report`, `amnesia.runner`, `amnesia.scope`, `amnesia.secrets`, `amnesia.target` |
 | `amnesia.exitcodes` | `amnesia.checks.base` |
 | `amnesia.output` | `amnesia.facts.collectors` |
-| `amnesia.config` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.output` |
+| `amnesia.config` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.output`, `amnesia.scope` |
+| `amnesia.scope` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.target` |
 | `amnesia.render` | `amnesia.render.base`, `amnesia.render.markdown`, `amnesia.render.safe`, `amnesia.render.text` |
 | `amnesia.render.markdown` | `amnesia.render.base`, `amnesia.render.safe` |
 | `amnesia.render.text` | `amnesia.render.base`, `amnesia.render.safe` |
 | `amnesia.render.safe` | aucune |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.report` |
-| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.runner`, `amnesia.scope`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.inputs`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.catalog`, `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |

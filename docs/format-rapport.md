@@ -50,11 +50,12 @@ Tous les champs sont toujours présents ; une valeur absente vaut `null`.
 
 | Champ | Type | Contenu |
 | --- | --- | --- |
-| `schema_version` | chaîne | Version SemVer du format : `1.1.0`. Le schéma v1 accepte toute version `1.x.y`. |
+| `schema_version` | chaîne | Version SemVer du format : `1.2.0`. Le schéma v1 accepte toute version `1.x.y`. |
 | `tool` | objet | Outil qui a produit le rapport. |
 | `run` | objet | Exécution de l'audit. |
 | `mission` | objet | Mission décrite par le fichier de mission ([`mission.md`](mission.md)) ; depuis `1.1.0`. |
 | `config_hash` | chaîne | SHA-256 (hexadécimal) du JSON canonique de la configuration effective (mission, profil, rapport, seuils), tel qu'affiché par `amnesia config show` ; depuis `1.1.0`. |
+| `scope` | objet ou `null` | Base d'autorisation de l'audit, établie avant toute collecte ([`perimetre.md`](perimetre.md)) ; depuis `1.2.0`. `null` si le rapport n'a pas été produit par `amnesia audit`. |
 | `targets` | tableau | Cibles auditées, au moins une. |
 | `results` | tableau | Un résultat par check et par cible, quel que soit son statut. |
 | `gaps` | tableau | Angles morts (Gaps v1, #16). |
@@ -73,6 +74,26 @@ valeur non renseignée vaut `null`.
 | `start` | chaîne ou `null` | Début de la mission, date ISO 8601 (`2026-01-12`). |
 | `end` | chaîne ou `null` | Fin de la mission, même forme, jamais avant `start`. |
 | `tlp` | chaîne ou `null` | Marquage TLP 2.0 : `TLP:CLEAR`, `TLP:GREEN`, `TLP:AMBER`, `TLP:AMBER+STRICT` ou `TLP:RED`. |
+
+### `scope`
+
+Depuis `1.2.0`. Ce qui a autorisé l'audit, vérifié avant toute collecte
+([`perimetre.md`](perimetre.md)). Sans périmètre déclaré, seuls `basis`,
+`active_tests` et, avec `--authorized-by`, `authorization.reference` sont
+renseignés.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `basis` | énumération | `scope` : cible comparée au périmètre déclaré, et incluse ; `authorized-by` : aucun périmètre, référence déclarée par `--authorized-by`, cible non vérifiée ; `confirmation` : aucun périmètre, nom de la cible ressaisi au terminal ; `offline` : bundle, aucun système joint et aucun contrôle appliqué. |
+| `source` | chaîne ou `null` | D'où vient le périmètre : `mission` (section `[scope]` du fichier de mission) ou `--scope` (fichier de périmètre) ; `null` sans périmètre. |
+| `mission_id` | chaîne ou `null` | Identifiant de mission du périmètre. |
+| `sha256` | chaîne ou `null` | SHA-256 (hexadécimal) du JSON canonique du périmètre déclaré, signataire compris, tel qu'affiché par `amnesia config show`. |
+| `authorization` | objet | `reference` : référence de l'autorisation écrite, celle du périmètre ou celle de `--authorized-by`, `null` si aucune n'a été déclarée ; `date` : date de l'autorisation, ISO 8601, `null` sans périmètre. Le signataire n'est pas recopié. |
+| `valid_from` | chaîne ou `null` | Premier jour de validité du périmètre, date ISO 8601. |
+| `valid_until` | chaîne ou `null` | Dernier jour de validité, inclus. |
+| `active_tests` | booléen | Vrai si le périmètre autorise les tests actifs (#155) ; faux par défaut et sans périmètre. |
+| `include` | objet ou `null` | Inclusions : `hosts`, `dns`, `ad_domains`, `cidrs`, `entra_tenants` et `aws_accounts`, chacun un tableau de chaînes normalisées et triées, vide si le type n'est pas déclaré. |
+| `exclude` | objet ou `null` | Exclusions, mêmes types ; elles l'emportent sur les inclusions. |
 
 ### `tool`
 
@@ -199,6 +220,8 @@ une fois sans changer de version : depuis le catalogue de questions (#46),
 
 Versions du format :
 
+- `1.2.0` : `scope` ajouté (base d'autorisation de l'audit et périmètre
+  déclaré) ;
 - `1.1.0` : `mission`, `config_hash` et `run.config_source` ajoutés ;
   `run.profile` porte le nom du profil désigné par le fichier de mission ;
 - `1.0.0` : première version.
@@ -214,8 +237,8 @@ Versions du format :
 - **Secrets lus pendant l'audit** : la valeur d'un secret d'authentification
   ([`SECRETS.md`](SECRETS.md)) est remplacée par `***` dans toute chaîne du
   rapport, d'où qu'elle vienne (message d'erreur, preuve, fait).
-- **Pas de chemin du poste de l'auditeur** : `--out`, `--log-file` et
-  `--password-file` ([`SECRETS.md`](SECRETS.md)), leurs
+- **Pas de chemin du poste de l'auditeur** : `--out`, `--log-file`,
+  `--config`, `--scope` et `--password-file` ([`SECRETS.md`](SECRETS.md)), leurs
   abréviations (`--ou`) et leur forme `--out=...` ne gardent que le nom de
   fichier, chemin POSIX ou Windows : `--out /home/<compte>/clients/r.json` et
   `--out C:\Users\<compte>\r.json` deviennent `--out r.json`. Limite : la
@@ -251,7 +274,7 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "tool": {
     "name": "amnesia",
     "version": "0.1.0",
@@ -285,6 +308,41 @@ erreur, un check non implémenté et un check sans objet. C'est le golden
     "tlp": null
   },
   "config_hash": "2741158908f5312e23b1edf715049c2c11d4067bb35c0ee19d8bc4d9e0cf31a9",
+  "scope": {
+    "basis": "scope",
+    "source": "--scope",
+    "mission_id": "MISSION-0001",
+    "sha256": "3239ff0c604627b188397cecc3825d5d390bf0cfb37aa65895daf8f155d32cee",
+    "authorization": {
+      "reference": "LM-2026-001",
+      "date": "2026-10-12"
+    },
+    "valid_from": "2026-10-19",
+    "valid_until": "2026-10-23",
+    "active_tests": false,
+    "include": {
+      "hosts": [],
+      "dns": [
+        "*.exemple.invalid"
+      ],
+      "ad_domains": [],
+      "cidrs": [
+        "192.0.2.0/24"
+      ],
+      "entra_tenants": [],
+      "aws_accounts": []
+    },
+    "exclude": {
+      "hosts": [
+        "srv-paie.exemple.invalid"
+      ],
+      "dns": [],
+      "ad_domains": [],
+      "cidrs": [],
+      "entra_tenants": [],
+      "aws_accounts": []
+    }
+  },
   "targets": [
     {
       "id": "winrm://srv-file.exemple.invalid",

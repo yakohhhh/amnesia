@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "tool": {
     "name": "amnesia",
     "version": "0.1.0",
@@ -33,6 +33,41 @@
     "tlp": null
   },
   "config_hash": "2741158908f5312e23b1edf715049c2c11d4067bb35c0ee19d8bc4d9e0cf31a9",
+  "scope": {
+    "basis": "scope",
+    "source": "--scope",
+    "mission_id": "MISSION-0001",
+    "sha256": "3239ff0c604627b188397cecc3825d5d390bf0cfb37aa65895daf8f155d32cee",
+    "authorization": {
+      "reference": "LM-2026-001",
+      "date": "2026-10-12"
+    },
+    "valid_from": "2026-10-19",
+    "valid_until": "2026-10-23",
+    "active_tests": false,
+    "include": {
+      "hosts": [],
+      "dns": [
+        "*.exemple.invalid"
+      ],
+      "ad_domains": [],
+      "cidrs": [
+        "192.0.2.0/24"
+      ],
+      "entra_tenants": [],
+      "aws_accounts": []
+    },
+    "exclude": {
+      "hosts": [
+        "srv-paie.exemple.invalid"
+      ],
+      "dns": [],
+      "ad_domains": [],
+      "cidrs": [],
+      "entra_tenants": [],
+      "aws_accounts": []
+    }
+  },
   "targets": [
     {
       "id": "winrm://srv-file.exemple.invalid",

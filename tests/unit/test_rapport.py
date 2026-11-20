@@ -56,6 +56,7 @@ from amnesia.report import (
     schema_bytes,
     schema_text,
 )
+from amnesia.scope import Authorization, Basis, authorize, parse_scope
 from amnesia.target import Kind, Target, Transport
 
 RACINE = Path(__file__).resolve().parent.parent.parent
@@ -303,6 +304,23 @@ VERSIONS_DE_REFERENCE = {
     "win.sysmon": 1,
     "win.time_sync": 1,
 }
+PERIMETRE_DE_REFERENCE = parse_scope(
+    {
+        "mission_id": "MISSION-0001",
+        "valid_from": "2026-10-19",
+        "valid_until": "2026-10-23",
+        "authorization": {
+            "reference": "LM-2026-001",
+            "date": "2026-10-12",
+            "signatory": "Prénom Nom",
+            "signatory_role": "RSSI",
+        },
+        "include": {"dns": ["*.exemple.invalid"], "cidrs": ["192.0.2.0/24"]},
+        "exclude": {"hosts": ["srv-paie.exemple.invalid"]},
+    }
+)
+# la cible du golden, comparee au perimetre a l'instant de l'audit
+AUTORISATION_DE_REFERENCE = authorize(CIBLE, scope=PERIMETRE_DE_REFERENCE, now=INSTANT)
 
 
 def rapport_de_reference(ordre: int = 1) -> dict[str, Any]:
@@ -310,6 +328,7 @@ def rapport_de_reference(ordre: int = 1) -> dict[str, Any]:
         audit_de_reference(ordre),
         argv=ARGV_DE_REFERENCE,
         check_versions=VERSIONS_DE_REFERENCE,
+        authorization=AUTORISATION_DE_REFERENCE,
     )
 
 
@@ -341,7 +360,7 @@ def test_rapport_de_checks_factices_valide_contre_le_schema() -> None:
 def test_version_horodatages_et_duree() -> None:
     audit = auditer([Factice("win.conforme", conforme)])
     rapport = build_report(audit)
-    assert rapport["schema_version"] == SCHEMA_VERSION == "1.1.0"
+    assert rapport["schema_version"] == SCHEMA_VERSION == "1.2.0"
     assert rapport["tool"] == {
         "name": "amnesia",
         "version": amnesia.__version__,
@@ -466,7 +485,7 @@ def test_mise_en_forme_deterministe() -> None:
     # ensure_ascii=False : accents lisibles ; indentation de 2
     assert "écrasé" in texte
     assert "\\u00e9" not in texte
-    assert '\n  "schema_version": "1.1.0",\n' in texte
+    assert '\n  "schema_version": "1.2.0",\n' in texte
     assert texte.startswith('{\n  "schema_version"')
     assert list(json.loads(texte)) == [
         "schema_version",
@@ -474,6 +493,7 @@ def test_mise_en_forme_deterministe() -> None:
         "run",
         "mission",
         "config_hash",
+        "scope",
         "targets",
         "results",
         "gaps",
@@ -575,7 +595,13 @@ def test_argv_sans_chemin_du_poste_dans_le_rapport() -> None:
 
 
 def test_options_a_chemin_couvertes() -> None:
-    assert PATH_OPTIONS == ("--out", "--log-file", "--password-file", "--config")
+    assert PATH_OPTIONS == (
+        "--out",
+        "--log-file",
+        "--password-file",
+        "--config",
+        "--scope",
+    )
 
 
 def test_argv_non_textuel_refuse() -> None:
@@ -954,3 +980,90 @@ def test_mission_dates_et_tlp_echappent_au_masquage(tmp_path: Path) -> None:
     assert rapport["run"]["config_source"] == "--config"
     # texte libre : masque comme le reste du rapport
     assert rapport["mission"]["client"] == MASK
+
+
+# --- perimetre autorise (#37) --------------------------------------------------
+
+
+def test_scope_du_rapport_perimetre_declare() -> None:
+    scope = rapport_de_reference()["scope"]
+    assert scope == {
+        "basis": "scope",
+        "source": "--scope",
+        "mission_id": "MISSION-0001",
+        "sha256": PERIMETRE_DE_REFERENCE.sha256(),
+        "authorization": {"reference": "LM-2026-001", "date": "2026-10-12"},
+        "valid_from": "2026-10-19",
+        "valid_until": "2026-10-23",
+        "active_tests": False,
+        "include": {
+            "hosts": [],
+            "dns": ["*.exemple.invalid"],
+            "ad_domains": [],
+            "cidrs": ["192.0.2.0/24"],
+            "entra_tenants": [],
+            "aws_accounts": [],
+        },
+        "exclude": {
+            "hosts": ["srv-paie.exemple.invalid"],
+            "dns": [],
+            "ad_domains": [],
+            "cidrs": [],
+            "entra_tenants": [],
+            "aws_accounts": [],
+        },
+    }
+    assert re.fullmatch("[0-9a-f]{64}", scope["sha256"])
+    # minimisation : le nom du signataire reste dans le fichier de perimetre
+    assert "Prénom Nom" not in dumps_report(rapport_de_reference())
+
+
+def test_scope_du_rapport_sans_perimetre() -> None:
+    audit = auditer([Factice("win.conforme", conforme)])
+    assert build_report(audit)["scope"] is None
+    for autorisation, reference in (
+        (Authorization(Basis.AUTHORIZED_BY, reference="LM-2026-001"), "LM-2026-001"),
+        (Authorization(Basis.CONFIRMATION), None),
+        (Authorization(Basis.OFFLINE), None),
+    ):
+        rapport = build_report(audit, authorization=autorisation)
+        valider(rapport)
+        scope = rapport["scope"]
+        assert scope["basis"] == autorisation.basis.value
+        assert scope["authorization"] == {"reference": reference, "date": None}
+        assert scope["sha256"] is scope["mission_id"] is scope["source"] is None
+        assert scope["include"] is scope["exclude"] is None
+        assert scope["active_tests"] is False
+
+
+def test_scope_structure_jamais_masquee_texte_libre_masque() -> None:
+    audit = auditer([Factice("win.conforme", conforme)])
+    try:
+        # secrets egaux a des valeurs du perimetre, lus apres sa verification
+        for valeur in (
+            "scope",
+            "--scope",
+            "2026-10-12",
+            "2026-10-19",
+            "2026-10-23",
+            "dns",
+            PERIMETRE_DE_REFERENCE.sha256(),
+            "MISSION-0001",
+            "*.exemple.invalid",
+        ):
+            log.register_secret(valeur)
+        rapport = build_report(audit, authorization=AUTORISATION_DE_REFERENCE)
+    finally:
+        log._secrets.clear()
+    # vocabulaire, dates et condensat : jamais masques, le rapport reste valide
+    valider(rapport)
+    scope = rapport["scope"]
+    assert (scope["basis"], scope["source"]) == ("scope", "--scope")
+    assert scope["sha256"] == PERIMETRE_DE_REFERENCE.sha256()
+    assert scope["authorization"]["date"] == "2026-10-12"
+    assert (scope["valid_from"], scope["valid_until"]) == ("2026-10-19", "2026-10-23")
+    assert list(scope["include"]) == list(scope["exclude"])
+    assert "dns" in scope["include"]
+    # texte libre : masque comme le reste du rapport
+    assert scope["mission_id"] == MASK
+    assert scope["include"]["dns"] == [MASK]

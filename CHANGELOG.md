@@ -115,9 +115,29 @@ la première version sera la 0.1.0 (milestone M0).
   configuration effective. La langue, les formats
   et le dossier des livrables ne sont pas encore appliqués par `audit`.
   Référence : `docs/mission.md` (#36).
+- Périmètre autorisé : section `[scope]` du fichier de mission, ou fichier
+  séparé désigné par `--scope FICHIER`. Il déclare l'identifiant de mission,
+  l'autorisation écrite (référence, date, signataire), la période de validité,
+  des inclusions typées (hôtes exacts, motifs `*.domaine`, domaines AD, plages
+  CIDR, tenants Entra, comptes AWS) et des exclusions, qui l'emportent
+  toujours. `amnesia audit` compare la cible à ce périmètre avant toute
+  collecte : une cible hors périmètre, exclue, ou un audit hors période se
+  terminent avec le nouveau code de sortie 5, sans connexion ni rapport. Le
+  rapport JSON recopie le périmètre dans `scope` (inclusions, exclusions,
+  `mission_id`, référence de l'autorisation, `sha256`), `amnesia config show`
+  l'affiche. Référence, rappel de l'article 323-1 du Code pénal et note pour
+  les MSP : `docs/perimetre.md` (#37).
 
 ### Modifié
 
+- **Incompatible** : sans périmètre déclaré, `amnesia audit` ne se lance plus
+  d'office. Au terminal, il fait ressaisir le nom exact de la cible (`local`
+  pour la machine locale) ; hors terminal (CI, RMM, tâche planifiée), l'option
+  `--authorized-by "<référence de la lettre de mission>"` est obligatoire,
+  sinon l'audit est refusé avec le code 5. Une cible `bundle:` ne joint aucun
+  système et n'est pas concernée (#37).
+- Format du rapport `1.2.0` : champ `scope` ajouté ; un rapport `1.0.0` ou
+  `1.1.0` reste lisible (#37).
 - Format du rapport `1.1.0` : champs `mission`, `config_hash` et
   `run.config_source` ajoutés, `run.profile` renseigné par le fichier de
   mission ; un rapport `1.0.0` reste

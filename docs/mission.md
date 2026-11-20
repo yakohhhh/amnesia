@@ -60,6 +60,12 @@ bidirectionnels), ni saut de ligne ; l'espace insécable est admise.
 Une clé de premier niveau (`profile`) s'écrit avant la première section : en
 TOML, toute clé qui suit un en-tête `[section]` lui appartient.
 
+La section `[scope]` déclare le périmètre autorisé : identifiant de mission,
+autorisation écrite, période de validité, inclusions et exclusions. Elle a sa
+propre page, [`perimetre.md`](perimetre.md), et son propre condensat
+(`scope.sha256`), hors de `config_hash`. Elle ne se surcharge pas par `--set`,
+et peut vivre dans un fichier séparé désigné par `--scope FICHIER`.
+
 `report.lang`, `report.formats` et `report.output_dir` sont validés, affichés
 et comptés dans `config_hash`, mais `amnesia audit` ne les applique pas
 encore : il écrit toujours le rapport JSON désigné par `--out`, en français.
@@ -81,6 +87,8 @@ chemin de la clé :
 - type inattendu, date qui n'est pas ISO 8601, `mission.end` avant
   `mission.start`, marquage hors TLP 2.0 ;
 - seuil hors bornes ;
+- périmètre mal déclaré (clé obligatoire absente, motif ou plage mal formés),
+  ou déclaré deux fois ([`perimetre.md`](perimetre.md)) ;
 - fichier illisible, trop gros ou mal formé : il est lu par la couche d'analyse
   sûre ([`dev/entrees.md`](dev/entrees.md)).
 
