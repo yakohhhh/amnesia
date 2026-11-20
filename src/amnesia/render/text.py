@@ -12,8 +12,10 @@
 
 Couleurs ANSI seulement si ``RenderOptions.color`` est vrai (``color_enabled()``
 décide pour la CLI) ; elles n'encadrent que les textes d'amnesia. Toute valeur
-du rapport passe par ``neutralize()`` : aucune séquence de contrôle venue d'une
-cible n'atteint le terminal.
+du rapport passe par ``for_terminal()`` (``amnesia.render.safe``) : aucune
+séquence de contrôle venue d'une cible n'atteint le terminal, aucune ne forge
+de fausse ligne, et une valeur démesurée est tronquée (256 caractères pour un
+nom, 1 024 pour une phrase).
 """
 
 from __future__ import annotations
@@ -35,7 +37,6 @@ from .base import (
     group_gaps,
     group_title,
     lowercase_first,
-    neutralize,
     plural,
     quantification,
     read_report,
@@ -43,6 +44,7 @@ from .base import (
     summary_lines,
     unverified_detail,
 )
+from .safe import Limit, for_terminal
 
 _ESC = "\x1b"
 # SGR par severite : gras rouge, rouge, jaune, cyan, attenue
@@ -85,6 +87,11 @@ def color_enabled(
     return platform != "win32" or bool(environ.get("WT_SESSION"))
 
 
+def _nom(valeur: str) -> str:
+    """Nom ou identifiant venu du rapport (cible, check, exécution)."""
+    return for_terminal(valeur, limit=Limit.NAME)
+
+
 class _Style:
     def __init__(self, couleur: bool) -> None:
         self._couleur = couleur
@@ -105,9 +112,9 @@ def _gap(gap: GapView, style: _Style) -> list[str]:
     etiquette = style(f"[{NIVEAUX[severite]}]", _COULEURS[severite])
     lignes = [
         "",
-        f"{etiquette} {neutralize(gap.question)}",
-        f"  → Impossible : {lowercase_first(neutralize(gap.reason))}",
-        f"  Cible : {neutralize(gap.target)}",
+        f"{etiquette} {for_terminal(gap.question)}",
+        f"  → Impossible : {lowercase_first(for_terminal(gap.reason))}",
+        f"  Cible : {_nom(gap.target)}",
     ]
     quantite = quantification(gap)
     if quantite is not None:
@@ -117,10 +124,8 @@ def _gap(gap: GapView, style: _Style) -> list[str]:
 
 def _non_verifie(nv: UnverifiedView) -> str:
     statut, motif, message = unverified_detail(nv)
-    ligne = (
-        f"- {neutralize(nv.check_id)} sur {neutralize(nv.target)} : {statut}, {motif}"
-    )
-    return ligne if message is None else f"{ligne} ({neutralize(message)})"
+    ligne = f"- {_nom(nv.check_id)} sur {_nom(nv.target)} : {statut}, {motif}"
+    return ligne if message is None else f"{ligne} ({for_terminal(message)})"
 
 
 def _section_non_verifie(rapport: ReportView, style: _Style) -> list[str]:
@@ -151,10 +156,10 @@ class TextRenderer:
         style = _Style(options.color)
         lignes = [
             style(TITLE, _GRAS),
-            f"Rapport : {neutralize(rapport.run_id)} (amnesia "
-            f"{neutralize(rapport.tool_version)}, format {rapport.schema_version})",
-            f"Audit du : {neutralize(rapport.started_at)}",
-            f"Cibles : {', '.join(neutralize(c) for c in rapport.targets)}",
+            f"Rapport : {_nom(rapport.run_id)} (amnesia "
+            f"{_nom(rapport.tool_version)}, format {rapport.schema_version})",
+            f"Audit du : {_nom(rapport.started_at)}",
+            f"Cibles : {', '.join(_nom(c) for c in rapport.targets)}",
         ]
         avertissement = status_line(rapport)
         if avertissement is not None:
@@ -165,7 +170,7 @@ class TextRenderer:
         if not groupes:
             lignes += ["", empty_line(rapport, options.min_severity, masques)]
         for valeur, gaps in groupes:
-            titre = group_title(options.group_by, valeur, len(gaps), neutralize)
+            titre = group_title(options.group_by, valeur, len(gaps), _nom)
             sgr = (
                 f"{_GRAS};{_COULEURS[valeur]}"
                 if options.group_by == "severity"

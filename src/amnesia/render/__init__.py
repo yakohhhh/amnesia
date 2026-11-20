@@ -10,7 +10,10 @@ lisent que le rapport JSON (#22), jamais les objets internes.
 
 - ``RENDERERS`` : registre des rendus par format (``text``, ``md``) ;
 - ``render_report()`` : rendu d'un rapport dans un format ;
-- ``load_report()`` : lecture d'un fichier de rapport.
+- ``load_report()`` : lecture d'un fichier de rapport ;
+- ``for_terminal()``, ``for_markdown()``, ``for_html()``, ``for_csv_cell()`` :
+  neutralisation d'une valeur venue d'une cible, par contexte de sortie
+  (``amnesia.render.safe``).
 
 Un rapport dont la version MAJEURE de ``schema_version`` n'est pas prise en
 charge est refusé (``ReportError``).
@@ -28,13 +31,12 @@ from .base import (
     Renderer,
     RenderOptions,
     ReportError,
-    escape_markdown,
     fallback,
     load_report,
-    neutralize,
     read_report,
 )
 from .markdown import MarkdownRenderer
+from .safe import Limit, for_csv_cell, for_html, for_markdown, for_terminal
 from .text import TextRenderer, color_enabled
 
 RENDERERS: Mapping[str, Renderer] = {
@@ -64,16 +66,19 @@ __all__ = [
     "RENDERERS",
     "SEVERITIES",
     "SUPPORTED_MAJOR",
+    "Limit",
     "MarkdownRenderer",
     "RenderOptions",
     "Renderer",
     "ReportError",
     "TextRenderer",
     "color_enabled",
-    "escape_markdown",
     "fallback",
+    "for_csv_cell",
+    "for_html",
+    "for_markdown",
+    "for_terminal",
     "load_report",
-    "neutralize",
     "read_report",
     "render_report",
 ]
