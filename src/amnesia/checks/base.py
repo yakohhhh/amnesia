@@ -99,6 +99,12 @@ from traceback import extract_tb
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from ..log import mask_secrets
+from ..privacy import (
+    check_evidence,
+    check_evidence_keys,
+    check_evidence_value,
+    check_source,
+)
 
 if TYPE_CHECKING:
     from ..facts import FactSet
@@ -414,11 +420,22 @@ class Evidence:
     - ``observed_window_days``, ``required_window_days`` : fenêtre couverte et
       fenêtre exigée, en jours, quand la question porte sur une durée ;
     - ``confidence`` : valeur lue, extrapolée ou supposée (``Confidence``) ;
-    - ``source`` : commande ou API lue, sans identifiants ; caviardée comme le
-      message d'une ``ErrorInfo`` (identifiants dans une URL, /p:, -Password,
-      password=...), en filet de sécurité ;
+    - ``source`` : commande ou API lue, sans identifiants : une ligne
+      imprimable de 256 caractères au plus (``amnesia.privacy.check_source``) ;
+      caviardée comme le message d'une ``ErrorInfo`` (identifiants dans une
+      URL, /p:, -Password, password=...), en filet de sécurité ;
     - ``details`` : valeurs brutes (``max_size_bytes``, ``log_mode``,
-      ``oldest_event_utc``...).
+      ``oldest_event_utc``...), dans le schéma fermé
+      ``amnesia.privacy.EVIDENCE_FIELDS``.
+
+    Minimisation (#41, docs/DONNEES.md) : une preuve ne porte que des nombres,
+    des durées, des horodatages et des noms de paramètres. Une clé de
+    ``details`` hors schéma est refusée (``ValueError``), comme une valeur qui
+    n'a pas la forme déclarée (``log_mode`` est une énumération, un nom de
+    paramètre n'a pas d'espace) ou une liste de plus de 256 éléments. Dans
+    ``observed`` et ``expected``, un texte est un nom ou une valeur de
+    paramètre sans espace, jamais une phrase ; un dictionnaire y suit le même
+    schéma.
 
     Le contenu est validé et figé à la construction : tout doit être
     sérialisable en JSON, un datetime (avec fuseau) devient une chaîne ISO 8601
@@ -436,13 +453,21 @@ class Evidence:
     details: Mapping[str, JSON] = field(default_factory=dict, hash=False)
 
     def __post_init__(self) -> None:
-        for champ in ("observed", "expected"):
-            object.__setattr__(self, champ, _figer(getattr(self, champ), (champ,)))
         if not isinstance(self.details, Mapping):
             raise TypeError(
                 f"details doit être un dictionnaire : {type(self.details).__name__}"
             )
+        # minimisation (#41) : schema ferme. Les cles sont jugees avant toute
+        # copie : une preuve hors schema est refusee sans etre figee
+        for champ in ("observed", "expected", "details"):
+            check_evidence_keys(getattr(self, champ), champ)
+        for champ in ("observed", "expected"):
+            object.__setattr__(self, champ, _figer(getattr(self, champ), (champ,)))
         object.__setattr__(self, "details", _figer(self.details, ("details",)))
+        # ... puis les valeurs, une fois ramenees aux types JSON de base
+        for champ in ("observed", "expected"):
+            check_evidence_value(getattr(self, champ), champ)
+        check_evidence(self.details)
         if self.unit is not None:
             _verifier_identifiant(self.unit, "unit")
         _verifier_jours(self.observed_window_days, "observed_window_days")
@@ -450,7 +475,12 @@ class Evidence:
         object.__setattr__(
             self, "confidence", _membre(Confidence, self.confidence, "confidence")
         )
-        _verifier_identifiant(self.source, "source")
+        # minimisation (#41) : une source est une commande ou une API, une
+        # ligne imprimable bornee en longueur, jamais un contenu recopie ; le
+        # refus ne reprend pas la valeur
+        if not isinstance(self.source, str):
+            raise TypeError("source doit être une chaîne")
+        check_source(self.source)
         # filet de securite : une ligne de commande recopiee telle quelle peut
         # porter le mot de passe d'audit (/p:, -Password, winrm://u:mdp@h) ;
         # caviardage idempotent, from_dict(to_dict()) reste symetrique

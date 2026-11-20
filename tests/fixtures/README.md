@@ -12,6 +12,9 @@ neutraliser (#45).
   mise en forme ne touchent pas à ce répertoire.
 - `tests/fixtures/ps/` : scripts PowerShell fictifs, jamais exécutés, dont
   l'AST est analysé par `tests/integration/test_scripts_powershell.py` ; tous
-  sauf `lecture_conforme.ps1` écrivent sur la cible et doivent être refusés.
+  sauf `lecture_conforme.ps1` doivent être refusés, parce qu'ils écrivent sur
+  la cible ou parce qu'ils en font sortir le contenu d'un événement.
+- `tests/fixtures/facts/evenement_4624.json` : événement 4624 fictif (compte,
+  adresse IP et poste inventés), que la collecte doit refuser en entier.
 - Les exports bruts vont dans un sous-répertoire `raw/`, ignoré par git et refusé
   par les hooks : ils ne sont jamais commités.

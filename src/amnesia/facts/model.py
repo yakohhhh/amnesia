@@ -18,6 +18,13 @@ Clés : ``domaine.nom[.nom...][:qualificatif]``, domaine parmi ``FACT_DOMAINS``
 (``windows``, ``ad``, ``m365``, ``aws``, ``siem``) ; le qualificatif désigne une
 instance (``:Security``, ``:Microsoft-Windows-Sysmon/Operational``).
 
+Minimisation (#41) : la valeur d'un fait observé suit le schéma fermé déclaré
+pour son nom (``amnesia.privacy.FACT_SCHEMAS``) : clés admises, nature et
+longueur de chaque valeur, listes bornées. Un fait sans schéma déclaré, une
+clé inconnue ou une valeur d'une autre nature sont refusés
+(``FactsFormatError``) ; un collecteur déclare ses schémas par
+``amnesia.privacy.declare_fact_schema()``.
+
 Forme JSON (enveloppe ``amnesia.facts/1``, JSON Schema
 ``amnesia/schemas/facts-1.schema.json``, documentation ``docs/dev/faits.md``) :
 
@@ -27,7 +34,7 @@ Forme JSON (enveloppe ``amnesia.facts/1``, JSON Schema
 ...     [
 ...         Fact.ok(
 ...             "windows.eventlog.config:Security",
-...             {"max_size_bytes": 20971520, "retention": "overwrite"},
+...             {"max_size_bytes": 20971520, "log_mode": "Circular"},
 ...             source="Get-WinEvent -ListLog Security",
 ...             collected_at=instant,
 ...         ),
@@ -60,6 +67,7 @@ from types import MappingProxyType
 from typing import Any, TypeAlias
 
 from ..inputs import UnsafeInputError, load_json
+from ..privacy import check_fact_value, check_source, event_content_field
 
 SCHEMA = "amnesia.facts/1"
 FACT_DOMAINS = ("windows", "ad", "m365", "aws", "siem")
@@ -117,30 +125,57 @@ def validate_fact_name(nom: object) -> str:
     return nom
 
 
-def _figer(valeur: object, chemin: str, profondeur: int = 0) -> JSONValue:
-    """Copie figée d'une valeur JSON ; lève FactsFormatError sinon."""
+def _figer(valeur: object, nom: str, profondeur: int = 0) -> JSONValue:
+    """Copie figée d'une valeur JSON ; lève FactsFormatError sinon.
+
+    Un message ne cite que ``nom`` (le nom du fait) et une profondeur, jamais
+    une clé de la valeur : dans un fait indexé par compte ou par poste, la clé
+    est elle-même la donnée à ne pas faire sortir.
+    """
+    ou = f"{nom} (profondeur {profondeur})"
     if profondeur > _PROFONDEUR_MAX:
-        raise FactsFormatError(f"{chemin} : valeur trop imbriquée")
+        raise FactsFormatError(f"{nom} : valeur trop imbriquée")
     if valeur is None or isinstance(valeur, bool | int | str):
         return valeur
     if isinstance(valeur, float):
         if not math.isfinite(valeur):
-            raise FactsFormatError(f"{chemin} : flottant non fini, hors JSON")
+            raise FactsFormatError(f"{ou} : flottant non fini, hors JSON")
         return valeur
     if isinstance(valeur, list | tuple):
-        return tuple(
-            _figer(v, f"{chemin}[{i}]", profondeur + 1) for i, v in enumerate(valeur)
-        )
+        return tuple(_figer(v, nom, profondeur + 1) for v in valeur)
     if isinstance(valeur, Mapping):
         copie: dict[str, JSONValue] = {}
         for cle, v in valeur.items():
             if not isinstance(cle, str):
-                raise FactsFormatError(f"{chemin} : clé non textuelle {cle!a}")
-            # cle lue d'un fichier : echappee et tronquee, pour qu'aucun
-            # message n'agisse sur un terminal
-            copie[cle] = _figer(v, f"{chemin}.{ascii(cle)[:80]}", profondeur + 1)
+                raise FactsFormatError(f"{ou} : clé non textuelle")
+            # minimisation (#41) : le contenu d'un evenement ne devient jamais
+            # un fait ; le nom cite est celui du module, pas la cle recue. Ce
+            # filet nomme le refus ; la garantie est le schema ferme du fait
+            # (_verifier_schema)
+            refuse = event_content_field(cle)
+            if refuse is not None:
+                raise FactsFormatError(
+                    f"{ou} : champ de contenu d'événement refusé ({refuse}) ; "
+                    "seules des configurations et des métadonnées de journaux "
+                    "sont collectées (docs/DONNEES.md)"
+                )
+            copie[cle] = _figer(v, nom, profondeur + 1)
         return MappingProxyType(copie)
-    raise FactsFormatError(f"{chemin} : type non JSON {type(valeur).__name__}")
+    raise FactsFormatError(f"{ou} : type non JSON {type(valeur).__name__}")
+
+
+def _verifier_schema(nom: str, valeur: JSONValue) -> None:
+    """Refuse la valeur d'un fait observé qui sort de son schéma fermé (#41).
+
+    Schéma par nom de fait (``amnesia.privacy.FACT_SCHEMAS``) : clés admises,
+    nature et longueur des valeurs, listes bornées. Un fait sans schéma
+    déclaré est refusé. Le message cite le nom du fait sans son qualificatif,
+    un champ du schéma et une profondeur, jamais ce qui a été reçu.
+    """
+    try:
+        check_fact_value(nom, valeur)
+    except ValueError as exc:
+        raise FactsFormatError(f"{nom.partition(':')[0]} : {exc}") from None
 
 
 def _degeler(valeur: JSONValue) -> Any:
@@ -196,6 +231,12 @@ class Fact:
         # rendu tel quel dans les journaux et le rapport : ni ANSI ni saut de ligne
         if not self.source.isprintable():
             raise FactsFormatError(f"{self.name} : source non imprimable")
+        # minimisation (#41) : une source est une commande ou une API, bornee
+        # en longueur ; le refus ne reprend pas la valeur
+        try:
+            check_source(self.source)
+        except ValueError as exc:
+            raise FactsFormatError(f"{self.name} : {exc}") from None
         if not isinstance(self.collected_at, datetime):
             raise FactsFormatError(f"{self.name} : collected_at doit être un datetime")
         decalage = self.collected_at.utcoffset()
@@ -210,7 +251,9 @@ class Fact:
                     f"{self.name} : collected_at hors limites"
                 ) from None
             object.__setattr__(self, "collected_at", instant)
-        object.__setattr__(self, "value", _figer(self.value, f"{self.name}.value"))
+        object.__setattr__(self, "value", _figer(self.value, self.name))
+        if self.status is FactStatus.OK:
+            _verifier_schema(self.name, self.value)
 
     @property
     def available(self) -> bool:

@@ -131,7 +131,7 @@ modules.
 | `amnesia.render.text` | `amnesia.render.base`, `amnesia.render.safe` |
 | `amnesia.render.safe` | aucune |
 | `amnesia.render.base` | `amnesia.checks.base`, `amnesia.inputs`, `amnesia.report` |
-| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.runner`, `amnesia.target` |
+| `amnesia.report` | `amnesia.checks`, `amnesia.config`, `amnesia.log`, `amnesia.privacy`, `amnesia.runner`, `amnesia.target` |
 | `amnesia.runner` | `amnesia`, `amnesia.catalog`, `amnesia.checks`, `amnesia.deps`, `amnesia.facts`, `amnesia.inputs`, `amnesia.log`, `amnesia.target` |
 | `amnesia.checks` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.<domaine>` | `amnesia.catalog`, `amnesia.checks.base`, `amnesia.checks.registry`, `amnesia.target` |
@@ -140,14 +140,15 @@ modules.
 | `amnesia.catalog.model` | `amnesia.checks.base`, `amnesia.checks.registry` |
 | `amnesia.checks.registry` | `amnesia.checks.base`, `amnesia.deps`, `amnesia.target` |
 | `amnesia.checks.context` | `amnesia.target` |
-| `amnesia.checks.base` | `amnesia.log` |
+| `amnesia.checks.base` | `amnesia.log`, `amnesia.privacy` |
 | `amnesia.facts` | `amnesia.facts.collectors`, `amnesia.facts.model`, `amnesia.facts.resolution` |
 | `amnesia.facts.resolution` | `amnesia.checks.base`, `amnesia.facts.model` |
 | `amnesia.facts.collectors` | `amnesia.facts.model`, `amnesia.readonly`, `amnesia.target` |
-| `amnesia.facts.model` | `amnesia.inputs` |
+| `amnesia.facts.model` | `amnesia.inputs`, `amnesia.privacy` |
 | `amnesia.deps` | aucune |
 | `amnesia.inputs` | aucune |
 | `amnesia.log` | aucune |
+| `amnesia.privacy` | aucune |
 | `amnesia.readonly` | aucune |
 | `amnesia.secrets` | `amnesia.log` |
 | `amnesia.target` | aucune |

@@ -3,7 +3,7 @@
   "facts": {
     "windows.eventlog.config:Security": {
       "status": "ok",
-      "value": {"max_size_bytes": 20971520, "retention": "overwrite"},
+      "value": {"max_size_bytes": 20971520, "log_mode": "Circular"},
       "source": "Get-WinEvent -ListLog Security",
       "collected_at": "2026-10-21T09:30:00Z"
     },

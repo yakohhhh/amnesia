@@ -1,0 +1,19 @@
+{
+  "schema": "amnesia.facts/1",
+  "facts": {
+    "windows.eventlog.oldest:Security": {
+      "status": "ok",
+      "value": {
+        "Id": 4624,
+        "TimeCreated": "2026-10-17T09:30:00Z",
+        "EventData": {
+          "TargetUserName": "jdupont",
+          "IpAddress": "10.1.2.3",
+          "WorkstationName": "PC-COMPTA"
+        }
+      },
+      "source": "Get-WinEvent -LogName Security -Oldest -MaxEvents 1",
+      "collected_at": "2026-10-21T09:30:00Z"
+    }
+  }
+}

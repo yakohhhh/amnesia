@@ -192,7 +192,13 @@ def _version_du_catalogue() -> str:
     return load_catalog().version
 
 
-def _nouvel_id() -> str:
+def new_run_id() -> str:
+    """Identifiant neuf d'une exécution (UUID 4), le ``run.id`` du rapport.
+
+    À tirer avant l'audit quand quelque chose doit porter le même identifiant
+    que le rapport : le dossier des sorties brutes de ``--keep-raw``
+    (``amnesia.output.keep_raw``), puis ``run_audit(..., run_id=)``.
+    """
     return str(uuid.uuid4())
 
 
@@ -215,7 +221,7 @@ class AuditResult:
 
     amnesia_version: str = __version__
     catalog_version: str = field(default_factory=_version_du_catalogue)
-    run_id: str = field(default_factory=_nouvel_id)
+    run_id: str = field(default_factory=new_run_id)
     started_at: str
     finished_at: str
     duration_s: float
@@ -467,6 +473,7 @@ def run_audit(
     on_result: Callable[[CheckResult], object] | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     operator: str | None = None,
+    run_id: str | None = None,
 ) -> AuditResult:
     """Exécute ``checks`` sur ``target`` et agrège leurs résultats.
 
@@ -478,7 +485,9 @@ def run_audit(
     garde la trace des exceptions dans les résultats. ``on_result`` est appelé
     après chaque check, dans l'ordre d'exécution (progression ; branchement
     dans la CLI : #24). Un ``KeyboardInterrupt`` arrête l'audit : le résultat
-    partiel est rendu avec ``interrupted=True``.
+    partiel est rendu avec ``interrupted=True``. ``run_id`` impose
+    l'identifiant de l'exécution (``new_run_id()``) ; par défaut, il est tiré
+    ici.
 
     Lève ``ValueError`` si ``timeout`` n'est pas un nombre de secondes > 0 ou si
     l'horloge rend un instant sans fuseau, et ``CatalogError`` si le catalogue
@@ -539,6 +548,7 @@ def run_audit(
         operator=operateur,
         results=tuple(resultats),
         interrupted=interrompu,
+        run_id=new_run_id() if run_id is None else run_id,
     )
     logger.info(
         "audit de %s terminé en %.3f s : %s",

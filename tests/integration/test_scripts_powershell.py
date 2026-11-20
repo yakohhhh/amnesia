@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Ayman Mazroui
 # SPDX-License-Identifier: MIT
 
-"""Scripts PowerShell analyses par le vrai pwsh : garantie de lecture seule (#39).
+"""Scripts PowerShell analyses par le vrai pwsh : lecture seule (#39), minimisation.
 
 scripts/inventaire_ps.ps1 dresse l'inventaire de l'AST de chaque script
 (Parser::ParseFile : commandes et parametres, appels de methodes .NET, types,
@@ -9,6 +9,11 @@ affectations, redirections) ; amnesia.readonly.check_script_inventory rend le
 verdict. Les
 scripts fixtures qui ecrivent sur la cible doivent chacun etre refuses, le
 script fixture conforme et les scripts reels de src/amnesia/ps/ acceptes.
+
+Le meme inventaire (proprietes lues, arguments constants, devenir de la sortie
+de chaque commande) sert au verdict de minimisation,
+amnesia.privacy.check_script_privacy : un script qui rend un evenement brut, ou
+qui en lit le contenu, est refuse.
 
 pwsh est pris dans PWSH_BIN ou dans le PATH (preinstalle sur les runners
 ubuntu-latest et windows-latest). Sans lui, ces tests sont ignores sur un
@@ -31,6 +36,7 @@ from typing import Any
 import pytest
 
 from amnesia.facts import subprocess_env
+from amnesia.privacy import check_script_privacy
 from amnesia.readonly import SCRIPTS, check_script_inventory
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -114,6 +120,73 @@ TEMOINS: dict[str, dict[str, Any]] = {
     },
 }
 
+# minimisation (#41) : scripts qui n'ecrivent rien (le verdict de lecture seule
+# les admet) mais font sortir le contenu d'un evenement
+SANS_PROJECTION = "émis sans projection explicite"
+HORS_METADONNEES = "projeté sur autre chose que les métadonnées admises"
+BAVARDS = {
+    # revue adversariale : l'evenement entier, sans nommer aucune propriete
+    # interdite
+    "evenement_psobject.ps1": HORS_METADONNEES,
+    # critere d'acceptation de #41 : la fixture rend l'evenement brut
+    "evenement_brut.ps1": SANS_PROJECTION,
+    "evenement_en_variable.ps1": SANS_PROJECTION,
+    "evenement_en_json.ps1": SANS_PROJECTION,
+    "selection_joker.ps1": SANS_PROJECTION,
+    "propriete_message.ps1": "propriété de contenu d'événement : .Message",
+    "selection_machine.ps1": "nommée en argument : MachineName",
+}
+# champs d'une commande que le temoin ne precise pas
+COMMANDE: dict[str, Any] = {
+    "kind": "command",
+    "parameters": [],
+    "splat": False,
+    "arguments": [],
+    "dynamic": False,
+    "projection": "none",
+    "member": None,
+    "next": None,
+}
+TEMOINS_BAVARDS: dict[str, dict[str, Any]] = {
+    "evenement_psobject.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": ["LogName", "MaxEvents"],
+        "projection": "member",
+        "member": "PSObject",
+    },
+    "evenement_brut.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": ["LogName", "MaxEvents", "Oldest"],
+        "projection": "none",
+    },
+    "evenement_en_variable.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": ["LogName", "MaxEvents", "Oldest"],
+        "projection": "none",
+    },
+    "evenement_en_json.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "parameters": ["LogName", "MaxEvents"],
+        "projection": "pipeline",
+    },
+    "selection_joker.ps1": {
+        "kind": "command",
+        "name": "Get-WinEvent",
+        "projection": "pipeline",
+    },
+    "propriete_message.ps1": {"kind": "property", "name": "Message"},
+    "selection_machine.ps1": {
+        "kind": "command",
+        "name": "Select-Object",
+        "parameters": ["Property"],
+        "arguments": ["TimeCreated", "MachineName"],
+    },
+}
+
 
 def _inventaires(scripts: Sequence[Path]) -> dict[str, dict[str, Any]]:
     options = ["-NoLogo", "-NoProfile", "-NonInteractive"]
@@ -147,7 +220,9 @@ def test_pwsh_present_sur_la_ci() -> None:
 
 
 def test_fixtures_toutes_attendues() -> None:
-    assert {f.name for f in FIXTURES.glob("*")} == {*REFUSES, CONFORME}
+    assert {f.name for f in FIXTURES.glob("*")} == {*REFUSES, *BAVARDS, CONFORME}
+    assert set(TEMOINS) == set(REFUSES)
+    assert set(TEMOINS_BAVARDS) == set(BAVARDS)
 
 
 @pytest.mark.parametrize("script", sorted(REFUSES))
@@ -155,6 +230,27 @@ def test_ecart_attendu_coherent_avec_le_verdict(script: str) -> None:
     inventaire = {"errors": [], "items": [{**TEMOINS[script], "line": 2}]}
     (ecart,) = check_script_inventory(inventaire)
     assert REFUSES[script] in ecart
+
+
+@pytest.mark.parametrize("script", sorted(BAVARDS))
+def test_ecart_de_minimisation_coherent_avec_le_verdict(script: str) -> None:
+    temoin = TEMOINS_BAVARDS[script]
+    defauts = COMMANDE if temoin["kind"] == "command" else {}
+    inventaire = {"errors": [], "items": [{**defauts, **temoin, "line": 2}]}
+    (ecart,) = check_script_privacy(inventaire)
+    assert BAVARDS[script] in ecart
+
+
+@sans_pwsh
+@pytest.mark.parametrize("script", sorted(BAVARDS))
+def test_script_qui_rend_un_evenement_refuse(
+    inventaires: dict[str, dict[str, Any]], script: str
+) -> None:
+    # critere de #41 : une fixture qui renvoie l'evenement brut fait echouer
+    # le controle ; elle n'ecrit rien, le verdict de lecture seule l'admet
+    ecarts = check_script_privacy(inventaires[script])
+    assert any(BAVARDS[script] in ecart for ecart in ecarts), ecarts
+    assert check_script_inventory(inventaires[script]) == []
 
 
 @sans_pwsh
@@ -170,9 +266,26 @@ def test_script_qui_ecrit_refuse(
 def test_script_de_lecture_accepte(inventaires: dict[str, dict[str, Any]]) -> None:
     inventaire = inventaires[CONFORME]
     assert check_script_inventory(inventaire) == []
+    # minimisation (#41) : horodatages et compteurs, jamais l'evenement
+    assert check_script_privacy(inventaire) == []
     # l'inventaire a bien vu le script : commandes, methodes, affectations
     genres = {element["kind"] for element in inventaire["items"]}
-    assert genres == {"command", "method", "assignment", "redirection", "type"}
+    assert genres == {
+        "command",
+        "method",
+        "property",
+        "assignment",
+        "redirection",
+        "type",
+    }
+    proprietes = {e["name"] for e in inventaire["items"] if e["kind"] == "property"}
+    assert {"TimeCreated", "MaximumSizeInBytes", "RecordCount"} <= proprietes
+    projections = {
+        e["projection"]
+        for e in inventaire["items"]
+        if e["kind"] == "command" and e["name"] == "Get-WinEvent"
+    }
+    assert projections == {"none", "member", "pipeline"}
     commandes = {e["name"] for e in inventaire["items"] if e["kind"] == "command"}
     assert {"Get-WinEvent", "Get-ItemProperty", "Set-StrictMode"} <= commandes
     # ... leurs parametres, et les types des conversions
@@ -192,7 +305,7 @@ def test_script_de_lecture_accepte(inventaires: dict[str, dict[str, Any]]) -> No
 def test_temoin_inventorie_par_pwsh(inventaires: dict[str, dict[str, Any]]) -> None:
     # le temoin de chaque script refuse est bien ce que pwsh inventorie : les
     # tests sans pwsh jugent donc le meme element que la CI
-    for script, temoin in TEMOINS.items():
+    for script, temoin in (TEMOINS | TEMOINS_BAVARDS).items():
         elements = [
             {cle: element.get(cle) for cle in temoin}
             for element in inventaires[script]["items"]
@@ -217,3 +330,4 @@ def test_scripts_reels_conformes() -> None:
         return
     for nom, inventaire in _inventaires(scripts).items():
         assert check_script_inventory(inventaire) == [], nom
+        assert check_script_privacy(inventaire) == [], nom

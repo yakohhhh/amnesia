@@ -30,7 +30,9 @@ from amnesia.checks.base import (
     Reference,
     ReferenceKind,
     Severity,
+    _lisible,
 )
+from amnesia.privacy import LIST_MAX_LENGTH, LOG_MODES
 
 GRILLE = Path(__file__).resolve().parents[2] / "docs" / "severite.md"
 VALEURS = "critical, high, medium, low, info"
@@ -80,9 +82,10 @@ def _gap_complet() -> Gap:
                 "oldest_event_utc": datetime(
                     2026, 10, 17, 11, 30, tzinfo=timezone(timedelta(hours=2))
                 ),
-                "canaux": ["Security", {"nom": "System", "taille_mo": 20.5}],
-                "absent": None,
-                "archivage": False,
+                # cles du schema ferme des preuves (amnesia.privacy, #41)
+                "channels": ["Security", "System"],
+                "retention_days": None,
+                "enabled": False,
             },
         ),
         remediation_id="REM-LOG-SIZE",
@@ -279,10 +282,8 @@ def test_to_dict_cles_stables() -> None:
 def test_to_dict_preuve_et_references() -> None:
     d = _gap_complet().to_dict()
     assert d["evidence"]["observed"] == [20971520, "Circular"]
-    assert d["evidence"]["details"]["canaux"] == [
-        "Security",
-        {"nom": "System", "taille_mo": 20.5},
-    ]
+    assert d["evidence"]["details"]["channels"] == ["Security", "System"]
+    assert d["evidence"]["details"]["retention_days"] is None
     assert d["references"][0] == {
         "kind": "attack",
         "id": "T1021.001",
@@ -382,10 +383,12 @@ def test_from_dict_exige_un_dictionnaire() -> None:
     [
         {"observed": object()},
         {"expected": {1, 2}},
-        {"details": {"brut": object()}},
-        {"details": {"liste": [1, object()]}},
-        {"details": {"octets": b"\x00"}},
-        {"details": {"jour": datetime(2026, 10, 17, tzinfo=UTC).date()}},
+        # cles du schema ferme des preuves (#41) : une cle hors schema est
+        # refusee avant que sa valeur soit lue (ValueError)
+        {"details": {"setting": object()}},
+        {"details": {"channels": [1, object()]}},
+        {"details": {"log_mode": b"\x00"}},
+        {"details": {"oldest_event_utc": datetime(2026, 10, 17, tzinfo=UTC).date()}},
         {"details": {1: "cle entiere"}},
         {"details": ["pas", "un", "dict"]},
     ],
@@ -397,7 +400,7 @@ def test_preuve_non_serialisable_refusee(champs: dict[str, Any]) -> None:
 
 def test_preuve_avec_object_refusee() -> None:
     with pytest.raises(TypeError, match="non sérialisable"):
-        _preuve(details={"brut": object()})
+        _preuve(details={"setting": object()})
 
 
 @pytest.mark.parametrize("valeur", [float("nan"), float("inf"), -float("inf")])
@@ -411,15 +414,17 @@ def test_entiers_bornes_a_64_bits() -> None:
     assert json.dumps(preuve.to_dict())
     # au-dela de 4300 chiffres, json.dumps leverait au moment du rapport
     for valeur in (2**64, -(2**63) - 1, 10**5000):
-        with pytest.raises(ValueError, match=r"details\['n'\] : entier hors"):
-            _preuve(details={"n": valeur})
+        with pytest.raises(
+            ValueError, match=r"details\['record_count'\] : entier hors"
+        ):
+            _preuve(details={"record_count": valeur})
 
 
 @pytest.mark.parametrize(
     "champs",
     [
-        {"details": {"f": "\udcff"}},
-        {"details": {"\udcff": 1}},
+        {"details": {"setting": "\udcff"}},
+        {"expected": "\udcff"},
         {"observed": ["ok", "\ud800"]},
     ],
 )
@@ -428,6 +433,10 @@ def test_surrogate_isole_refuse(champs: dict[str, Any]) -> None:
     # serialisable
     with pytest.raises(ValueError, match="surrogate"):
         _preuve(**champs)
+    # une cle non encodable est hors du schema des preuves (#41), comme toute
+    # cle libre : refusee sans etre reprise
+    with pytest.raises(ValueError, match="hors du schéma des preuves"):
+        _preuve(details={"\udcff": 1})
 
 
 @pytest.mark.parametrize("champ", ["question", "reason", "remediation"])
@@ -440,16 +449,33 @@ def test_chemin_d_erreur_construit_seulement_en_cas_d_erreur() -> None:
     # cle de 1 Mo au-dessus de 300 000 elements : le chemin d'erreur n'est plus
     # formate pour chaque element (cout quadratique, plusieurs secondes avant)
     cle = "A" * 1_000_000
+    # depuis le schema ferme des preuves (#41), une telle cle est refusee avant
+    # que sa valeur soit figee, et n'est jamais reprise dans le message
     debut = time.process_time()
-    preuve = _preuve(details={cle: [0] * 300_000})
-    assert time.process_time() - debut < 1
-    assert len(preuve.details[cle]) == 300_000  # type: ignore[arg-type]
-    # en cas d'erreur, la cle est tronquee dans le message
-    with pytest.raises(TypeError) as erreur:
+    with pytest.raises(ValueError, match="hors du schéma des preuves") as hors_schema:
+        _preuve(details={cle: [0] * 300_000})
+    with pytest.raises(ValueError, match="hors du schéma des preuves"):
         _preuve(details={cle: [0, object()]})
+    assert time.process_time() - debut < 1
+    assert len(str(hors_schema.value)) < 200
+    assert "AAAA" not in str(hors_schema.value)
+    # hors chrono : une liste du schema est bornee (LIST_MAX_LENGTH) ; a la
+    # borne, elle reste admise
+    preuve = _preuve(
+        observed=[0] * LIST_MAX_LENGTH, details={"channels": ["S"] * LIST_MAX_LENGTH}
+    )
+    assert len(preuve.details["channels"]) == LIST_MAX_LENGTH  # type: ignore[arg-type]
+    # en cas d'erreur, le chemin de la valeur fautive est donne une seule fois
+    with pytest.raises(TypeError) as erreur:
+        _preuve(details={"channels": [0, object()]})
     assert len(str(erreur.value)) < 200
-    assert "details['AAAA" in str(erreur.value)
-    assert "...'][1]" in str(erreur.value)
+    assert "details['channels'][1]" in str(erreur.value)
+
+
+def test_cle_longue_tronquee_dans_un_chemin_d_erreur() -> None:
+    # le chemin d'une erreur tronque une cle demesuree (cle non textuelle
+    # imbriquee : seul cas ou une cle libre atteint encore ce chemin)
+    assert _lisible(("details", "A" * 1_000, 1)) == f"details['{'A' * 64}...'][1]"
 
 
 def test_datetime_converti_en_iso_utc() -> None:
@@ -488,20 +514,21 @@ def test_preuve_trop_imbriquee_refusee() -> None:
         courant.append([])
         courant = courant[0]
     with pytest.raises(ValueError, match="imbriquée"):
-        _preuve(details={"profond": imbrique})
+        _preuve(details={"channels": imbrique})
 
 
 def test_preuve_figee() -> None:
-    details: dict[str, Any] = {"max_size_bytes": 20971520, "canaux": ["Security"]}
+    details: dict[str, Any] = {"max_size_bytes": 20971520, "channels": ["Security"]}
     preuve = _preuve(details=details)
     # la preuve ne suit pas les modifications ulterieures de l'appelant
     details["max_size_bytes"] = 0
-    details["canaux"].append("System")
+    details["channels"].append("System")
     assert preuve.details["max_size_bytes"] == 20971520
-    assert preuve.details["canaux"] == ("Security",)
+    assert preuve.details["channels"] == ("Security",)
     assert len(preuve.details) == 2
     assert (
-        repr(preuve.details) == "{'max_size_bytes': 20971520, 'canaux': ('Security',)}"
+        repr(preuve.details)
+        == "{'max_size_bytes': 20971520, 'channels': ('Security',)}"
     )
     with pytest.raises(TypeError):
         preuve.details["max_size_bytes"] = 0  # type: ignore[index]
@@ -578,22 +605,34 @@ def test_confiance_en_chaine_convertie() -> None:
         _preuve(confidence="sure")
 
 
-# valeurs JSON arbitraires (sans NaN ni infini, hors JSON)
-VALEURS_JSON: st.SearchStrategy[JSON] = st.recursive(
-    st.none()
-    | st.booleans()
-    | st.integers(min_value=-(2**63), max_value=2**64 - 1)
-    | st.floats(allow_nan=False, allow_infinity=False)
-    | st.text(),
-    lambda enfants: (
-        st.lists(enfants, max_size=4) | st.dictionaries(st.text(), enfants, max_size=4)
-    ),
-    max_leaves=10,
+# preuves du schema ferme (amnesia.privacy, #41) : nombres, booleens, noms de
+# parametres sans espace, noms de journaux (sans NaN ni infini, hors JSON)
+ENTIERS = st.integers(min_value=-(2**63), max_value=2**64 - 1)
+FLOTTANTS = st.floats(allow_nan=False, allow_infinity=False)
+PARAMETRES = st.from_regex(r"[A-Za-z0-9_.:\\/{}*-]{1,256}", fullmatch=True)
+JOURNAUX = st.from_regex(
+    r"[A-Za-z0-9_./-]{1,40}( [A-Za-z0-9_./-]{1,40}){0,2}", fullmatch=True
+)
+SCALAIRES: st.SearchStrategy[JSON] = (
+    st.none() | st.booleans() | ENTIERS | FLOTTANTS | PARAMETRES
+)
+OBSERVES: st.SearchStrategy[JSON] = SCALAIRES | st.lists(SCALAIRES, max_size=4)
+DETAILS: st.SearchStrategy[dict[str, JSON]] = st.fixed_dictionaries(
+    {},
+    optional={
+        "max_size_bytes": st.none() | ENTIERS,
+        "events_per_day": st.none() | FLOTTANTS,
+        "retention_days": st.none() | st.floats(min_value=0, allow_infinity=False),
+        "enabled": st.none() | st.booleans(),
+        "log_mode": st.none() | st.sampled_from(LOG_MODES),
+        "setting": st.none() | PARAMETRES,
+        "channels": st.lists(JOURNAUX, max_size=4),
+    },
 )
 
 
-@given(observe=VALEURS_JSON, details=st.dictionaries(st.text(), VALEURS_JSON))
-def test_aller_retour_de_toute_preuve_json(
+@given(observe=OBSERVES, details=DETAILS)
+def test_aller_retour_de_toute_preuve_du_schema(
     observe: JSON, details: dict[str, JSON]
 ) -> None:
     g = _gap(evidence=_preuve(observed=observe, details=details))

@@ -47,7 +47,9 @@ JSON Schema `src/amnesia/schemas/facts-1.schema.json` (draft 2020-12) :
   même fait est lu par plusieurs checks, aucun ne peut le modifier pour les
   autres.
 
-Le schéma détaillé des faits Windows (valeur de chaque clé) relève de #48.
+La `value` d'un fait observé suit le schéma fermé déclaré pour son nom
+(section « Schéma fermé des valeurs ») ; le JSON Schema de l'enveloppe ne le
+décrit pas, le modèle Python l'applique à la lecture.
 
 ### Clés
 
@@ -72,6 +74,152 @@ Exemples : `windows.auditpol.backup`, `windows.eventlog.config:Security`,
 | cible injoignable | `unavailable` / `unreachable` | non |
 | sans objet sur la cible (Windows sur Linux) | `unavailable` / `unsupported` | non |
 | non collecté (bundle partiel, collecte à venir) | `unavailable` / `not_collected` | non |
+
+## Schéma fermé des valeurs
+
+Minimisation ([`docs/DONNEES.md`](../DONNEES.md), #41) : ce qui sort d'une
+cible est une liste fermée, pas « tout sauf ce qu'on a pensé à interdire ».
+La valeur d'un fait `ok` est confrontée au schéma déclaré pour son nom
+(`amnesia.privacy.FACT_SCHEMAS`, nom sans qualificatif) à la construction du
+`Fact`, donc aussi à la lecture d'un fichier de faits :
+
+- un fait `ok` dont le nom n'a **pas de schéma déclaré** est refusé
+  (`FactsFormatError`), même si sa valeur est `null` ; un fait `unavailable`
+  n'a pas de valeur et n'en demande pas ;
+- une clé que le schéma ne déclare pas est refusée, à n'importe quelle
+  profondeur ; les clés se comparent telles quelles (`max_size_bytes`, jamais
+  `MaxSizeBytes`) ;
+- chaque valeur a une nature : nombre (fini, de valeur absolue 2^63 au plus),
+  durée (nombre positif), horodatage ISO 8601 avec fuseau, booléen, objet aux
+  champs déclarés, ou paramètre. Un paramètre est une valeur d'une énumération
+  ou un texte d'une forme de `amnesia.privacy.TextFormat` : nom de journal,
+  nom de paramètre sans espace, nom de service ou de module, GUID, empreinte
+  hexadécimale, numéro de version. Aucune nature n'admet un texte libre ;
+- une liste a 256 éléments au plus et ne contient pas de `null` ; `null` est
+  admis partout ailleurs (clé ou option absente de la cible) ;
+- un qualificatif (`:Security`) n'est admis que si le schéma en déclare la
+  forme ;
+- un message de refus cite le nom du fait, un champ du schéma et une
+  profondeur, jamais une clé ni une valeur reçues.
+
+Schémas déclarés (faits lus par les checks Windows livrés) :
+
+`windows.auditpol.backup` : politique d'audit avancée : valeur numérique de chaque sous-catégorie, désignée par son GUID (qualificatif : aucun).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `subcategories[]` | liste (objet) | Sous-catégories d'audit |
+| `subcategories[].guid` | GUID | GUID de la sous-catégorie |
+| `subcategories[].setting_value` | nombre | Valeur numérique (0 : aucun audit, 1 : succès, 2 : échecs, 3 : les deux) |
+
+`windows.eventlog.config` : configuration et métadonnées d'un journal d'événements, désigné par le qualificatif (qualificatif : `:<journal>`).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `max_size_bytes` | nombre | Taille maximale du journal (MaximumSizeInBytes) |
+| `file_size_bytes` | nombre | Taille du fichier du journal (FileSize) |
+| `record_count` | nombre | Nombre d'enregistrements (RecordCount) |
+| `log_mode` | énumération : `Circular`, `AutoBackup`, `Retain` | Mode de rétention du journal (LogMode : Circular, AutoBackup, Retain) |
+| `enabled` | booléen | Journal, stratégie ou service activé ou non |
+| `oldest_event_utc` | horodatage | Horodatage du plus ancien événement |
+| `newest_event_utc` | horodatage | Horodatage du plus récent événement |
+
+`windows.powershell.logging_policy` : stratégies de journalisation de PowerShell (registre) (qualificatif : aucun).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `script_block_logging` | booléen | Journalisation des blocs de script (EnableScriptBlockLogging) |
+| `script_block_invocation_logging` | booléen | Journalisation des appels de blocs de script (EnableScriptBlockInvocationLogging) |
+| `module_logging` | booléen | Journalisation des modules (EnableModuleLogging) |
+| `module_names[]` | liste (nom de service ou de module) | Modules journalisés (ModuleNames, jokers compris) |
+| `transcription` | booléen | Transcription (EnableTranscripting) |
+
+`windows.sysmon.service` : service Sysmon : présence, état et mode de démarrage (qualificatif : aucun).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `installed` | booléen | Service présent ou non |
+| `service_name` | nom de service ou de module | Nom du service (Sysmon, Sysmon64, ou renommé) |
+| `state` | énumération : `Running`, `Stopped`, `Paused`, `StartPending`, `StopPending`, `ContinuePending`, `PausePending` | État du service |
+| `start_mode` | énumération : `Boot`, `System`, `Automatic`, `Manual`, `Disabled` | Mode de démarrage du service |
+| `version` | numéro de version | Version du binaire |
+
+`windows.sysmon.config` : configuration chargée par Sysmon (qualificatif : aucun).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `loaded` | booléen | Configuration chargée ou non |
+| `schema_version` | numéro de version | Version du schéma de configuration |
+| `config_hash` | empreinte hexadécimale | Empreinte de la configuration chargée |
+| `hash_algorithms[]` | liste (énumération : `MD5`, `SHA1`, `SHA256`, `IMPHASH`) | Algorithmes d'empreinte configurés |
+| `rule_count` | nombre | Nombre de règles chargées |
+
+`windows.w32time.config` : configuration du service de temps Windows (registre) (qualificatif : aucun).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `type` | énumération : `NTP`, `NT5DS`, `NoSync`, `AllSync` | Mode de synchronisation (Parameters\Type) |
+| `ntp_server_count` | nombre | Nombre de serveurs NTP configurés ; leurs noms ne sont pas collectés |
+| `service_state` | énumération : `Running`, `Stopped`, `Paused`, `StartPending`, `StopPending`, `ContinuePending`, `PausePending` | État du service w32time |
+| `service_start_mode` | énumération : `Boot`, `System`, `Automatic`, `Manual`, `Disabled` | Mode de démarrage du service w32time |
+| `poll_interval_seconds` | durée | Intervalle d'interrogation (SpecialPollInterval), en secondes |
+
+`windows.w32time.status` : état de la synchronisation horaire (qualificatif : aucun).
+
+| Champ | Nature | Contenu |
+|---|---|---|
+| `synchronized` | booléen | Horloge synchronisée ou non |
+| `stratum` | nombre | Strate de l'horloge |
+| `last_sync_utc` | horodatage | Horodatage de la dernière synchronisation réussie |
+| `offset_seconds` | nombre | Écart à la source, en secondes |
+| `leap_indicator` | nombre | Indicateur de seconde intercalaire |
+
+Ces schémas décrivent ce qu'un collecteur a le droit de rendre ; le
+collecteur PowerShell (#48) les complète au besoin.
+
+### Déclarer le schéma d'un fait
+
+Un collecteur déclare, à l'import de son module, le schéma de chaque fait
+qu'il rend :
+
+```python
+from amnesia.privacy import (
+    FactField,
+    FactSchema,
+    Nature,
+    TextFormat,
+    declare_fact_schema,
+)
+
+declare_fact_schema(
+    FactSchema(
+        "windows.defender.status",
+        "état de la protection en temps réel",
+        fields=(
+            FactField("enabled", Nature.BOOLEAN, "protection active ou non"),
+            FactField(
+                "engine_version",
+                Nature.SETTING,
+                "version du moteur",
+                format=TextFormat.VERSION,
+            ),
+        ),
+    )
+)
+```
+
+- `fields` pour un objet, ou `scalar` pour un fait réduit à un nombre, une
+  durée, un horodatage ou un booléen (jamais un texte seul) ;
+- un champ de nature `SETTING` déclare une énumération (`choices`) ou une
+  forme (`format`), l'une des deux ; un champ `RECORD` déclare ses `fields` ;
+- `qualifier` donne la forme du qualificatif, s'il y en a un ;
+- un nom de champ est en minuscules (`[a-z0-9_]`) et ne peut pas être celui
+  d'un champ de contenu d'événement (`message`, `user_name`...) ;
+- un schéma déclaré ne se remplace pas : redéclarer un nom avec un autre
+  schéma lève `ValueError` ;
+- le fait s'ajoute, dans la même PR, à la table de
+  [`docs/DONNEES.md`](../DONNEES.md) et à cette page : chaque donnée nouvelle
+  passe en revue.
 
 ## Traduction des indisponibilités : `resolve()`
 
@@ -119,6 +267,21 @@ Hors périmètre : collecteur PowerShell (#48), WinRM (#63), import de bundle
   `amnesia.facts` (vérifié sur l'AST) : programme hors allowlist, sans chemin
   complet ou avec d'autres arguments que ses formes figées, et
   `ReadOnlyViolation` est levée avant tout lancement ;
+- minimisation ([`docs/DONNEES.md`](../DONNEES.md), #41) : un collecteur ne
+  rend que des configurations et des métadonnées de journaux. La valeur de
+  chaque fait suit le schéma fermé déclaré pour son nom (section « Schéma
+  fermé des valeurs ») : un fait sans schéma, une clé inconnue ou une valeur
+  d'une autre nature sont refusés (`FactsFormatError`). Un fait dont la valeur
+  porte un champ de contenu d'événement (`Message`, `Properties`, `UserId`,
+  `MachineName`, champs d'`EventData` comme `TargetUserName` ou `IpAddress`)
+  est refusé en le nommant, quelle que soit la graphie de la clé. La `source`
+  d'un fait est une ligne imprimable de 256 caractères au plus. Un script
+  PowerShell passe `amnesia.privacy.check_script_privacy` en plus du verdict
+  de lecture seule. Une sortie brute ne s'écrit jamais sur disque :
+  `run_command(..., raw=)` ne reçoit une destination que si l'auditeur a passé
+  `--keep-raw` (un sous-dossier par exécution, `amnesia-out/raw/<run.id>/`),
+  et un échec de cette écriture est journalisé sans rendre le fait
+  indisponible ;
 - argv passé en liste, jamais `shell=True`, programme désigné par son chemin
   complet : les règles ruff S602, S604, S605 et S607 sont actives sur `src/`
   (`tests/test_regles_ruff.py`), et un test parcourt l'AST de `src/` ;
@@ -252,7 +415,7 @@ voir `tests/fixtures/README.md`) :
   "facts": {
     "windows.eventlog.config:Security": {
       "status": "ok",
-      "value": {"max_size_bytes": 20971520, "retention": "overwrite"},
+      "value": {"max_size_bytes": 20971520, "log_mode": "Circular"},
       "source": "Get-WinEvent -ListLog Security",
       "collected_at": "2026-10-21T09:30:00Z"
     },

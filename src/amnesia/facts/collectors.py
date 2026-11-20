@@ -17,7 +17,11 @@ Règles pour tout collecteur :
   programme désigné par son chemin complet (S607) ;
 - timeout explicite sur chaque appel, propagé depuis ``collect(..., timeout=)`` ;
 - aucune analyse de texte localisé : uniquement des GUID, des valeurs
-  numériques, le registre et l'EventData XML ;
+  numériques, le registre et les métadonnées des journaux ;
+- minimisation (#41, docs/DONNEES.md) : jamais le contenu d'un événement
+  (``Message``, ``Properties``, ``UserId``, ``MachineName``, EventData) ; un
+  fait qui en porte un champ est refusé par ``amnesia.facts.model``, et une
+  sortie brute n'est gardée sur disque que sur demande (``RawSink``) ;
 - un échec de collecte d'un fait donne un fait ``unavailable`` avec son motif,
   pas une exception ; une clé de registre absente est une valeur ``None`` ;
 - seule exception à la règle précédente : un SDK tiers s'importe dans
@@ -49,7 +53,7 @@ import sys
 import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Protocol
 
 from ..readonly import check_command
@@ -108,6 +112,18 @@ class Collector(Protocol):
     ) -> FactSet: ...
 
 
+class RawSink(Protocol):
+    """Destination des sorties brutes d'une commande de collecte.
+
+    Fournie seulement sur demande explicite (``amnesia audit --keep-raw``,
+    ``amnesia.output.RawStore``) : sans elle, une sortie brute ne vit qu'en
+    mémoire, le temps d'en extraire les faits. ``name`` désigne la commande,
+    ``data`` sa sortie standard telle quelle.
+    """
+
+    def __call__(self, name: str, data: bytes) -> None: ...
+
+
 def _verifier_timeout(timeout: float) -> None:
     if (
         isinstance(timeout, bool)
@@ -119,7 +135,7 @@ def _verifier_timeout(timeout: float) -> None:
 
 
 def run_command(
-    argv: Sequence[str], *, timeout: float
+    argv: Sequence[str], *, timeout: float, raw: RawSink | None = None
 ) -> subprocess.CompletedProcess[bytes]:
     """Lance un exécutable de l'allowlist et rend sa sortie brute.
 
@@ -136,10 +152,17 @@ def run_command(
     revient au collecteur. Le code de retour n'est pas vérifié ici ;
     ``subprocess.TimeoutExpired`` et ``OSError`` remontent à l'appelant, qui en
     fait un fait ``unavailable``.
+
+    Minimisation (#41) : la sortie brute n'est écrite nulle part. ``raw``,
+    absent par défaut, la reçoit quand l'auditeur a demandé à la garder
+    (``--keep-raw``) ; elle n'entre jamais dans le rapport. Garder la sortie
+    est un à-côté du diagnostic : si ``raw`` échoue (``OSError`` : disque
+    plein, dossier retiré), l'échec est journalisé et la sortie est rendue
+    quand même, pour que le fait reste collecté.
     """
     _verifier_timeout(timeout)
     commande = check_command(argv)
-    return subprocess.run(  # noqa: S603 - argv verifie par l'allowlist, sans shell
+    resultat = subprocess.run(  # noqa: S603 - argv verifie par l'allowlist, sans shell
         list(commande),
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -147,6 +170,16 @@ def run_command(
         check=False,
         env=subprocess_env(),
     )
+    if raw is not None:
+        try:
+            raw(PureWindowsPath(commande[0]).stem, resultat.stdout)
+        except OSError as exc:
+            # la commande a reussi : son fait ne doit pas devenir indisponible
+            # parce que sa copie brute n'a pas pu etre ecrite
+            logger.warning(
+                "--keep-raw : sortie brute non gardée : %s", exc.strerror or exc
+            )
+    return resultat
 
 
 def _noms(names: Iterable[str]) -> list[str]:
@@ -218,6 +251,10 @@ class LocalCollector:
     ``unavailable/unsupported`` ; les autres faits, et les faits Windows sous
     Windows tant que leur collecte n'existe pas (#48), sont
     ``unavailable/not_collected``. Aucun processus n'est lancé.
+
+    ``raw`` (``--keep-raw``) : destination des sorties brutes, absente par
+    défaut. Le collecteur PowerShell (#48) la passera à ``run_command`` ;
+    d'ici là, rien n'y est écrit.
     """
 
     def __init__(
@@ -225,9 +262,11 @@ class LocalCollector:
         *,
         platform: str = sys.platform,
         clock: Callable[[], datetime] = _maintenant,
+        raw: RawSink | None = None,
     ) -> None:
         self.platform = platform
         self.clock = clock
+        self.raw = raw
 
     def collect(
         self, target: Target, names: Iterable[str], *, timeout: float

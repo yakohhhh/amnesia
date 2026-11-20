@@ -21,6 +21,7 @@ from amnesia.checks.base import CheckResult, Reason, Status
 from amnesia.checks.context import Context
 from amnesia.deps import MissingExtra, Package, install_command, require_extra
 from amnesia.facts import Fact, FactSet
+from amnesia.privacy import FACT_SCHEMAS, FactSchema, Nature, declare_fact_schema
 from amnesia.render import RenderOptions, render_report
 from amnesia.report import build_report
 from amnesia.target import Kind, Target
@@ -33,6 +34,19 @@ PRESENT = "amnesia_essai44_present"
 CASSE = "amnesia_essai44_casse"
 ABSENT = "amnesia_essai44_absent"
 COMMANDE = "uv sync --inexact --extra essai"
+
+
+def fait_observe(nom: str, *, source: str = "test") -> Fact:
+    """Fait observé d'un collecteur factice, admis quel que soit son nom.
+
+    Un fait observé sans schéma déclaré est refusé (#41) : un nom factice en
+    reçoit un, booléen, le temps du test (conftest, ``_schemas_de_faits_isoles``).
+    La valeur est ``None`` (option absente de la cible), que tout schéma admet.
+    """
+    base = nom.partition(":")[0]
+    if base not in FACT_SCHEMAS:
+        declare_fact_schema(FactSchema(base, "fait factice", scalar=Nature.BOOLEAN))
+    return Fact.ok(nom, None, source=source, collected_at=INSTANT)
 
 
 @pytest.fixture
@@ -208,9 +222,7 @@ class CollecteurEspion:
     ) -> FactSet:
         noms = list(names)
         self.appels.extend(noms)
-        return FactSet(
-            Fact.ok(n, True, source="test", collected_at=INSTANT) for n in noms
-        )
+        return FactSet(fait_observe(n) for n in noms)
 
 
 class CollecteurParesseux(CollecteurEspion):

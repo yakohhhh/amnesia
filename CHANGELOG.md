@@ -132,6 +132,21 @@ la première version sera la 0.1.0 (milestone M0).
 
 ### Sécurité
 
+- Minimisation des données collectées (RGPD) : seules des configurations et
+  des métadonnées de journaux sortent de la cible. La valeur de chaque fait
+  suit un schéma fermé, déclaré par nom de fait (clés admises, nature et
+  longueur des valeurs, listes bornées) : un fait sans schéma déclaré, une clé
+  inconnue ou un texte libre sont refusés, comme tout fait qui porte le
+  contenu d'un événement (`Message`, `Properties`, `UserId`, `MachineName`,
+  champs d'`EventData`), quelle que soit la graphie de la clé. La preuve d'un
+  angle mort suit elle aussi un schéma fermé (nombres, durées, horodatages,
+  énumérations, noms de paramètres sans espace), le rapport est contrôlé en
+  entier avant d'être écrit, et un script de collecte qui rend un événement
+  sans projection explicite est refusé en CI. Les sorties brutes ne sont
+  jamais écrites sur disque, sauf `amnesia audit --keep-raw` (un dossier par
+  exécution, `amnesia-out/raw/<run.id>` en 0700, avec un avertissement que
+  `--quiet` ne masque pas). Inventaire des données traitées :
+  `docs/DONNEES.md` (#41).
 - Données hostiles neutralisées dans les rendus : une valeur venue d'une cible
   (nom d'hôte, de GPO, de canal, tag) ne peut agir ni sur le terminal ni sur
   le livrable. Rendu texte : les séquences d'échappement (titre de fenêtre,

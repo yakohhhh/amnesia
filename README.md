@@ -364,15 +364,19 @@ encadrent la collecte :
 - **périmètre autorisé** : aucune cible hors du périmètre déclaré n'est
   jointe ;
 - **minimisation** : seules des configurations et des métadonnées de journaux
-  sortent de la cible, jamais le contenu des événements ni des données métier.
+  sortent de la cible, jamais le contenu des événements ni des données métier ;
+  l'inventaire des données traitées, avec leur finalité et leur lieu de
+  stockage, est dans
+  [`docs/DONNEES.md`](https://github.com/yakohhhh/amnesia/blob/main/docs/DONNEES.md).
 
 Aucune collecte n'existe encore (section « État ») : ces engagements guident la
 conception. L'allowlist des opérations de lecture
 ([#39](https://github.com/yakohhhh/amnesia/issues/39)) est livrée, et les
-collecteurs à venir passeront par elle. Restent à livrer le fichier de périmètre
-vérifié avant toute connexion
-([#37](https://github.com/yakohhhh/amnesia/issues/37)) et la minimisation des
-données collectées ([#41](https://github.com/yakohhhh/amnesia/issues/41)).
+collecteurs à venir passeront par elle. Les contrôles de minimisation
+([#41](https://github.com/yakohhhh/amnesia/issues/41)) le sont aussi : un fait,
+une preuve ou un script qui porterait le contenu d'un événement est refusé.
+Reste à livrer le fichier de périmètre vérifié avant toute connexion
+([#37](https://github.com/yakohhhh/amnesia/issues/37)).
 
 Un rapport est confidentiel : les règles de stockage, de transmission et de
 conservation des données client, et le canal de signalement des vulnérabilités,

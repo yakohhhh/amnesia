@@ -32,7 +32,7 @@
           "enum": ["ok", "unavailable"]
         },
         "value": {
-          "description": "Valeur JSON observée ; null pour une clé ou une option absente."
+          "description": "Valeur JSON observée ; null pour une clé ou une option absente. Elle suit le schéma fermé déclaré pour le nom du fait (clés admises, nature et longueur des valeurs : docs/dev/faits.md), appliqué par amnesia à la lecture ; un fait ok sans schéma déclaré est refusé."
         },
         "unavailable_reason": {
           "enum": [

@@ -34,6 +34,7 @@ from amnesia.facts import (
     run_command,
     validate_fact_name,
 )
+from amnesia.privacy import FACT_SCHEMAS, FactSchema, Nature, declare_fact_schema
 from amnesia.readonly import ReadOnlyViolation
 from amnesia.target import Target
 
@@ -52,8 +53,21 @@ IDS_EXISTANTS = {
 }
 
 
+def fait_observe(nom: str, *, source: str = "test") -> Fact:
+    """Fait observé d'un collecteur factice, admis quel que soit son nom.
+
+    Un fait observé sans schéma déclaré est refusé (#41) : un nom factice en
+    reçoit un, booléen, le temps du test (conftest, ``_schemas_de_faits_isoles``).
+    La valeur est ``None`` (option absente de la cible), que tout schéma admet.
+    """
+    base = nom.partition(":")[0]
+    if base not in FACT_SCHEMAS:
+        declare_fact_schema(FactSchema(base, "fait factice", scalar=Nature.BOOLEAN))
+    return Fact.ok(nom, None, source=source, collected_at=INSTANT)
+
+
 class CollecteurCompteur:
-    """Collecteur factice : chaque fait vaut son nom ; compte les collectes."""
+    """Collecteur factice : chaque fait est observé ; compte les collectes."""
 
     def __init__(self, absents: Iterable[str] = ()) -> None:
         self.appels: Counter[tuple[str, str]] = Counter()
@@ -67,7 +81,7 @@ class CollecteurCompteur:
         self.lots.append(noms)
         self.appels.update((target.id, n) for n in noms)
         return FactSet(
-            Fact.ok(n, n, source="collecteur factice", collected_at=INSTANT)
+            fait_observe(n, source="collecteur factice")
             for n in noms
             if n not in self.absents
         )
@@ -126,7 +140,7 @@ REQUIS = ("windows.auditpol.backup", "windows.eventlog.config:Security")
 
 
 def test_fait_requis_manquant_donne_skipped_not_collected() -> None:
-    faits = FactSet([Fact.ok(REQUIS[0], 1, source="s", collected_at=INSTANT)])
+    faits = FactSet([Fact.ok(REQUIS[0], None, source="s", collected_at=INSTANT)])
     resultat = resolve("win.audit_policy", "local", REQUIS, faits)
     assert resultat is not None
     assert resultat.status is Status.SKIPPED

@@ -29,6 +29,7 @@ from amnesia.facts import (
 )
 from amnesia.facts import model as module_model
 from amnesia.facts.model import FACT_NAME_PATTERN
+from amnesia.privacy import FactSchema, Nature, declare_fact_schema
 from amnesia.target import Target
 
 INSTANT = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
@@ -109,13 +110,21 @@ def test_valeur_absente_est_une_observation() -> None:
     assert FactSet([fait]).value(fait.name) is None
 
 
+GUID_LOGON = "{0CCE9215-69AE-11D9-BED3-505054503030}"
+GUID_PROCESSUS = "{0CCE922B-69AE-11D9-BED3-505054503030}"
+
+
 def test_valeur_figee() -> None:
-    brut: dict[str, Any] = {"journaux": ["Security"], "options": {"mode": 1}}
+    brut: dict[str, Any] = {
+        "subcategories": [{"guid": GUID_LOGON, "setting_value": 3}],
+    }
     fait = _ok(valeur=brut)
-    brut["journaux"].append("System")
+    brut["subcategories"].append({"guid": GUID_PROCESSUS, "setting_value": 0})
     valeur = fait.value
     assert not isinstance(valeur, dict)
-    assert fait.to_dict()["value"] == {"journaux": ["Security"], "options": {"mode": 1}}
+    assert fait.to_dict()["value"] == {
+        "subcategories": [{"guid": GUID_LOGON, "setting_value": 3}],
+    }
     with pytest.raises(TypeError):
         valeur["intrus"] = 1  # type: ignore[index]
 
@@ -124,7 +133,7 @@ def test_horodatage_ramene_en_utc() -> None:
     paris = timezone(timedelta(hours=2))
     fait = Fact.ok(
         "windows.auditpol.backup",
-        1,
+        None,
         source="auditpol /backup",
         collected_at=datetime(2026, 10, 21, 11, 30, tzinfo=paris),
     )
@@ -183,7 +192,7 @@ def test_valeur_trop_imbriquee() -> None:
 
 
 def test_factset_mapping_et_doublon() -> None:
-    a = _ok("windows.auditpol.backup", 1)
+    a = _ok("windows.auditpol.backup")
     b = _ok("windows.w32time.config", {"type": "NTP"})
     faits = FactSet([a, b])
     assert len(faits) == 2
@@ -232,7 +241,7 @@ def test_fixture_collector_charge_un_fichier_conforme() -> None:
     assert securite.collected_at == INSTANT
     assert faits.value(securite.name) == {
         "max_size_bytes": 20971520,
-        "retention": "overwrite",
+        "log_mode": "Circular",
     }
 
 
@@ -312,6 +321,8 @@ def test_fichier_utf8_avec_bom_accepte(tmp_path: Path) -> None:
     # Windows PowerShell 5.1 : Out-File -Encoding utf8 ecrit un BOM
     chemin = tmp_path / "faits.json"
     chemin.write_bytes(b"\xef\xbb\xbf" + _enveloppe_brute("1").encode())
+    # un fait observe suit le schema declare pour son nom (#41)
+    declare_fact_schema(FactSchema("windows.a.b", "fait factice", scalar=Nature.NUMBER))
     assert load_facts(chemin).value("windows.a.b") == 1
 
 
@@ -391,7 +402,10 @@ def test_json_schema_motif_des_noms() -> None:
 
 
 def test_fixtures_conformes_au_modele() -> None:
-    fichiers = sorted(FIXTURES.glob("*.json"))
+    # evenement_4624.json porte le contenu d'un evenement : refuse (#41,
+    # tests/unit/test_minimisation.py)
+    refusees = {"evenement_4624.json"}
+    fichiers = sorted(f for f in FIXTURES.glob("*.json") if f.name not in refusees)
     assert fichiers
     for chemin in fichiers:
         brut = json.loads(chemin.read_text(encoding="utf-8"))
