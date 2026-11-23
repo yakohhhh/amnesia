@@ -96,12 +96,12 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-socket==0.8.1",
     "pyyaml==6.0.3",
-    "ruff==0.17.4",
+    "ruff==0.17.5",
     # backend de build, meme version que build-constraint-dependencies : les
     # tests construisent le wheel hors ligne (tests/test_paquet.py)
     "setuptools==84.2.1",
     "types-jsonschema==4.26.0.20261006",
-    "types-pyyaml==6.0.12.20261111",
+    "types-pyyaml==6.0.12.20261113",
 ]
 # outils d'audit de la CI, hors groupe dev (installes a la demande)
 ci = [
